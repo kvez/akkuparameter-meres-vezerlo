@@ -174,7 +174,8 @@ class TestRunner:
         sample["elapsed_s"] = round(elapsed, 3)
         sample["test_name"] = self._config.test_name
         sample["step_name"] = step.label
-        sample["state"] = controller.state.value if hasattr(controller, "state") else None
+        state_obj = getattr(controller, "state", None)
+        sample["state"] = state_obj.value if state_obj is not None else None
 
         sample["battery_voltage_V"] = readings.get("battery_voltage_V")
         sample["battery_temperature_C"] = readings.get("battery_temperature_C")
@@ -199,9 +200,9 @@ class TestRunner:
         sample["dmm_temperature_valid"] = readings.get("battery_temperature_C") is not None
 
         if step.kind == StepKind.CHARGE:
-            sample["charge_current_A"] = i_psu
+            sample["charge_current_A"] = i_psu if i_psu is not None else 0.0
             sample["discharge_current_A"] = 0.0
-            sample["signed_current_A"] = i_psu
+            sample["signed_current_A"] = i_psu if i_psu is not None else 0.0
             sample["accumulated_charge_Ah"] = getattr(controller, "accumulated_charge_Ah", None)
             sample["accumulated_discharge_Ah"] = self._total_discharge_ah
             sample["integration_current_source"] = getattr(controller, "last_integration_source", None)
