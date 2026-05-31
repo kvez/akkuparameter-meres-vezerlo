@@ -1,0 +1,14 @@
+chemistry: AGM_VRLA
+manufacturer: FIAMM
+profile_source: "FIAMM Engineering Manual"
+cell_count: 12
+nominal_voltage_V: 24.0
+nominal_capacity_Ah: null
+charge_voltage_per_cell_V: 2.40
+float_voltage_per_cell_V: 2.27
+terminate_voltage_per_cell_V: 1.80
+max_charge_current_A: null
+taper_current_A: null
+temp_comp_mV_per_cell_per_degC: -2.5
+test_temperature_min_C: 15.0
+test_temperature_max_C: 30.0
