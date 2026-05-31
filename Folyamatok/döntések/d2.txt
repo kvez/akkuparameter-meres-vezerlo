@@ -1,0 +1,105 @@
+A raise NotImplementedError helyére ezt tedd az _check_taper_condition() metódusba:
+
+        if not self._dmm_valid:
+            return False
+
+        cv_tolerance_V = (
+            self._profile.cell_count
+            * self._config.cv_voltage_tolerance_V_per_cell
+        )
+
+        voltage_ok = self._u_batt >= (
+            self._profile.charge_voltage_pack_V - cv_tolerance_V
+        )
+        current_ok = self._i_charge <= self._profile.effective_taper_A
+
+        return voltage_ok and current_ok
+
+
+Magyarázat:
+
+Ez a v1.2.1 / R9 szerinti taper belépési feltételt valósítja meg.
+
+A taper feltétel akkor teljesül, ha:
+
+  1. A DMM mérés érvényes:
+       self._dmm_valid == True
+
+  2. Az akkufeszültség már elég közel van a CV célfeszültséghez:
+       self._u_batt >= charge_voltage_pack_V - cv_tolerance_V
+
+     ahol:
+       cv_tolerance_V =
+         cell_count * cv_voltage_tolerance_V_per_cell
+
+  3. A töltőáram már a taper áram alatt van:
+       self._i_charge <= effective_taper_A
+
+
+Példa 12V / 7Ah akkura:
+
+  cell_count = 6
+  charge_voltage_pack_V = 14.40 V
+  cv_voltage_tolerance_V_per_cell = 0.003 V/cella
+  effective_taper_A = 0.03 * 7Ah = 0.21 A
+
+  cv_tolerance_V = 6 * 0.003 = 0.018 V
+
+  taper feszültségi határ:
+    14.40 - 0.018 = 14.382 V
+
+Tehát:
+
+  U_batt = 14.39 V
+  I_charge = 0.20 A
+
+Ekkor:
+
+  14.39 >= 14.382  → igaz
+  0.20 <= 0.21     → igaz
+
+  _check_taper_condition() → True
+
+
+Ha például:
+
+  U_batt = 14.30 V
+
+akkor:
+
+  14.30 < 14.382 → hamis
+
+  _check_taper_condition() → False
+
+
+Ha például:
+
+  I_charge = 0.50 A
+
+akkor:
+
+  0.50 > 0.21 → hamis
+
+  _check_taper_condition() → False
+
+
+Fontos:
+
+Ez csak a taper belépési / tartási alapfeltétel.
+
+A TAPER_HOLD állapotban a timer reset feltételnél már a terv szerint a
+taper_current_tolerance_factor is szerepelhet:
+
+  I_charge > effective_taper_A * taper_current_tolerance_factor
+
+Például:
+
+  0.21 A * 1.05 = 0.2205 A
+
+Tehát TAPER_HOLD közben 0.25 A esetén a timer resetelődik.
+
+Az _check_taper_condition() belépési feltételéhez viszont a tiszta R9 definíció alapján:
+
+  I_charge <= effective_taper_A
+
+a jó.

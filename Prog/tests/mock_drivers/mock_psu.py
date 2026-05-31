@@ -13,7 +13,7 @@ class MockPSU:
     # Programozható állapot
     voltage_V: float = 0.0
     current_A: float = 0.0
-    output_on: bool = False
+    _output_is_on: bool = False          # NEM output_on — névütközés elkerülése
     combination_mode: str = "INDEPENDENT"
     raise_on_connect: bool = False
     raise_on_output_on: bool = False
@@ -70,15 +70,15 @@ class MockPSU:
         self.calls.append("output_on()")
         if self.raise_on_output_on:
             raise InstrumentTimeoutError("MockPSU: simulated output_on timeout")
-        self.output_on = True
+        self._output_is_on = True
 
     def output_off(self) -> None:
         self.calls.append("output_off()")
-        self.output_on = False
+        self._output_is_on = False
 
     def all_outputs_off(self) -> None:
         self.calls.append("all_outputs_off()")
-        self.output_on = False
+        self._output_is_on = False
 
     def measure_output_voltage(self) -> float:
         self.calls.append("measure_output_voltage()")

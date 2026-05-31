@@ -12,7 +12,7 @@ class MockLoad:
     voltage_V: float = 12.0
     current_A: float = 0.0
     power_W: float = 0.0
-    input_on: bool = False
+    _input_is_on: bool = False           # NEM input_on — névütközés elkerülése
     simulate_timeout: bool = False
     simulate_power_limit: bool = False
     power_limit_W: float = 60.0
@@ -58,17 +58,17 @@ class MockLoad:
     def set_current(self, i: float) -> None:
         self.calls.append(f"set_current({i})")
         self.current_A = i
-        if self.input_on:
+        if self._input_is_on:
             self.power_W = self.voltage_V * self.current_A
 
     def input_on(self) -> None:
         self.calls.append("input_on()")
-        self.input_on = True
+        self._input_is_on = True
         self.power_W = self.voltage_V * self.current_A
 
     def input_off(self) -> None:
         self.calls.append("input_off()")
-        self.input_on = False
+        self._input_is_on = False
         self.power_W = 0.0
 
     def measure_voltage(self) -> float:
@@ -79,7 +79,7 @@ class MockLoad:
 
     def measure_current(self) -> float:
         self.calls.append("measure_current()")
-        return self.current_A if self.input_on else 0.0
+        return self.current_A if self._input_is_on else 0.0
 
     def measure_power(self) -> float:
         self.calls.append("measure_power()")

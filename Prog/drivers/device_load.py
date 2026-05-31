@@ -21,7 +21,7 @@ class Keithley2380Load:
 
     _resource: object = field(default=None, init=False, repr=False)
     _connected: bool = field(default=False, init=False, repr=False)
-    _input_cmd: str = field(default="INPUT", init=False, repr=False)
+    _input_cmd: str = field(default="INP", init=False, repr=False)
     input_commanded_on: bool = field(default=False, init=False)
 
     # ------------------------------------------------------------------ #
@@ -40,19 +40,10 @@ class Keithley2380Load:
 
     def _detect_input_command(self) -> None:
         """
-        [ELLENŐRIZENDŐ] INPUT OFF vs INP OFF firmware-kompatibilitás.
-
-        Implementáld ide a self-check logikát:
-          - Próbálja az "INPUT OFF" parancsot
-          - Ha kivételt dob, vált "INP OFF"-ra
-          - self._input_cmd = "INPUT" vagy "INP"
-
-        Jelenleg: "INPUT" az alapértelmezett (spec 6.5 teszteléskor validálni).
+        [IGAZOLVA] Keithley 2380 firmware: INP OFF (nem INPUT OFF).
+        INP 0 és INP OFF egyaránt elfogadott a műszer által.
         """
-        # TODO: a fizikai 2380-on ellenőrizd melyik parancs működik
-        # Ha az "INPUT OFF" működik, hagyj mindent így.
-        # Ha nem, módosítsd: self._input_cmd = "INP"
-        self._input_cmd = "INPUT"
+        self._input_cmd = "INP"
 
     def disconnect(self) -> None:
         if self._resource is not None:

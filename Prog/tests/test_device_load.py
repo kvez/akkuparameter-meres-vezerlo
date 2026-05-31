@@ -13,7 +13,7 @@ def make_load() -> tuple[Keithley2380Load, MagicMock]:
     res.query.return_value = '+0,"No error"'
     load._resource = res
     load._connected = True
-    load._input_cmd = "INPUT"
+    load._input_cmd = "INP"
     return load, res
 
 
