@@ -1,0 +1,105 @@
+A raise NotImplementedError helyére ezt tedd a _build_measurement_limitations() metódusba:
+
+        return {
+            "current_measurement_source": "PSU_READBACK_OR_LOAD_READBACK",
+            "no_external_calibrated_shunt": True,
+            "no_galvanic_isolation_during_ocv": True,
+            "temperature_source": "surface_DMM_not_internal",
+            "capacity_result_quality": session_meta.get("capacity_result_quality", "OK"),
+            "fallback_integration_duration_s": session_meta.get(
+                "fallback_integration_duration_s", 0.0
+            ),
+            "fallback_samples_count": session_meta.get("fallback_samples_count", 0),
+            "communication_faults_count": session_meta.get(
+                "communication_faults_count", 0
+            ),
+            "emergency_stop_occurred": session_meta.get("emergency_stop_occurred", False),
+            "charge_Ah_accuracy_note": (
+                "PSU readback alapú; kis taper áramnál korlátozott pontosság."
+            ),
+            "discharge_Ah_accuracy_note": "Load readback alapú.",
+        }
+
+
+Teljes metódus így nézzen ki:
+
+    def _build_measurement_limitations(self, session_meta: dict) -> dict:
+        """
+        [N13] MEASUREMENT_LIMITATIONS szekció összeállítása.
+        """
+        return {
+            "current_measurement_source": "PSU_READBACK_OR_LOAD_READBACK",
+            "no_external_calibrated_shunt": True,
+            "no_galvanic_isolation_during_ocv": True,
+            "temperature_source": "surface_DMM_not_internal",
+            "capacity_result_quality": session_meta.get("capacity_result_quality", "OK"),
+            "fallback_integration_duration_s": session_meta.get(
+                "fallback_integration_duration_s", 0.0
+            ),
+            "fallback_samples_count": session_meta.get("fallback_samples_count", 0),
+            "communication_faults_count": session_meta.get(
+                "communication_faults_count", 0
+            ),
+            "emergency_stop_occurred": session_meta.get("emergency_stop_occurred", False),
+            "charge_Ah_accuracy_note": (
+                "PSU readback alapú; kis taper áramnál korlátozott pontosság."
+            ),
+            "discharge_Ah_accuracy_note": "Load readback alapú.",
+        }
+
+
+Megjegyzés:
+
+Ez pontosan a v1.2.1 / N13 szerinti MEASUREMENT_LIMITATIONS blokkot állítja elő.
+
+Konstans mezők:
+
+  current_measurement_source:
+    "PSU_READBACK_OR_LOAD_READBACK"
+
+  no_external_calibrated_shunt:
+    True
+
+  no_galvanic_isolation_during_ocv:
+    True
+
+  temperature_source:
+    "surface_DMM_not_internal"
+
+  charge_Ah_accuracy_note:
+    "PSU readback alapú; kis taper áramnál korlátozott pontosság."
+
+  discharge_Ah_accuracy_note:
+    "Load readback alapú."
+
+
+Session-függő mezők:
+
+  capacity_result_quality:
+    session_meta.get("capacity_result_quality", "OK")
+
+  fallback_integration_duration_s:
+    session_meta.get("fallback_integration_duration_s", 0.0)
+
+  fallback_samples_count:
+    session_meta.get("fallback_samples_count", 0)
+
+  communication_faults_count:
+    session_meta.get("communication_faults_count", 0)
+
+  emergency_stop_occurred:
+    session_meta.get("emergency_stop_occurred", False)
+
+
+Miért .get()?
+
+Azért, mert így a riportgenerálás akkor sem omlik össze, ha egy régebbi vagy hiányos
+session_meta dict-ből készül riport. A default értékek biztonságosak:
+
+  capacity_result_quality → "OK"
+  fallback idő / mintaszám → 0
+  communication fault → 0
+  emergency stop → False
+
+A feltöltött report_generator.py pontosan ezt a MEASUREMENT_LIMITATIONS szekciót várja
+a _build_measurement_limitations(session_meta) metódusban. :contentReference[oaicite:0]{index=0}
