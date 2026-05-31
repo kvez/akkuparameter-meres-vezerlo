@@ -98,6 +98,59 @@ Szabályok:
   - `git diff`
   - ha van staged változás: `git diff --cached`
 
+## Memory kezelés
+
+A Claude memória rendszere a munkameneteken átívelő kontextust tartja fenn.
+Helye: `~/.claude/projects/C--Users-Mate-Desktop-teszt-Akkuteszter/memory/`
+(Ez a mappa NEM git-követett — a projekt mappán kívül él, gépenként helyi.)
+
+### Mikor kell memóriát frissíteni
+
+Memóriát frissíts minden munkamenet végén, ha az alábbiak bármelyike teljesül:
+
+- **Modul elkészült** (pl. egy driver, egy állapotgép): frissítsd a `project_summary.md`-t
+- **Tervezési döntés született** (pl. float feszültség, kommunikációs protokoll, hibakezelési stratégia): `project_summary.md` + ha visszatérő döntés, a `Folyamatok/döntések/` fájlba is
+- **Hibás megközelítés derült ki**, amit korrigáltunk: `feedback_*.md` fájl
+- **Új forrás, referencia kerül a projektbe** (adatlap, manual, TI app note): `reference_*.md` fájl
+- **A projekt státusza változik** (pl. „kód üres" → „drivers kész", „tesztelés folyamatban"): `project_summary.md`
+
+### Mit tárolj hol
+
+| Mi | Hova |
+|----|------|
+| Projekt státusz, kész modulok, fő paraméterek | `memory/project_summary.md` |
+| Visszatérő munkafolyamat-szabályok, elkerülendő minták | `memory/feedback_*.md` |
+| Külső források, manualok elérési útja | `memory/reference_*.md` |
+| Formális döntések, tervezési indoklások | `Folyamatok/döntések/` (git-követett!) |
+| Elvégzett review-k | `Folyamatok/review-k/` (git-követett!) |
+| Mérési eredmények, kapacitásteszt logok | `Mérések/` (git-követett!) |
+
+### Memory és git szinkronizálása
+
+A memory NEM helyettesíti a git-et — kiegészíti. Szabályok:
+
+1. Ha commitolsz, gondold át: kell-e memóriát is frissíteni?
+2. Fontos döntést (`Folyamatok/döntések/`) commit elé rögzíts, hogy a git history értelmezhetővé váljon.
+3. A memória a Claude tájékozódási eszköze; a git és a `Folyamatok/` a projekt valódi forrása.
+4. Ha a memória és a kód ellentmond egymásnak, a kód és a git log az igazság — frissítsd a memóriát.
+
+### Jelenlegi memory fájlok
+
+- `MEMORY.md` — index (ezt olvasd először)
+- `project_summary.md` — projekt célok, modulok, státusz
+- `user_profile.md` — munkastílus, elvárások
+- `reference_agm_engineering_manual.md` — FIAMM AGM Manual kulcsadatai
+
+### Projekt státusz naprakészen tartása
+
+A `project_summary.md` **Státusz** szekcióját munkamenetek után frissítsd:
+- Mi készült el (modul neve, fájl elérési útja)
+- Mi van folyamatban
+- Mi a következő lépés
+- Nyitott kérdések, ismert hibák
+
+Ez az egyetlen hely ahol a Claude egy új munkamenetben gyorsan megérti, hol tart a projekt.
+
 ## Coding style
 
 - A meglévő kódstílust kövesd.
