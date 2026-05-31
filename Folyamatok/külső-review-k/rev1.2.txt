@@ -1,0 +1,755 @@
+REVIEW — implementacios_terv_v1.2.txt
+AKKU LABOR AUTOMATIZÁLÁS — AGM/VRLA BQ34Z110 GOLDEN IMAGE ELŐKÉSZÍTŐ SZOFTVER
+
+ÖSSZESÍTETT ÉRTÉKELÉS
+=====================
+
+A v1.2 terv jelentősen jobb, mint az előző változat.
+A korábbi fő hibák többsége javítva lett:
+
+- relés maradványok nagyrészt eltávolítva
+- C-ráta / C10 jelölés tisztázva
+- 12V / 7Ah példa javítva
+- 24V pack SERIES mód headroom logikája javítva
+- hőkompenzáció default OFF helyett MONITOR_ONLY lett
+- Ah integrálás forrása explicit
+- taper feltétel sokkal jobban definiált
+- mérési flagek, exception hierarchy és fault severity bekerült
+- implementációs sorrend jobb lett: előbb safety + profile + mock, utána driverek
+
+Általános döntés:
+  A terv már implementálható alapnak tekinthető.
+
+Viszont nem mondanám azt, hogy teljesen kockázatmentesen „kész”.
+Néhány pontot még érdemes v1.2.1-ben javítani, főleg a feszültséglimitek,
+hőkompenzáció, 2220 kombinált mód, DMM hőmérsékleti hiba és OCV mérés
+kezelése miatt.
+
+
+VÉGSŐ MINŐSÍTÉS
+===============
+
+Implementálhatóság:
+  JÓ
+
+Safety szemlélet:
+  JÓ, de pár ponton még szigorítható
+
+Mérési pontosság / metrológiai tisztaság:
+  KÖZEPES-JÓ
+
+Hardvervédelmi kockázat:
+  KÖZEPES
+
+Kritikus blokkoló hiba:
+  NINCS olyan súlyú, ami miatt a teljes tervet vissza kellene dobni.
+
+Ajánlás:
+  Lehet indulni FÁZIS 1 implementációval, de a lenti „v1.2.1 előtt javítandó”
+  pontokat még érdemes a tervbe bevezetni, mielőtt valós akkumulátorral tesztelsz.
+
+
+AMI JÓL JAVULT v1.1-HEZ KÉPEST
+==============================
+
+1. Relé / isolation kérdés
+--------------------------
+
+Jó döntés, hogy a relay_matrix.py és a relay stub is kikerült.
+A terv most már egyértelműen kimondja:
+
+  - nincs relé hardware
+  - nincs galvanikus leválasztás
+  - isolation_state = PSU_OUTPUT_OFF_ONLY
+  - riportban jelölni kell a galvanikus leválasztás hiányát
+
+Ez sokkal tisztább, mint a korábbi félig relés, félig nem relés állapot.
+
+
+2. C-ráta javítás
+-----------------
+
+A legfontosabb korábbi hiba javítva lett.
+
+Most már egyértelmű:
+
+  effective_max_charge_A = 0.25 * nominal_capacity_Ah
+  effective_taper_A      = 0.03 * nominal_capacity_Ah
+
+Ez helyes, és a terv külön hangsúlyozza, hogy ez nem azonos a C10_discharge_current_A
+érték 25%-ával.
+
+Ez nagyon fontos, mert a korábbi félreértés tízszeres töltőáramhibát okozhatott volna.
+
+
+3. 24V pack / SERIES mód
+------------------------
+
+Javítva lett a 24V pack headroom logika.
+
+Most már helyes az alapállítás:
+
+  24V pack esetén SERIES mód kell.
+  SERIES módban a 2220 összesített feszültséglimitje 60V.
+  Emiatt a 28.8–29.8V körüli töltési cél nem feszültség-headroom probléma.
+  A valódi korlát az 1.5A áramlimit.
+
+Ez jó irány.
+
+
+4. Hőkompenzáció default
+------------------------
+
+Jó, hogy az alapértelmezett mód OFF helyett MONITOR_ONLY lett.
+
+Ez biztonságosabb, mert a hőmérsékletet akkor is figyeli a rendszer, ha még nem
+módosítja automatikusan a célfeszültséget.
+
+
+5. Taper feltétel
+-----------------
+
+A taper belépés, reset és CHARGE_DONE feltétel már jól definiált.
+
+Ez implementációs szempontból fontos, mert így nem lesz homályos, mikor tekinthető
+teljesnek a töltés.
+
+
+6. Ah integrálás
+----------------
+
+Jó, hogy a terv definiálja:
+
+  CHARGE:    PSU_READBACK
+  DISCHARGE: LOAD_READBACK
+  RELAX:     ZERO
+  hiba esetén: SETPOINT_FALLBACK warninggal
+
+Ez tiszta, implementálható és jól logolható.
+
+
+7. Tesztelési terv
+------------------
+
+A v1.2 tesztterv már sokkal jobb.
+Különösen hasznosak:
+
+  - test_no_relay_in_state_machine
+  - test_effective_max_charge_7ah
+  - test_series_headroom_24v_series_mode
+  - test_csv_has_isolation_state_not_relay_state
+  - test_temp_compensation_enabled_correction
+  - test_safe_off_idempotent
+
+Ezek pont azokat a hibákat védik ki, amelyek a v1.1-ben még benne voltak.
+
+
+MARADÉK PROBLÉMÁK / JAVÍTANDÓ PONTOK
+====================================
+
+1. Hőkompenzált célfeszültség és batt_absolute_max_V ütközhet
+-------------------------------------------------------------
+
+Probléma:
+
+A tervben ez szerepel:
+
+  batt_absolute_max_V = cell_count × 2.425 V
+
+Ez 12V / 6 cella esetén:
+
+  6 × 2.425 = 14.55 V
+
+Ugyanakkor ENABLED hőkompenzáció esetén a terv megengedi:
+
+  corrected_V_per_cell = max(2.30, min(2.50, corrected_V_per_cell))
+
+Tehát elvben 2.50 V/cella is lehetséges.
+
+12V pack esetén:
+
+  6 × 2.50 = 15.00 V
+
+Ez magasabb, mint a batt_absolute_max_V = 14.55 V.
+
+Következmény:
+
+Ha alacsony hőmérsékleten a hőkompenzáció emelné a célfeszültséget, akkor a safety
+BATTERY_OVERVOLTAGE hibával leállíthatja a töltést, még akkor is, ha a hőkompenzált
+cél elvileg engedélyezett.
+
+Javaslat:
+
+Külön kell választani:
+
+  normal_charge_voltage_limit_V
+  compensated_charge_voltage_limit_V
+  absolute_safety_voltage_limit_V
+
+Példa:
+
+  charge_voltage_target_V:
+    adatlap + hőkompenzáció szerint
+
+  batt_charge_max_allowed_V:
+    target + kis tolerancia
+
+  batt_absolute_safety_max_V:
+    kemény safety határ, például cell_count × 2.50 V vagy gyártói maximum alapján
+
+Fontos:
+A 2.425 V/cella jelenleg inkább normál boost fölötti safety határnak tűnik,
+de nem kompatibilis a 2.50 V/cella hard clamp-pel.
+
+
+2. MONITOR_ONLY módban a hőmérséklet-DMM hibája túl enyhén kezelt
+-----------------------------------------------------------------
+
+Probléma:
+
+A terv szerint:
+
+  dmm_temperature_valid = False NEM triggeri az emergency_stop-ot,
+  ha temperature_compensation_mode = OFF vagy MONITOR_ONLY.
+
+Ez részben érthető, de MONITOR_ONLY módban a hőmérséklet már safety monitor szerepet kap.
+Ha a DMM2 kiesik, akkor a rendszer nem tudja felismerni az akkumulátor túlmelegedését.
+
+Kockázat:
+
+Töltés közben a hőmérsékletmérés elvesztése nem feltétlenül azonnali katasztrófa,
+de nem szabad egyszerűen gyenge warningként kezelni.
+
+Javaslat:
+
+Legyen külön konfiguráció:
+
+  temperature_required_for_charge: true/false
+
+Ajánlott default:
+
+  MONITOR_ONLY esetén:
+    dmm_temperature_valid = False → WARNING első körben
+    ha tartósan fennáll, például > 60 s:
+      FAULT_FATAL vagy CHARGE_PAUSED
+
+  ENABLED esetén:
+    dmm_temperature_valid = False → azonnali FAULT_FATAL
+
+  OFF esetén:
+    dmm_temperature_valid = False → csak INFO/WARNING
+
+Így a MONITOR_ONLY ténylegesen safety monitor marad.
+
+
+3. 2220 kombinált mód API még nem elég pontos
+---------------------------------------------
+
+Probléma:
+
+A driver API-ban továbbra is szerepel:
+
+  output_on(ch: str)
+  output_off(ch: str)
+  set_voltage(ch: str, v: float)
+  set_current(ch: str, i: float)
+
+De SERIES/PARALLEL módban nem teljesen mindegy, hogy CH1-et, CH2-t vagy kombinált
+kimenetet kezel a szoftver.
+
+A terv említi, hogy kombinált módban CH1-en olvasható a kombinált érték, de az API
+szintjén még nincs egyértelműen leválasztva:
+
+  - single channel mód
+  - combined output mód
+
+Kockázat:
+
+Implementációkor könnyen előfordulhat, hogy a kód CH2-t is állítja, vagy rossz
+csatornára küld beállítást kombinált módban.
+
+Javaslat:
+
+A 2220 driverben legyen magasabb szintű API:
+
+  set_output_voltage(v: float)
+  set_output_current(i: float)
+  output_on()
+  output_off()
+  measure_output_voltage()
+  measure_output_current()
+
+Ez a metódus belül dönti el, hogy:
+
+  INDEPENDENT módban CH1-et használ
+  PARALLEL módban kombinált CH1 kezelést használ
+  SERIES módban kombinált CH1 kezelést használ
+
+Az alacsony szintű select_channel(ch) maradhat privát vagy advanced metódusnak,
+de a controller réteg ne csatornákat állítson, hanem „akku töltő kimenetet”.
+
+
+4. 24V pack INDEPENDENT/PARALLEL tiltása legyen kemény precheck szabály
+------------------------------------------------------------------------
+
+A terv már kimondja, hogy 24V pack INDEPENDENT/PARALLEL módban nem megengedett.
+Ezt nagyon jó.
+
+Javaslat:
+
+Legyen explicit precheck:
+
+  if battery.cell_count >= 12 and psu_mode != SERIES:
+      ERROR: PSU_MODE_INCOMPATIBLE_WITH_PACK_VOLTAGE
+      start forbidden
+
+És ez ne warning legyen, hanem indítást tiltó error.
+
+Ugyanez fordítva is lehet hasznos:
+
+  if battery.cell_count == 6 and psu_mode == SERIES:
+      WARNING vagy ERROR, mert 12V packhoz SERIES mód általában indokolatlan
+      és nagyobb hibalehetőséget jelent
+
+Ezt a GUI-ban is érdemes egyértelműen jelezni.
+
+
+5. Schottky dióda típusa továbbra is hiányzik
+--------------------------------------------
+
+Probléma:
+
+A terv max_expected_series_drop értékekkel számol:
+
+  12V: 0.9 V
+  24V: 1.0 V
+
+De nincs konkrét diódatípus, áram, hőmérséklet, hűtés, reverse leakage adat.
+
+Kockázat:
+
+A soros dióda egyszerre érinti:
+
+  - töltési headroomot
+  - disszipációt
+  - relax / OCV szivárgást
+  - melegedést
+  - U_drop safety logikát
+
+Javaslat:
+
+A configban legyen:
+
+  series_diode:
+    type: "Schottky"
+    part_number: null
+    max_expected_drop_V_12V: 0.90
+    max_expected_drop_V_24V: 1.00
+    max_reverse_leakage_uA: null
+    thermal_note: ""
+    measured_drop_table: optional
+
+És a reportban:
+
+  diode_part_number
+  measured_u_drop_min/max/avg
+  measured_u_drop_at_max_current
+
+Ez később sokat segít.
+
+
+6. PSU leakage ellenőrzés „DMM current readback” megfogalmazása pontatlan
+-------------------------------------------------------------------------
+
+Probléma:
+
+A tervben szerepel:
+
+  PSU OFF után DMM current readback: ha I_psu > 5 mA → WARNING
+
+De a rendszerben a DMM1 feszültséget mér, DMM2 hőmérsékletet mér.
+Nincs külön DMM árammérésre.
+
+Valószínűleg itt PSU current readback vagy PSU measure_current értendő.
+
+Javaslat:
+
+Pontosítani:
+
+  PSU OFF után:
+    psu_readback_current_A = psu.measure_current()
+    ha abs(psu_readback_current_A) > 0.005 A:
+      WARNING: PSU_LEAKAGE_SUSPECTED
+
+De megjegyzés:
+Sok tápegység OFF állapotban nem feltétlenül ad értelmes current readbacket.
+Ezért ezt nem szabad erős bizonyítéknak tekinteni.
+
+Jobb megoldás:
+Relax alatt figyelni:
+
+  U_batt trend
+  dV/dt
+  váratlan feszültségemelkedés
+  PSU output state
+  manual disconnect flag
+
+
+7. OCV-SOC mérésnél a galvanikus leválasztás hiánya még mindig gyenge pont
+---------------------------------------------------------------------------
+
+A terv ezt már jelöli, ami jó.
+De a „FELTÉTELEZÉS: szivárgás elhanyagolható” még mindig kicsit erős állítás.
+
+Javaslat:
+
+A riportban inkább így szerepeljen:
+
+  ocv_isolation_method: PSU_OUTPUT_OFF_ONLY
+  galvanic_isolation: false
+  ocv_accuracy_limitation:
+    "Az OCV mérés nem teljes galvanikus leválasztás mellett történt.
+     A PSU OFF állapot és a Schottky fordított szivárgása befolyásolhatja
+     a hosszú relaxációs feszültséget."
+
+Ez szakmailag korrektebb.
+
+
+8. SETPOINT_FALLBACK integrálás veszélyes lehet
+-----------------------------------------------
+
+Probléma:
+
+A terv fallbackként engedi:
+
+  integration_current_A = setpoint
+  integration_current_source = SETPOINT_FALLBACK
+
+Ez praktikus, de hosszú ciklusnál hamis kapacitásértéket okozhat, ha a tényleges
+áram eltér a beállított értéktől.
+
+Javaslat:
+
+Legyen időkorlát:
+
+  SETPOINT_FALLBACK max idő: például 10–30 s
+
+Ha ennél tovább nincs érvényes readback:
+
+  integration_valid = false
+  FAULT vagy mérés megszakítása
+
+Riportban:
+  fallback_integration_duration_s
+  fallback_samples_count
+
+Ha fallback volt, a riportban a kapacitás eredményt jelölni kell:
+
+  capacity_result_quality = DEGRADED
+
+
+9. DMM feszültségugrás >2V mint invalid reading túl durva lehet
+---------------------------------------------------------------
+
+Probléma:
+
+A terv szerint irreális ugrás:
+
+  >2V egyetlen mintában → invalid
+
+12V akkunál ez jó lehet.
+24V akkunál is valószínűleg elég nagy.
+De kontakt hiba, mérőkábelhiba, pillanatnyi szakadás esetén a mérés akár 0V vagy
+floating értékre is ugorhat.
+
+Javaslat:
+
+Legyen relatív és abszolút ellenőrzés is:
+
+  max_voltage_jump_abs_V: 2.0
+  max_voltage_jump_rel_percent: például 10%
+
+És legyen külön:
+
+  open_sense_detected
+  dmm_overload_detected
+  nan_or_inf_detected
+
+Ha a DMM olvasás hibás, töltés közben azonnali stop helyes.
+
+
+10. Deep discharge / recovery mód nincs kidolgozva
+--------------------------------------------------
+
+A terv jó, mert normál CC/CV nem indul mélykisült akkura.
+Viszont említi, hogy recovery mód explicit engedéllyel lehetséges.
+
+Javaslat:
+
+MVP-ben inkább legyen:
+
+  recovery mode: NOT_IMPLEMENTED
+
+És ha mélykisült akku van:
+
+  ERROR vagy WARNING:
+    "Normál profil nem indítható. Recovery mód nincs implementálva."
+
+Ne legyen félkész recovery opció, mert ólomakku esetén ez kockázatos lehet.
+
+
+11. DMM NPLC100 timeout 30s jó, de a GUI emergency stop reakcióideje romolhat
+-----------------------------------------------------------------------------
+
+Probléma:
+
+Relax / OCV mérésnél NPLC100 és 30000ms timeout szerepel.
+Ha a worker éppen hosszú DMM READ? hívásban blokkol, akkor az emergency_stop_requested
+csak timeout után dolgozódik fel.
+
+Kockázat:
+
+Ha a GUI-ból EmStop-ot nyomsz, de a mérési worker DMM timeoutban áll, akkor a szoftveres
+safe_off késhet.
+
+Javaslat:
+
+Emergency stop gomb esetén legyen külön hardverközeli gyors safe_off lehetőség:
+
+A) egyszerűbb:
+  DMM hosszú mérések csak akkor fussanak, amikor PSU és Load már OFF állapotban van.
+  Töltés/kisütés közben ne legyen NPLC100 blokkoló mérés.
+
+B) jobb:
+  instrument_manager rendelkezzen külön emergency_safe_off metódussal,
+  amely megpróbálja a PSU/Load safe_off-ot akkor is, ha a DMM olvasás hibázik.
+
+C) legjobb:
+  DMM olvasás timeoutjai állapotfüggők:
+    charge/discharge: rövidebb timeout
+    relax/ocv: hosszabb timeout, mert nincs aktív energia-bevitel
+
+A terv részben már ebbe az irányba megy, de érdemes explicit kimondani.
+
+
+12. A „psu_output_on AND load_input_on” tiltás jó, de readback-megbízhatóság kérdéses
+------------------------------------------------------------------------------------
+
+Probléma:
+
+A safety a psu_output_on és load_input_on állapotokra támaszkodik.
+Ezek lehetnek:
+
+  - szoftveres állapotváltozók
+  - műszerből visszaolvasott állapotok
+  - utolsó ismert parancsok
+
+Nem mindegy.
+
+Javaslat:
+
+Legyen külön:
+
+  psu_output_commanded_on
+  psu_output_confirmed_on
+  load_input_commanded_on
+  load_input_confirmed_on
+
+Safety szempontból:
+  ha bármelyik bizonytalan, konzervatívan kell kezelni.
+
+Példa:
+
+  if psu_output_commanded_on and load_input_commanded_on:
+      FAULT
+
+  if psu_output_confirmed_unknown or load_input_confirmed_unknown:
+      WARNING vagy FAULT, állapottól függően
+
+
+13. Reportban a mérési bizonytalanság még gyenge
+------------------------------------------------
+
+A riport kötelező mezői jók, de hiányzik egy egyszerű quality / limitation blokk.
+
+Javaslat:
+
+Minden riport végén legyen:
+
+  MEASUREMENT_LIMITATIONS:
+    - current measurement source: PSU/Load readback
+    - no external calibrated shunt
+    - no galvanic isolation during OCV
+    - temperature measured on surface, not internal battery temperature
+    - capacity integration degraded: true/false
+    - fallback samples: N
+    - communication faults: N
+    - emergency stop occurred: true/false
+
+Ez később segít, hogy a mérés ne tűnjön pontosabbnak, mint amilyen.
+
+
+KISEBB JAVÍTÁSOK / STILISZTIKAI PONTOK
+======================================
+
+1. „Precharge feszültségellenőrzés” kifejezés
+---------------------------------------------
+
+A változáslistában szerepel:
+
+  Precharge feszültségellenőrzés
+
+De a terv többi része inkább PRECHECK akkufeszültség-tartományt ír.
+Érdemes egységesíteni:
+
+  PRECHECK voltage validation
+
+vagy magyarul:
+
+  Előellenőrzési akkufeszültség-validáció
+
+A „precharge” elektronikai környezetben mást is jelenthet.
+
+
+2. „csökkentett C-ráta” legyen explicit
+---------------------------------------
+
+A táblázatban szerepel:
+
+  PARALLEL+cs
+  SERIES+cs
+
+Ez fejlesztői tervben érthető, de érdemes teljesen kiírni:
+
+  PARALLEL + reduced charge current
+  SERIES + reduced charge current
+
+Vagy magyarul:
+
+  PARALLEL + csökkentett töltőáram
+
+
+3. max_charge_Ah_factor = 1.20
+------------------------------
+
+Ez jó kezdeti safety limit, de érdemes profile-függővé tenni.
+Különösen learning ciklusnál, öreg akkunál vagy recovery-jellegű helyzetben eltérhet.
+
+Javaslat:
+  default = 1.20
+  profile override engedélyezett
+
+
+4. „FIAMM FG/FGH” mellett legyen konkrét modellmező kötelező
+------------------------------------------------------------
+
+A BatteryProfile-ben van model mező, ez jó.
+Javasolt validáció:
+
+  model != ""
+
+Mert a riportban fontos lesz, hogy FG20721, FG21803 vagy más típus volt-e mérve.
+
+
+5. ambient_temperature_C mező
+-----------------------------
+
+A CSV tartalmaz ambient_temperature_C mezőt, de nincs leírva, honnan jön.
+Ha nincs külön környezeti hőmérő, akkor:
+
+  ambient_temperature_C = null
+
+Vagy:
+  DMM2 battery surface temperature only
+
+Ezt tisztázni kell, nehogy ugyanazt a felületi hőmérsékletet környezetiként is logolja.
+
+
+JAVASOLT v1.2.1 MÓDOSÍTÁSI LISTA
+================================
+
+Minimális módosítások implementáció előtt:
+
+1. Feszültséglimitek szétválasztása:
+   - charge target
+   - charge allowed max
+   - absolute safety max
+
+2. Hőmérséklet-DMM kiesés kezelése:
+   - MONITOR_ONLY módban tartós temp DMM hiba ne legyen csak gyenge warning
+   - ENABLED módban azonnali FAULT_FATAL
+
+3. 2220 driver magasabb szintű output API:
+   - set_output_voltage()
+   - set_output_current()
+   - output_on()
+   - output_off()
+   - ne a controller kezelje közvetlenül a CH1/CH2 logikát
+
+4. 24V pack + nem SERIES mód:
+   - kemény PRECHECK ERROR
+
+5. 12V pack + SERIES mód:
+   - legalább WARNING, esetleg ERROR
+
+6. Schottky dióda config bővítése:
+   - part_number
+   - max_reverse_leakage
+   - measured_drop logging
+
+7. PSU leakage ellenőrzés szövegének javítása:
+   - „DMM current readback” helyett „PSU current readback” vagy külön mérési módszer
+
+8. SETPOINT_FALLBACK integrálás időkorlátja:
+   - fallback max duration
+   - degraded result flag
+
+9. OCV riport figyelmeztetés erősítése:
+   - no galvanic isolation
+   - PSU output OFF only
+   - Schottky leakage not verified
+
+10. ambient_temperature_C forrásának tisztázása.
+
+
+IMPLEMENTÁCIÓS DÖNTÉS
+=====================
+
+A FÁZIS 1-et el lehet kezdeni:
+
+  - exceptions.py
+  - battery_profile.py
+  - safety.py
+  - mock_drivers
+  - config sablonok
+  - C-ráta egységtesztek
+  - PSU mode limit validáció
+
+Valós akkumulátorral töltést még NE indítanék addig, amíg:
+
+  - 2220 kombinált mód fizikai teszt nincs elvégezve
+  - DMM PT100 mérés nincs validálva
+  - hőmérséklet-DMM hiba kezelése nincs pontosítva
+  - feszültséglimitek nincsenek szétválasztva
+  - Schottky dióda típusa és legalább alap mért U_drop adatok nincsenek rögzítve
+
+
+RÖVID KONKLÚZIÓ
+===============
+
+A v1.2 terv már jó minőségű, implementálható terv.
+A v1.1-ben lévő fő koncepcionális hibák többsége javítva lett.
+
+Nem látok olyan hibát, ami miatt újra kellene tervezni az egészet.
+A fő architektúra jó.
+
+A még javítandó pontok inkább finomítások, de safety szempontból fontosak:
+
+  - hőkompenzáció vs abszolút max feszültség
+  - temperature DMM fault policy
+  - 2220 SERIES/PARALLEL API tisztítása
+  - OCV galvanikus leválasztás hiányának erősebb jelölése
+  - SETPOINT_FALLBACK integrálás korlátozása
+
+Ajánlott következő lépés:
+  v1.2.1 mini javítás ezekkel a pontokkal, majd FÁZIS 1 implementáció.

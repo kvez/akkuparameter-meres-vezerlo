@@ -1,0 +1,707 @@
+IMPLEMENTÁCIÓS TERV — PATCH
+AKKU LABOR AUTOMATIZÁLÁS — AGM/VRLA BQ34Z110 GOLDEN IMAGE ELŐKÉSZÍTŐ SZOFTVER
+Dátum: 2026-05-31
+Verzió: 1.2.1 (patch a v1.2-höz képest)
+Státusz: IMPLEMENTÁCIÓRA KÉSZ
+
+Alap: implementacios_terv_v1.2.txt
+Ez a dokumentum csak a v1.2-hez képest változott szakaszokat tartalmazza.
+Minden más szekció változatlan — olvasd a v1.2-t.
+
+Változások v1.2 → v1.2.1 (rev1.2.txt külső review + BY550 azonosítás alapján):
+  [N1 ] Hőkompenzáció hard clamp felső határa = batt_absolute_max_V / cell_count
+        (korábban: 2.50 V/cella — ellentmondott a 2.425 V/cella safety limitnek)
+  [N2 ] MONITOR_ONLY módban temp DMM hiba: escalation 60 s után FAULT_FATAL
+        ENABLED módban: azonnali FAULT_FATAL
+  [N3 ] PRECHECK: PSU mód kompatibilitás kemény szabályként (24V pack ≠ SERIES → ERROR)
+  [N4 ] 5.6 PSU szivárgás: „DMM current readback" → „PSU current readback" (terminológia)
+  [N5 ] SETPOINT_FALLBACK: max 30 s; túllépés → FAULT + capacity_result_quality: DEGRADED
+  [N6 ] Recovery mód: NOT_IMPLEMENTED explicit — mélykisült akkura nincs automatikus profil
+  [N7 ] 2220 driver: magasabb szintű mód-agnosztikus output API (set_output_voltage stb.)
+  [N8 ] DMM olvasás validáció: NaN / Inf / SCPI overload (9.9E37) check driver szinten
+  [N9 ] psu_output_on: commanded vs confirmed szétválasztás a safety checkben
+  [N10] NPLC100 emergency stop késlekedés dokumentálva; megoldás: NPLC100 csak OFF állapotban
+  [N11] Config: series_diode szekció — BY550 azonosítva, paraméterek frissítve
+        FONTOS: BY550 NEM Schottky dióda — szilícium egyenirányító (DO-201AD, 5A)
+        Minden korábbi „Schottky" hivatkozás a tervben BY550-re értendő.
+  [N12] OCV riport szöveg pontosítva (nem „elhanyagolható", hanem konkrét korlát-leírás)
+  [N13] Riport: MEASUREMENT_LIMITATIONS dedikált szekció
+  [N14] ambient_temperature_C forrása tisztázva (null ha nincs külön szenzor)
+  [N15] BatteryProfile: model != "" validáció
+
+
+================================================================================
+BY550 DIÓDA AZONOSÍTÁS — KÖVETKEZMÉNYEK [N11 kiegészítés]
+================================================================================
+
+A tervben korábban „Schottky dióda" szerepelt. A tényleges alkatrész: BY550.
+
+BY550 jellemzők (Philips/NXP DO-201AD):
+  Típus:       Szilícium egyenirányító (NEM Schottky)
+  IF(AV):      5 A
+  VF @IF=1.5A, Tj=25°C: ~0.80–0.90 V
+  VF @IF=3.0A, Tj=25°C: ~0.95–1.05 V
+  VF @IF=0.21A (taper): ~0.65–0.75 V
+  IR @Tj=25°C: tipikus ~10 µA  (<<< Schottky-nál sokkal kisebb)
+  Feszültség variáns: BY550-200 / -400 / -600 / -800 / -1000 (ismeretlen)
+
+Következmények a v1.2 tervhez képest:
+
+1. Típus javítás:
+   Minden „Schottky dióda" hivatkozás a tervben → „BY550 szilícium egyenirányító"
+   Érintett: 5.4 szekció, 5.6 szekció, 4.20 riport, v1.2 4.11 és 4.17 FIAMM config
+
+2. Forward voltage drop frissítés:
+   v1.2 értékek:
+     12V pack: max_expected_series_drop = 0.90 V  → PARALLEL 3A-nél elégtelen lehet
+     24V pack: max_expected_series_drop = 1.00 V  → SERIES 1.5A-nél jó
+
+   v1.2.1 frissített értékek (mód-függő):
+     INDEPENDENT (≤1.5A): max_expected_drop = 0.90 V  (BY550 VF @1.5A: ~0.85–0.90V)
+     PARALLEL    (≤3.0A): max_expected_drop = 1.10 V  (BY550 VF @3.0A: ~1.00–1.05V)
+     SERIES      (≤1.5A): max_expected_drop = 0.90 V  (BY550 VF @1.5A: ~0.85–0.90V)
+
+   Egységes safety threshold (SERIES_DROP_TOO_HIGH limit): 1.10 V
+   Ez minden módban helytálló és konzervatív.
+
+   U_psu_set_max frissítés:
+     12V INDEPENDENT/PARALLEL: 14.40 + 1.10 = 15.50 V  (volt: 15.30 V)
+     24V SERIES:               28.80 + 1.10 = 29.90 V  (volt: 29.80 V)
+     Mindkét érték messze a PSU limiteken belül — headroom nem változik lényegesen.
+
+3. OCV / relax szivárgás:
+   BY550 fordított szivárgás (~10 µA) sokkal kisebb, mint Schottky-é (100 µA – 1 mA).
+   Következmény: az OCV mérés pontossága JOBB, mint Schottky esetén lett volna.
+   A v1.2 5.6 szekció „NEM IGAZOLHATÓ" megjegyzése enyhíthető:
+     FELTÉTELEZÉS (adatlapon alapuló): BY550 ~10 µA fordított szivárgása 5h relax
+     után elhanyagolható OCV eltérést okoz (µV tartomány).
+   Ez NEM teljesen igazolható mérés nélkül, de erősebb alap mint ismeretlen Schottky.
+
+4. Dióda hőteljesítmény — ÚJ SAFETY CONCERN:
+   BY550 disszipációja: P_diode ≈ I_charge × VF
+     1.5 A × 0.90 V ≈ 1.35 W  (INDEPENDENT max)
+     1.75 A × 0.90 V ≈ 1.58 W (7Ah PARALLEL)
+     3.0 A × 1.00 V ≈ 3.00 W  (PARALLEL max)
+   DO-201AD axiális tokozásnál hűtőborda nélkül ez kritikus lehet 3A körül!
+   → Szoftveres DIODE_POWER_HIGH warning + kötelező fizikai ellenőrzés 3A előtt.
+
+5. Szétválasztott series drop threshold:
+   Egységes fault limit helyett (1.10V) kétszintű:
+     warning_series_drop_V: 1.05  → WARNING: SERIES_DROP_HIGH
+     fault_series_drop_V:   1.25  → FAULT_FATAL: SERIES_DROP_TOO_HIGH
+   Ez jobban illeszkedik a BY550 valós VF karakterisztikájához.
+
+6. Hőmérséklet-függés:
+   BY550 VF kissé csökken magasabb hőmérsékleten (~-2 mV/°C tipikusan).
+   A szabályozóhurok DMM-alapú → kompenzálja automatikusan.
+
+ELLENŐRIZENDŐ (fizikai tesztelés előtt):
+  - BY550 variáns feszültségosztálya (BY550-200 / -400 stb.)
+  - Valós U_drop mérés: 0.21A (taper), 1.5A (INDEPENDENT max), 3.0A (PARALLEL max)
+  - Dióda hőmérséklete 3A terhelésnél (tapintás vagy infra) — nem szabad túlmelegedni
+  - Eredmény rögzítendő: series_diode.measured_drop_table
+
+
+================================================================================
+VÁLTOZOTT SZAKASZOK
+================================================================================
+
+
+--------------------------------------------------------------------------------
+2.3 Konfigurációs fájlok — MÓDOSULT SOROK [N2, N5, N10, N11]
+--------------------------------------------------------------------------------
+(A teljes config struktúra a v1.2-ben található; az alábbi sorok hozzáadandók
+vagy felülírják a v1.2-beli megfelelőjüket.)
+
+safety:
+  max_charge_Ah_factor: 1.20
+  max_discharge_Ah_factor: 1.10
+  temperature_dmm_fault_timeout_s: 60     # [N2] MONITOR_ONLY: ennyi után FAULT_FATAL
+  fallback_max_duration_s: 30             # [N5] SETPOINT_FALLBACK időkorlát
+
+series_diode:                             # [N11] BY550 azonosítva
+  type: "Silicon rectifier"              # NEM Schottky — BY550 szilícium egyenirányító
+  part_number: "BY550"                   # Philips/NXP DO-201AD, 5A, szeries (200–1000V)
+  part_number_variant: null              # pl. "BY550-400" — feszültségosztály ismeretlen
+  max_expected_drop_V: 1.10             # egységes limit minden módhoz (≤3A esetén konzervatív)
+  max_expected_drop_V_independent: 0.90  # INDEPENDENT ≤1.5A: VF ~0.80–0.90V
+  max_expected_drop_V_parallel: 1.10    # PARALLEL ≤3A: VF ~0.95–1.05V → 1.10V konzervatív
+  max_expected_drop_V_series: 0.90      # SERIES ≤1.5A: VF ~0.80–0.90V
+  max_reverse_leakage_uA: 10            # BY550 @25°C tipikus: ~10 µA (adatlap)
+  thermal_note: "VF kissé csökken magasabb hőmérsékleten (szilícium jellemző)."
+  ocv_note: "Fordított szivárgás ~10 µA — OCV mérési hatás kisebb, mint Schottky esetén."
+
+(Az NPLC100 timeout a v1.2-ben helyes; kiegészítő dokumentáció: [N10])
+
+
+--------------------------------------------------------------------------------
+4.2 Állapotgép (töltés) — PRECHECK BŐVÍTÉS [N3, N6]
+--------------------------------------------------------------------------------
+PRECHECK állapot bővített ellenőrzési lista (a v1.2 feszültségtartomány check MELLÉ):
+
+  [N3] PSU mód kompatibilitás:
+    ha battery.cell_count >= 12 AND psu_mode != SERIES:
+        FAULT: PSU_MODE_INCOMPATIBLE_WITH_PACK_VOLTAGE
+        → indítás TILTOTT
+        → log: "24V+ pack csak SERIES módban tölthető"
+
+    ha battery.cell_count <= 6 AND psu_mode == SERIES:
+        WARNING: PSU_SERIES_MODE_UNUSUAL_FOR_12V_PACK
+        → GUI figyelmeztető dialógus, kezelő megerősítés szükséges
+        → indítás nem tiltott, de dokumentált figyelmeztetés
+
+  [N6] Recovery mód: NOT_IMPLEMENTED:
+    ha PRECHECK mélykisült akkut detektál (6.0V ≤ U_batt < 10.5V 12V packnál):
+        ERROR: DEEPLY_DISCHARGED_RECOVERY_NOT_IMPLEMENTED
+        → log: "Mélykisült akku detektálva. Normál CC/CV profil nem indítható.
+                Recovery mód nincs implementálva. Kézi beavatkozás szükséges."
+        → indítás TILTOTT (a korábbi „kezelői engedéllyel lehetséges" opció törölve)
+
+  [N9] PSU output állapot kezdeti konfirmálás:
+    PRECHECK induláskor: psu.measure_output_voltage() → ha eltér a várt 0V-tól:
+        WARNING: PSU_OUTPUT_ACTIVE_UNEXPECTEDLY
+        → all_outputs_off() kötelező a PRECHECK folytatása előtt
+
+
+--------------------------------------------------------------------------------
+4.6 Driver API — 2220 MAGASABB SZINTŰ OUTPUT API [N7, N8]
+--------------------------------------------------------------------------------
+A v1.2 alacsony szintű API megmarad (select_channel, set_voltage(ch), stb.)
+de privát / advanced szintűnek minősül.
+
+A controller réteg (charge_controller.py, discharge_controller.py) KIZÁRÓLAG
+az alábbi magasabb szintű metódusokat hívhatja:
+
+  Keithley2220PSU — mód-agnosztikus output API [N7]:
+    set_output_voltage(v: float) -> None
+      Belső logika:
+        INDEPENDENT módban: set_voltage("CH1", v)
+        PARALLEL módban:    set_voltage("CH1", v)   (kombinált CH1 vezérlés)
+        SERIES módban:      set_voltage("CH1", v)   (kombinált CH1 vezérlés)
+
+    set_output_current(i: float) -> None
+      Belső logika: ugyanaz — mód szerint CH1 (INDEPENDENT) vagy kombinált CH1
+
+    output_on() -> None
+      INDEPENDENT: output_on("CH1")  (CH2 érintetlen)
+      PARALLEL/SERIES: output_on("CH1")  (HW összekötés biztosítja CH2-t)
+      TILOS: output_on("CH2") hívása controller rétegből kombinált módban
+
+    output_off() -> None
+      all_outputs_off()  (minden módban)
+
+    measure_output_voltage() -> float
+      INDEPENDENT/PARALLEL/SERIES: measure_voltage("CH1")
+      (kombinált módban CH1 adja a kombinált feszültséget — prog.txt igazolja)
+
+    measure_output_current() -> float
+      INDEPENDENT/PARALLEL/SERIES: measure_current("CH1")
+
+  MEGJEGYZÉS: A alacsony szintű select_channel(ch), output_on(ch) metódusok
+  maradnak a driverben, de controller réteg NEM hívhatja őket. Csak driver-
+  belső inicializáláshoz, teszteléshez és mód-átállításhoz használatosak.
+
+Keysight34465ADMM — DMM olvasás validáció [N8]:
+  read_voltage() -> float:
+    Minden olvasás után kötelező validáció:
+      ha math.isnan(v) or math.isinf(v):
+          raise InstrumentInvalidReading("NaN or Inf in DMM voltage reading")
+      ha v > 999 or v < -999:       # SCPI overload: ±9.9E37 → float overflow gyanú
+          raise InstrumentInvalidReading("DMM voltage overload or out of range")
+      ha abs(v - last_valid_voltage) > max_voltage_jump_abs_V:
+          raise InstrumentInvalidReading(f"Voltage jump too large: {abs(v-last_valid_voltage):.3f}V")
+      last_valid_voltage = v
+      return v
+
+  Ugyanez a read_temperature()-nél:
+    ha math.isnan(t) or math.isinf(t): raise InstrumentInvalidReading(...)
+    ha t < -60 or t > 150: raise InstrumentInvalidReading("Temperature out of physical range")
+
+
+--------------------------------------------------------------------------------
+4.7 BatteryProfile dataclass — MODEL VALIDÁCIÓ [N15]
+--------------------------------------------------------------------------------
+Hozzáadandó validáció a ProfileValidationError logikájába:
+
+  ha not battery.model or battery.model.strip() == "":
+      raise ProfileValidationError("BatteryProfile.model mező kötelező "
+                                   "(pl. 'FG20721', 'FGH21803'). "
+                                   "A riportban azonosíthatónak kell lennie a tesztelt akkutípusnak.")
+
+  ha battery.nominal_capacity_Ah <= 0:
+      raise ProfileValidationError("nominal_capacity_Ah > 0 kötelező")
+
+  (A többi validáció változatlan a v1.2-ben.)
+
+
+--------------------------------------------------------------------------------
+4.8 Log formátum (CSV oszlopok) — MÓDOSULT SOROK [N9, N14]
+--------------------------------------------------------------------------------
+Módosult sorok (a teljes lista a v1.2-ben):
+
+  psu_output_on: KIEGÉSZÜL az alábbi kettővel [N9]:
+    psu_output_commanded_on,    ← utoljára kiadott parancs (bool)
+    psu_output_confirmed_on,    ← PSU readback alapján megerősített (bool)
+    load_input_commanded_on,
+    load_input_confirmed_on,
+
+  (A régi psu_output_on = psu_output_commanded_on-nak felel meg — visszafelé-
+   kompatibilis névnek megtartható, de a szétválasztás kötelező belső logikában.)
+
+  ambient_temperature_C: [N14]
+    Forrás: NINCS dedikált környezeti szenzor.
+    → Default: null
+    → Ha a kezelő manuálisan adja meg: session_meta.json-ban rögzített állandó érték
+    → TILOS: battery_temperature_C értékét ambient_temperature_C-ként logolni
+    → CSV-ben: null, ha nincs mérés
+
+
+--------------------------------------------------------------------------------
+4.9 Safety manager — BŐVÍTETT FAULT OSZTÁLYOZÁS [N2, N5, N9]
+--------------------------------------------------------------------------------
+Változott / hozzáadott safety feltételek:
+
+  [N9] Commanded vs confirmed eltérés:
+    ha psu_output_commanded_on AND NOT psu_output_confirmed_on > 5 s:
+        WARNING: PSU_OUTPUT_STATE_UNCERTAIN
+    ha load_input_commanded_on AND NOT load_input_confirmed_on > 5 s:
+        WARNING: LOAD_INPUT_STATE_UNCERTAIN
+
+    Safety CONCURRENT check [N9]:
+      if psu_output_commanded_on AND load_input_commanded_on:
+          FAULT_FATAL: CONCURRENT_PSU_LOAD_ON  (parancs szint ellenőrzés)
+      if psu_output_confirmed_on AND load_input_confirmed_on:
+          FAULT_FATAL: CONCURRENT_PSU_LOAD_ON  (readback szint megerősítés)
+
+  [N5] Integráció fallback időkorlát:
+    ha integration_current_source == SETPOINT_FALLBACK AND
+       fallback_elapsed_s > fallback_max_duration_s:
+        FAULT: INTEGRATION_FALLBACK_TOO_LONG
+        integration_valid = false
+        capacity_result_quality = DEGRADED
+
+  [N2] Hőmérséklet-DMM hiba escalation (részletezés):
+    MONITOR_ONLY módban:
+      ha dmm_temperature_valid == False:
+          0 → temperature_dmm_fault_timeout_s: WARNING: TEMPERATURE_DMM_LOST
+          > temperature_dmm_fault_timeout_s:   FAULT_FATAL: TEMPERATURE_MONITOR_LOST_CRITICAL
+    ENABLED módban:
+      ha dmm_temperature_valid == False: azonnali FAULT_FATAL: TEMPERATURE_MONITOR_LOST_CRITICAL
+    OFF módban:
+      ha dmm_temperature_valid == False: INFO: TEMPERATURE_DMM_UNAVAILABLE
+
+  Bővített FAULT_FATAL lista [N2, N5]:
+    DMM_FEEDBACK_LOST
+    BATTERY_OVERVOLTAGE
+    CONCURRENT_PSU_LOAD_ON
+    LOAD_POWER_LIMIT
+    PSU_COMM_LOST (töltés közben)
+    MAX_CHARGE_TIME_REACHED
+    MAX_CHARGE_AH_REACHED
+    TEMPERATURE_MONITOR_LOST_CRITICAL      ← [N2] ÚJ
+    INTEGRATION_FALLBACK_TOO_LONG          ← [N5] ÚJ
+    PSU_MODE_INCOMPATIBLE_WITH_PACK_VOLTAGE ← [N3] ÚJ (PRECHECK-ből)
+
+  [BY550] Dióda hőteljesítmény és series drop kétszintű ellenőrzés:
+    diode_power_W = abs(charge_current_A) * u_drop_V  (számított mező)
+    ha diode_power_W > 2.0:                 → WARNING: DIODE_POWER_HIGH
+    ha diode_power_W > 3.0:                 → WARNING: DIODE_POWER_TOO_HIGH (kezelői fig.)
+
+    Series drop kétszintű (v1.2 egyszintű FAULT helyett):
+    ha u_drop_V > warning_series_drop_V (1.05):  → WARNING: SERIES_DROP_HIGH
+    ha u_drop_V > fault_series_drop_V   (1.25):  → FAULT_FATAL: SERIES_DROP_TOO_HIGH
+
+  Config kiegészítés [BY550]:
+    series_diode:
+      warning_series_drop_V: 1.05
+      fault_series_drop_V:   1.25
+      diode_power_warning_W: 2.0
+      diode_power_fault_W:   3.0
+
+  Bővített WARNING lista:
+    TEMPERATURE_OUT_OF_RANGE_WARNING
+    TEMPERATURE_DMM_LOST                   ← [N2] ÚJ (0–60s)
+    HEADROOM_APPROACHING
+    REDUCED_CHARGE_CURRENT_DUE_TO_PSU_LIMIT
+    PSU_LEAKAGE_SUSPECTED
+    INTEGRATION_FALLBACK_TO_SETPOINT
+    PSU_OUTPUT_STATE_UNCERTAIN             ← [N9] ÚJ
+    LOAD_INPUT_STATE_UNCERTAIN             ← [N9] ÚJ
+    PSU_SERIES_MODE_UNUSUAL_FOR_12V_PACK   ← [N3] ÚJ
+    SERIES_DROP_HIGH                       ← [BY550] ÚJ (1.05V felett)
+    DIODE_POWER_HIGH                       ← [BY550] ÚJ (>2W)
+    DIODE_POWER_TOO_HIGH                   ← [BY550] ÚJ (>3W, kezelői figyelmeztetés)
+
+
+--------------------------------------------------------------------------------
+4.10 Hőkompenzáció módok — HARD CLAMP JAVÍTÁS [N1]
+--------------------------------------------------------------------------------
+ENABLED mód (a v1.2 szöveg HELYETT):
+
+  ENABLED:
+    - Automatikus célfeszültség-korrekció minden mintában:
+        corrected_V_per_cell = charge_voltage_per_cell_V
+                               + (temp_comp_mV_per_cell_per_degC / 1000) * (T - 20.0)
+
+        batt_absolute_max_V_per_cell = batt_absolute_max_V / cell_count  # = 2.425 V [N1]
+
+        corrected_V_per_cell = max(
+            2.30,
+            min(batt_absolute_max_V_per_cell, corrected_V_per_cell)  # [N1] volt: 2.50
+        )
+        U_batt_target = corrected_V_per_cell * cell_count
+
+  MEGJEGYZÉS [N1]: A v1.2-ben a hard clamp felső határa 2.50 V/cella volt, ami
+  ellentmondott a batt_absolute_max_V = 2.425 V/cella safety limitnek.
+  Alacsony hőmérsékleten (@0°C: 2.45 V/cella; @-10°C: 2.4775 V/cella) a
+  kompenzált cél meghaladta volna a safety limitet → hamis BATTERY_OVERVOLTAGE.
+  A javítás: a clamp felső határa = batt_absolute_max_V / cell_count.
+
+  Következmény: ENABLED módban extrém hidegben (< ~0°C) a kompenzált cél
+  természetesen a safety limit közelében lesz, de soha nem lépheti át.
+  Ez szándékos és biztonságos viselkedés.
+
+  Szimmetria-ellenőrzés (egységteszt):
+    batt_absolute_max_V_per_cell >= effective max corrected_V_per_cell
+    → soha nem okoz hamis BATTERY_OVERVOLTAGE normál töltésnél
+
+
+--------------------------------------------------------------------------------
+4.13 Ah integrálás forrása — FALLBACK IDŐKORLÁT [N5]
+--------------------------------------------------------------------------------
+A v1.2 4.13 szekció KIEGÉSZÜL:
+
+  Fallback (readback érvénytelen):
+    integration_current_A = setpoint
+    CSV: integration_current_source = "SETPOINT_FALLBACK"
+    WARNING: INTEGRATION_FALLBACK_TO_SETPOINT
+    fallback_elapsed_s számláló indul
+
+    Ha fallback_elapsed_s > fallback_max_duration_s (default: 30 s):
+        FAULT: INTEGRATION_FALLBACK_TOO_LONG
+        integration_valid = false
+        capacity_result_quality = DEGRADED
+
+  Új CSV oszlopok (a v1.2 4.8 után hozzáadandók):
+    fallback_integration_duration_s,    ← összesített fallback idő ebben a session-ben
+    capacity_result_quality,            ← "OK" vagy "DEGRADED"
+    diode_power_W,                      ← [BY550] abs(charge_current_A) * u_drop_V
+
+  Riportban:
+    fallback_integration_duration_s: <értéke>
+    fallback_samples_count: <db>
+    capacity_result_quality: OK / DEGRADED
+
+
+--------------------------------------------------------------------------------
+4.16 Mérési érvényességi flagek — BŐVÍTÉS [N2, N9]
+--------------------------------------------------------------------------------
+A v1.2 4.16 szekció MEGJEGYZÉS sora módosul:
+
+  MEGJEGYZÉS [N2] (v1.2 helyett):
+    dmm_temperature_valid = False:
+      - MONITOR_ONLY módban: 0–temperature_dmm_fault_timeout_s között: WARNING
+                             > temperature_dmm_fault_timeout_s: FAULT_FATAL
+      - ENABLED módban: azonnali FAULT_FATAL
+      - OFF módban: INFO
+    dmm_voltage_valid = False töltés/kisütés közben: → FAULT_FATAL: DMM_FEEDBACK_LOST
+
+  Hozzáadandó flagek [N9]:
+    psu_output_commanded_on:    bool — utoljára kiadott PSU ON/OFF parancs
+    psu_output_confirmed_on:    bool — PSU readback alapján megerősített állapot
+    load_input_commanded_on:    bool
+    load_input_confirmed_on:    bool
+
+
+--------------------------------------------------------------------------------
+4.19 GUI réteg — NPLC100 EMERGENCY STOP LATENCY [N10]
+--------------------------------------------------------------------------------
+A v1.2 4.19 szekció KIEGÉSZÜL:
+
+  NPLC100 mérés és emergency stop késlekedés [N10]:
+    NPLC100 (30s timeout) CSAK AKKOR FUTHAT, ha:
+      - psu_output_on = False ÉS load_input_on = False
+    Azaz: NPLC100 kizárólag RELAX és OCV fázisban engedélyezett.
+    CHARGE_CC, CHARGE_CV_DMM_CONTROL, TAPER_HOLD, DISCHARGE_CC_RUN
+      állapotokban csak NPLC ≤ 10 alkalmazható (max timeout ~0.5 s).
+
+    Következmény: relax/OCV alatt az emergency_stop_requested feldolgozása
+      max 30s késést szenvedhet (DMM READ? blokkolja a workert).
+      Valódi veszély nincs (PSU és Load már OFF relax/OCV-ban), de:
+        - GUI-ban jelezni: "Leállítás folyamatban — OCV/relax mérés befejezéséig..."
+        - A RELAX/OCV fázisban az emergency_stop nem okoz hardware veszélyt.
+
+    Implementációs megjegyzés:
+      A worker loop ellenőrizze emergency_stop_requested az NPLC100 READ? hívás
+      ELŐTT és UTÁN — de a hívás közben nem tud megszakítani. Ez elfogadható, mert
+      energia-bevitel nem folyik relax/OCV fázisban.
+
+
+--------------------------------------------------------------------------------
+4.20 Riport kötelező mezők — BŐVÍTÉS [N12, N13]
+--------------------------------------------------------------------------------
+A v1.2 4.20 szekció HELYETT (teljes, bővített verzió):
+
+Minden riportban kötelező:
+  psu_mode: INDEPENDENT / PARALLEL / SERIES
+  psu_mode_max_voltage_V
+  psu_mode_max_current_A
+  no_galvanic_isolation: true
+  isolation_method: PSU_OUTPUT_OFF_ONLY
+  series_diode_installed: true
+  series_diode_type: "Silicon rectifier"               ← [N11] NEM Schottky
+  series_diode_part_number: "BY550"                    ← [N11] azonosítva
+  series_diode_variant: null                           ← feszültségosztály ismeretlen
+  galvanic_isolation_note: "Nincs mechanikus relé. PSU output OFF szintű leválasztás."
+  requested_charge_current_A
+  effective_charge_current_A
+  charge_current_limited_by_psu: true/false
+  temperature_compensation_mode
+  dmm_voltage_nplc
+  dmm_temperature_nplc
+  wiring_validation_timestamp
+  validated_psu_mode
+  interrupted_session_recovered: true/false
+  SOC_estimate_method: coulomb_counting_from_measured_capacity
+
+  ocv_isolation_method: PSU_OUTPUT_OFF_ONLY           ← [N12]
+  ocv_accuracy_limitation: |                          ← [N12, N11 BY550 alapján]
+    "Az OCV mérés PSU_OUTPUT_OFF_ONLY leválasztás mellett történt (nincs galvanikus
+     leválasztás). A BY550 szilícium egyenirányító fordított szivárgása ~10 µA @25°C
+     (adatlap alapján), ami 5h relaxáció után becsülhetően elhanyagolható OCV eltérést okoz.
+     Ez FELTÉTELEZÉS — adatlapon alapuló, de nem mért a konkrét példányon."
+
+  ambient_temperature_C_source: null / "manual_entry"  ← [N14]
+  battery_temperature_source: "DMM2_surface_PT100"
+
+  series_diode_drop_min_V: <min mért>                 ← [BY550]
+  series_diode_drop_avg_V: <átlag>
+  series_diode_drop_max_V: <max>
+  diode_power_avg_W: <átlag>
+  diode_power_max_W: <max>
+
+  MEASUREMENT_LIMITATIONS:                             ← [N13] ÚJ SZEKCIÓ
+    current_measurement_source: PSU_READBACK_OR_LOAD_READBACK
+    no_external_calibrated_shunt: true
+    no_galvanic_isolation_during_ocv: true
+    temperature_source: surface_DMM_not_internal
+    capacity_result_quality: OK / DEGRADED
+    fallback_integration_duration_s: <értéke>
+    fallback_samples_count: <db>
+    communication_faults_count: <db>
+    emergency_stop_occurred: true/false
+    charge_Ah_accuracy_note: "PSU readback alapú; kis taper áramnál korlátozott pontosság"
+    discharge_Ah_accuracy_note: "Load readback alapú"
+
+
+--------------------------------------------------------------------------------
+5.6 Nincs relé — galvanikus leválasztás hiánya — TERMINOLÓGIA JAVÍTÁS [N4]
+--------------------------------------------------------------------------------
+A v1.2 5.6 szekció PSU leakage sora HELYETT:
+
+  MITIGÁCIÓ (módosított):
+    - isolation_state = PSU_OUTPUT_OFF_ONLY (minden logban és riportban jelölve)
+    - PSU OFF után szivárgás ellenőrzés [N4]:
+        I_check = psu.measure_output_current()   ← PSU readback, NEM DMM
+        ha abs(I_check) > 0.005 A: WARNING: PSU_LEAKAGE_SUSPECTED
+        MEGJEGYZÉS: PSU OFF állapotban a current readback megbízhatósága gyártóspecifikus.
+          Nem erős bizonyíték — inkább relax alatti dV/dt figyelés a jobb módszer.
+    - Relax alatt dV/dt trend figyelt: ha U_batt emelkedik → WARNING: UNEXPECTED_VOLTAGE_RISE_IN_RELAX
+    - Riportban kötelező: galvanic_isolation: false
+    - OCV mérésnél: ocv_accuracy_limitation kitöltve (lásd 4.20) [N12]
+    NEM IGAZOLHATÓ: Schottky szivárgás konkrét értéke típus- és hőmérsékletfüggő.
+
+
+================================================================================
+6. TESZTELÉSI TERV KIEGÉSZÍTÉS (v1.2.1 ÚJ TESZTEK)
+================================================================================
+
+A v1.2 tesztterve érvényes és kötelező. Az alábbiak hozzáadandók:
+
+6.1 C-ráta és feszültséglimit konzisztencia [N1]
+  test_compensation_clamp_never_exceeds_safety_limit():
+    BatteryProfile(cell_count=6, charge_voltage_per_cell_V=2.40)
+    batt_absolute_max_V = 6 * 2.425 = 14.55 V
+    ENABLED mód, T = -10°C:
+      corrected = 2.40 + (-0.0025) * (-10-20) = 2.4775 V/cella → clamped → 2.425 V/cella
+      U_target = 6 * 2.425 = 14.55 V ≤ 14.55 V  ✓  (nem > batt_absolute_max_V)
+    ENABLED mód, T = 0°C:
+      corrected = 2.45 V → clamped → 2.425 V/cella  ✓
+    ENABLED mód, T = 20°C:
+      corrected = 2.40 V (nincs clamp szükséges)  ✓
+    ENABLED mód, T = 35°C:
+      corrected = 2.375 V (csökkentett, 2.30 V min fölött)  ✓
+
+  test_no_false_overvoltage_during_compensation():
+    ENABLED mód, normál töltés közben T = 0°C
+    MockDMM.voltage = 14.40 V (teljesen töltött, belül a limiten)
+    Ellenőrzés: BATTERY_OVERVOLTAGE NEM triggerel
+
+6.2 Hőmérséklet-DMM hiba escalation [N2]
+  test_monitor_only_temp_dmm_lost_warning():
+    MONITOR_ONLY mód, dmm_temperature_valid = False, elapsed = 30s
+    Ellenőrzés: WARNING: TEMPERATURE_DMM_LOST; mérés folytatódik
+
+  test_monitor_only_temp_dmm_lost_fault_after_timeout():
+    MONITOR_ONLY mód, dmm_temperature_valid = False, elapsed = 70s
+    Ellenőrzés: FAULT_FATAL: TEMPERATURE_MONITOR_LOST_CRITICAL; emergency_stop
+
+  test_enabled_temp_dmm_lost_immediate_fault():
+    ENABLED mód, dmm_temperature_valid = False, elapsed = 0s
+    Ellenőrzés: azonnali FAULT_FATAL: TEMPERATURE_MONITOR_LOST_CRITICAL
+
+  test_off_temp_dmm_lost_info_only():
+    OFF mód, dmm_temperature_valid = False
+    Ellenőrzés: INFO: TEMPERATURE_DMM_UNAVAILABLE; NINCS FAULT
+
+6.3 PRECHECK PSU mód kompatibilitás [N3]
+  test_precheck_24v_pack_not_series():
+    BatteryProfile(cell_count=12), psu_mode=INDEPENDENT
+    Ellenőrzés: FAULT: PSU_MODE_INCOMPATIBLE_WITH_PACK_VOLTAGE; indítás tiltott
+
+  test_precheck_24v_pack_series_ok():
+    BatteryProfile(cell_count=12), psu_mode=SERIES
+    Ellenőrzés: PRECHECK folytatódik (nincs mód-alapú FAULT)
+
+  test_precheck_12v_pack_series_warning():
+    BatteryProfile(cell_count=6), psu_mode=SERIES
+    Ellenőrzés: WARNING: PSU_SERIES_MODE_UNUSUAL_FOR_12V_PACK; indítás nem tiltott
+
+6.4 Recovery mód NOT_IMPLEMENTED [N6]
+  test_precheck_deep_discharge_blocked():
+    MockDMM.voltage = 9.0 V (12V pack, mélykisült tartomány)
+    Ellenőrzés: ERROR: DEEPLY_DISCHARGED_RECOVERY_NOT_IMPLEMENTED; indítás tiltott
+    Ellenőrzés: nincs automatikus recovery kísérlet
+
+6.5 2220 magasabb szintű API [N7]
+  test_set_output_voltage_independent_mode():
+    psu.set_mode_independent()
+    psu.set_output_voltage(14.0)
+    Ellenőrzés: alacsony szintű set_voltage("CH1", 14.0) hívódik
+    Ellenőrzés: set_voltage("CH2", ...) NEM hívódik
+
+  test_set_output_voltage_series_mode():
+    psu.set_mode_series()
+    psu.set_output_voltage(28.0)
+    Ellenőrzés: set_voltage("CH1", 28.0) hívódik — kombinált kimenet
+
+  test_controller_does_not_call_select_channel():
+    charge_controller futtatása MockPSU-val
+    Ellenőrzés: select_channel() NEM hívódik a controller által
+
+6.6 DMM NaN / Overload validáció [N8]
+  test_dmm_nan_raises_invalid_reading():
+    MockDMM.read_voltage() → math.nan
+    Ellenőrzés: InstrumentInvalidReading kivétel
+
+  test_dmm_overload_raises_invalid_reading():
+    MockDMM.read_voltage() → 9.9e37
+    Ellenőrzés: InstrumentInvalidReading kivétel
+
+  test_dmm_voltage_jump_raises_invalid_reading():
+    last_valid = 12.5 V; next = 9.0 V (ugrás = 3.5 V > 2.0 V küszöb)
+    Ellenőrzés: InstrumentInvalidReading kivétel
+
+6.7 SETPOINT_FALLBACK időkorlát [N5]
+  test_fallback_within_limit():
+    fallback_elapsed_s = 25s (< 30s)
+    Ellenőrzés: WARNING: INTEGRATION_FALLBACK_TO_SETPOINT; mérés folytatódik
+
+  test_fallback_exceeds_limit():
+    fallback_elapsed_s = 35s (> 30s)
+    Ellenőrzés: FAULT: INTEGRATION_FALLBACK_TOO_LONG
+    Ellenőrzés: integration_valid = false
+    Ellenőrzés: capacity_result_quality = DEGRADED a riportban
+
+6.8 BatteryProfile model validáció [N15]
+  test_empty_model_raises_validation_error():
+    BatteryProfile(model="")
+    Ellenőrzés: ProfileValidationError
+
+  test_none_model_raises_validation_error():
+    BatteryProfile(model=None)
+    Ellenőrzés: ProfileValidationError
+
+6.9 Commanded vs confirmed state [N9]
+  test_concurrent_check_on_commanded_state():
+    psu_output_commanded_on = True; load_input_commanded_on = True
+    Ellenőrzés: FAULT_FATAL: CONCURRENT_PSU_LOAD_ON (commanded szint)
+
+  test_state_uncertain_warning():
+    psu_output_commanded_on = True; psu_output_confirmed_on = False; elapsed > 5s
+    Ellenőrzés: WARNING: PSU_OUTPUT_STATE_UNCERTAIN
+
+6.10 Riport MEASUREMENT_LIMITATIONS [N13]
+  test_report_has_measurement_limitations_block():
+    Teszt befejezése után report_generator.generate()
+    Ellenőrzés: riport tartalmaz MEASUREMENT_LIMITATIONS szekciót
+    Ellenőrzés: no_galvanic_isolation_during_ocv: true
+    Ellenőrzés: temperature_source: "DMM2_surface_PT100"
+
+6.11 ambient_temperature_C [N14]
+  test_ambient_temperature_null_by_default():
+    CSV-ben ambient_temperature_C == null (ha nincs kézi adat)
+    Ellenőrzés: battery_temperature_C ≠ ambient_temperature_C
+
+
+================================================================================
+7. IMPLEMENTÁCIÓS FÁZISSORREND — VÁLTOZATLAN (v1.2-ből)
+================================================================================
+
+A v1.2 implementációs sorrend (FÁZIS 1–7) érvényes.
+
+FÁZIS 1-ben a v1.2.1 változások miatt a következő fájlok bővülnek:
+  - Prog/src/exceptions.py: TEMPERATURE_MONITOR_LOST_CRITICAL,
+                            INTEGRATION_FALLBACK_TOO_LONG,
+                            PSU_MODE_INCOMPATIBLE_WITH_PACK_VOLTAGE hozzáadva
+  - Prog/src/battery_profile.py: model validáció [N15]
+  - Prog/src/safety.py: [N2] temp DMM escalation, [N5] fallback timeout, [N9] commanded/confirmed
+  - Prog/config/default_config.yaml: [N2] temperature_dmm_fault_timeout_s,
+                                     [N5] fallback_max_duration_s, [N11] series_diode
+
+FÁZIS 2-ben:
+  - Prog/drivers/device_psu.py: [N7] magasabb szintű API, [N9] output state tracking
+  - Prog/drivers/device_dmm.py: [N8] NaN/Inf/Overload validáció
+
+FÁZIS 3-ban:
+  - Prog/src/charge_controller.py: [N3] PSU mód precheck, [N6] recovery NOT_IMPLEMENTED,
+                                   [N10] NPLC100 fázis-korlát
+
+FÁZIS 4-ben:
+  - Prog/src/logger.py: [N9] commanded/confirmed CSV oszlopok, [N14] ambient forrás
+  - Prog/src/report_generator.py: [N12] OCV szöveg, [N13] MEASUREMENT_LIMITATIONS
+
+
+================================================================================
+JÓVÁHAGYÁSI PONT
+================================================================================
+
+Ez a dokumentum (v1.2.1) IMPLEMENTÁCIÓRA KÉSZ állapotban van.
+
+Lezárt v1.2.1 döntések:
+  [OK] Hőkompenzáció clamp max = batt_absolute_max_V / cell_count (= 2.425 V/cella) [N1]
+  [OK] MONITOR_ONLY temp DMM hiba: 60s timeout → FAULT_FATAL [N2]
+  [OK] 24V pack SERIES-re kényszerítve PRECHECK-ben (kemény ERROR) [N3]
+  [OK] 12V pack SERIES módban: WARNING, nem tiltott [N3]
+  [OK] PSU leakage: PSU readback, nem DMM [N4]
+  [OK] SETPOINT_FALLBACK max 30s; utána FAULT + DEGRADED flag [N5]
+  [OK] Recovery mód: NOT_IMPLEMENTED explicit; mélykisültből automatikus töltés tiltott [N6]
+  [OK] 2220 driver: mód-agnosztikus output API a controller réteg számára [N7]
+  [OK] DMM olvasás: NaN / Inf / overload → InstrumentInvalidReading [N8]
+  [OK] commanded vs confirmed state szétválasztva [N9]
+  [OK] NPLC100 csak PSU+Load OFF állapotban (relax/OCV) [N10]
+  [OK] series_diode: BY550 szilícium egyenirányító (NEM Schottky); part_number rögzítve [N11]
+       VF értékek mód-függőre frissítve; max_expected_drop = 1.10V (egységes limit)
+       Fordított szivárgás ~10 µA → OCV pontosság jobb volt a Schottky feltételezésnél
+  [OK] OCV riport: „elhanyagolható" → konkrét korlát-leírás [N12]
+  [OK] Riport: MEASUREMENT_LIMITATIONS dedikált szekció [N13]
+  [OK] ambient_temperature_C: null alapértelmezés, nem DMM2 értéke [N14]
+  [OK] BatteryProfile.model: "" → ProfileValidationError [N15]
+
+Nyitott pontok:
+  - VISA resource stringek (local_config.yaml)
+  - 34465A FRTD fizikai teszt
+  - 2380 INPUT ON vs INP ON firmware check
+  - 2220 OUTP OFF vs OUTP:ENAB OFF check
+  - series_diode.part_number_variant (BY550-200 / -400 / stb. — azonosítandó)
+  - series_diode valós U_drop mérés: 0.21A, 1.5A, 3.0A terhelésen (FÁZIS 5 előtt)
