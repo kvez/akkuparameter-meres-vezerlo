@@ -1,0 +1,1140 @@
+DMM-ALAPÚ DIÓDAESÉS-KOMPENZÁLT AKKUTÖLTÉS
+Szoftverfejlesztési specifikáció labor automatizáláshoz
+
+Verzió: 1.0
+Cél: Olyan akkumulátortöltési folyamat megvalósítása, ahol a tápegység fő kimeneti
+ágában soros védődióda / ideális dióda van, a tápegység remote sense pontja a dióda
+előtti oldalon marad, az akku valódi kapocsfeszültségét pedig egy külső DMM méri.
+A szoftver a DMM-mérés alapján lassan korrigálja a tápegység beállított feszültségét.
+
+Alkalmazási példa:
+- Tápegység: Keithley 2220-30-1 vagy hasonló labor tápegység
+- DMM: Keysight 34465A LAN-on
+- Akkumulátor: AGM / VRLA 12 V vagy 24 V
+- Fő cél: BQ34Z110 learning / golden image előkészítő töltési ciklusok, kapacitásteszt,
+  OCV-SOC teszt, laboros akku-karakterizálás
+
+Fontos megkötés:
+Ez a dokumentum nem BQ-kommunikációs specifikáció.
+A BQ IC-vel a szoftver nem kommunikál.
+Ez kizárólag a tápegység + DMM + védődióda + relé alapú töltésvezérlésről szól.
+
+
+1. ALAPELV
+==========
+
+A soros dióda célja:
+- az akku ne tudjon visszatáplálni a tápegységbe,
+- OVP / crowbar / output OFF / hiba esetén csökkenjen a tápegység károsodásának kockázata.
+
+Alap kapcsolás:
+
+    PSU FORCE+ ---- biztosíték ---- dióda / ideális dióda ---- relé ---- Akku+
+    PSU FORCE- ------------------------------------------------ relé ---- Akku-
+
+    PSU SENSE+ ---- a dióda ELŐTT, a PSU FORCE+ oldalon
+    PSU SENSE- ---- a PSU FORCE- oldalon
+
+    DMM HI ------------------------------------------------------------- Akku+
+    DMM LO ------------------------------------------------------------- Akku-
+
+A tápegység saját szabályozása:
+- a dióda előtti pontot szabályozza.
+
+A DMM:
+- a dióda utáni, valódi akkukapocs-feszültséget méri.
+
+A szoftver:
+- a DMM-mel mért akkuoldali feszültség alapján módosítja a PSU beállított feszültségét,
+- ezzel kompenzálja a dióda, kábel, relékontakt és egyéb soros elemek feszültségesését.
+
+Képlet:
+
+    U_batt = U_psu_output - U_series_drop
+
+ahol:
+
+    U_series_drop = U_diode + U_cable + U_relay + egyéb soros esések
+
+A szoftver célja:
+
+    U_batt_DMM ≈ U_batt_target
+
+Ehhez a szoftver lassan állítja:
+
+    U_psu_set ≈ U_batt_target + U_series_drop
+
+
+2. MIÉRT NEM A REMOTE SENSE KOMPENZÁLJA A DIÓDÁT?
+=================================================
+
+Elméletileg a remote sense-t az akku kapcsára lehetne kötni, és akkor a tápegység
+hardveresen kompenzálná a diódaesést.
+
+Akkumulátoros, védődiódás kapcsolásnál ez kockázatos lehet:
+
+1. Az akku külső energiaforrás.
+2. A dióda vagy relé miatt a tápegység FORCE kimenete és az akkuoldal szétválhat.
+3. Ha a sense az akkun marad, miközben a főág bontva van, akkor a sense bemenet
+   olyan feszültséget láthat, amit a tápegység kimenete nem.
+4. OVP, output OFF, crowbar vagy hibás reléállapot esetén a sense bemenet nem kívánt
+   visszatáplálási vagy szabályozási állapotba kerülhet.
+5. Sok tápegységnél a sense-output közötti megengedett eltérés korlátozott.
+
+Ezért a biztonságosabb laboros kompromisszum:
+
+    - A PSU sense maradjon a dióda előtti oldalon.
+    - A DMM mérje az akkut.
+    - A szoftver kompenzálja a diódaesést.
+    - Hiba esetén a szoftver azonnal kapcsolja le a töltést.
+
+
+3. HARDVERES BEKÖTÉS
+====================
+
+3.1 Javasolt bekötés soros diódával
+-----------------------------------
+
+    PSU FORCE+ ---- F1 ---- D1 ---- K1 ---- Akku+
+    PSU FORCE- -------------------- K2 ---- Akku-
+
+    PSU SENSE+ ---- PSU FORCE+ oldal, D1 előtt
+    PSU SENSE- ---- PSU FORCE- oldal
+
+    DMM HI ------------------------------- Akku+
+    DMM LO ------------------------------- Akku-
+
+Jelölések:
+- F1: biztosíték vagy áramkorlátozó védőelem
+- D1: Schottky dióda, teljesítménydióda vagy ideális dióda modul
+- K1/K2: relé vagy kontaktor a töltőág leválasztásához
+- DMM: független akkufeszültség-mérő
+
+Megjegyzés:
+K2, azaz a negatív ág bontása nem minden esetben kötelező, de laborbiztonság és
+teljes galvanikus leválasztás szempontjából előnyös lehet.
+
+
+3.2 Ideális dióda használata
+----------------------------
+
+Schottky helyett előnyösebb lehet ideális dióda MOSFET-es megoldás.
+
+Előnyök:
+- sokkal kisebb feszültségesés,
+- kisebb melegedés,
+- nagyobb headroom 24 V-os akkuknál,
+- pontosabb töltési szabályozás,
+- kisebb kompenzációs tartomány.
+
+Hátrány:
+- bonyolultabb áramkör,
+- saját hibamódjai vannak,
+- ellenőrizni kell a fordított áram elleni viselkedést.
+
+
+3.3 DMM bekötés
+---------------
+
+A DMM mindig az akkumulátor kapcsait mérje:
+
+    DMM HI -> Akku+
+    DMM LO -> Akku-
+
+Nem a tápegység kimenetét kell fő mérésnek tekinteni.
+
+A DMM bemenet lehet:
+- 100 V DC tartományban 12 V / 24 V akkuhoz,
+- NPLC 1 vagy 10 töltés közben,
+- NPLC 10 vagy 100 pontos OCV / relax méréshez.
+
+
+3.4 Sense vezeték
+-----------------
+
+A PSU sense vezetéket a gyártói védelmi logikához közelítve a dióda előtti oldalra kell kötni:
+
+    PSU SENSE+ -> PSU FORCE+ oldal, D1 előtt
+    PSU SENSE- -> PSU FORCE- oldal
+
+A sense vezetéket nem használjuk az akkuoldali diódaesés közvetlen hardveres kompenzálására.
+
+Opcionális védelem:
+- kis soros ellenállás a sense vezetékbe, például 100 ohm ... 1 kohm,
+- mechanikailag stabil, fix kötés,
+- ne legyen hosszú, zajos, laza vezeték.
+
+
+4. SZOFTVERES SZABÁLYOZÁSI CÉL
+==============================
+
+A program töltés közben három fő értéket kezeljen:
+
+1. U_batt_target
+   - cél akkuoldali feszültség
+   - például 12 V AGM-nél 14,40 V
+   - például 24 V AGM-nél 28,80 V
+
+2. U_batt_DMM
+   - DMM által mért tényleges akkufeszültség
+
+3. U_psu_set
+   - tápegység beállított kimeneti feszültsége
+
+A szabályozás célja:
+
+    U_batt_DMM -> U_batt_target
+
+A tápegység nem közvetlenül az U_batt_target értékre van állítva, hanem annyival magasabbra,
+amennyit a soros elemek igényelnek.
+
+Példa:
+
+    U_batt_target = 14,400 V
+    Dióda + kábel + relé esés = 0,350 V
+    U_psu_set körülbelül = 14,750 V
+
+A tényleges U_psu_set értéket nem fixen számoljuk, hanem DMM-visszacsatolással keressük meg.
+
+
+5. SZABÁLYOZÁSI FILOZÓFIA
+=========================
+
+Nem gyors PID szabályozó kell.
+
+Akkutöltéshez lassú, biztonságos, korlátozott lépéses szabályozás ajánlott.
+
+Ajánlott tulajdonságok:
+- lassú frissítés,
+- kis lépések,
+- holtsáv,
+- kemény felső feszültséglimit,
+- DMM hiba esetén azonnali leállítás,
+- túlfeszültség esetén azonnali leállítás,
+- túl nagy dióda/kábel esés esetén leállítás.
+
+Indok:
+- az akku lassú rendszer,
+- a DMM mérés nem valós idejű gyors szabályozásra való,
+- a diódaesés áram- és hőmérsékletfüggő,
+- gyors szabályozás zajra vagy tranziensre reagálna.
+
+
+6. AJÁNLOTT PARAMÉTEREK
+=======================
+
+6.1 Általános szabályozási paraméterek
+--------------------------------------
+
+    dmm_sample_interval_s        = 1 ... 5 s
+    control_update_period_s      = 5 ... 10 s
+    voltage_deadband_V           = 0,005 ... 0,020 V
+    max_voltage_step_V           = 0,005 ... 0,020 V / update
+    taper_hold_time_s            = 60 ... 120 s
+    DMM_NPLC_charge              = 1 vagy 10
+    DMM_NPLC_relax               = 10 vagy 100
+
+
+6.2 12 V AGM példa
+------------------
+
+    cell_count                   = 6
+    U_batt_target                = 14,400 V
+    U_batt_absolute_max          = 14,550 V
+    U_psu_set_max                = 15,300 V
+    max_expected_series_drop     = 0,900 V
+    voltage_deadband             = 0,010 V
+    max_voltage_step             = 0,010 V
+    control_update_period        = 5 s
+
+Taper:
+    C/50 ... C/100
+
+Példa 7 Ah akku:
+    C/50  = 140 mA
+    C/100 = 70 mA
+
+
+6.3 24 V AGM példa
+------------------
+
+    cell_count                   = 12
+    U_batt_target                = 28,800 V
+    U_batt_absolute_max          = 29,100 V
+    U_psu_set_max                = 30,000 V
+    max_expected_series_drop     = 1,000 V
+    voltage_deadband             = 0,010 ... 0,020 V
+    max_voltage_step             = 0,005 ... 0,010 V
+    control_update_period        = 5 ... 10 s
+
+24 V-os akkunál a headroom kritikus.
+
+Ha:
+    U_batt_target = 28,800 V
+    U_series_drop = 0,500 V
+
+akkor:
+    U_psu_set ≈ 29,300 V
+
+Ez még jó lehet.
+
+Ha:
+    U_batt_target = 29,400 V
+    U_series_drop = 0,500 V
+
+akkor:
+    U_psu_set ≈ 29,900 V
+
+Ez már nagyon közel van egy 30 V-os tápegység határához.
+
+Headroom figyelmeztetés:
+    ha U_psu_set > 29,80 V és U_batt_DMM még nem érte el a célt:
+        HEADROOM_WARNING
+
+
+7. TÖLTÉSI ÁLLAPOTGÉP
+=====================
+
+7.1 Állapotok
+-------------
+
+Állapotlista:
+
+    INIT
+    PRECHECK
+    CONNECT_RELAY
+    PSU_PRESET
+    CHARGE_RAMP
+    CHARGE_CC
+    CHARGE_CV_DMM_CONTROL
+    TAPER_HOLD
+    CHARGE_DONE
+    RELAX
+    FAULT
+    SAFE_OFF
+
+
+7.2 INIT
+--------
+
+Feladat:
+- konfiguráció betöltése,
+- műszerek inicializálása,
+- log fájl megnyitása.
+
+Műveletek:
+- PSU output OFF
+- Load input OFF
+- relé nyitva
+- DMM kapcsolat ellenőrzés
+- PSU kapcsolat ellenőrzés
+
+
+7.3 PRECHECK
+------------
+
+Ellenőrizendő:
+- DMM olvasás érvényes,
+- U_batt_DMM reális tartományban van,
+- akku polaritás helyes,
+- relé nyitott állapotban van,
+- PSU output OFF,
+- elektronikus terhelés OFF,
+- hőmérséklet rendben, ha van hőmérés.
+
+Példa feltételek:
+
+    ha U_batt_DMM < min_expected_batt_V:
+        FAULT: BATTERY_UNDERVOLTAGE_OR_NOT_CONNECTED
+
+    ha U_batt_DMM > max_expected_batt_V:
+        FAULT: BATTERY_OVERVOLTAGE_OR_WRONG_PACK
+
+    ha DMM timeout:
+        FAULT: DMM_NOT_AVAILABLE
+
+
+7.4 PSU_PRESET
+--------------
+
+Cél:
+A tápegység ne nagy feszültségről induljon, amikor a relé zár.
+
+Kezdő PSU set javaslat:
+
+    U_psu_set_start = min(U_batt_DMM + 0,100 ... 0,200 V,
+                          U_batt_target + 0,200 V)
+
+Áramlimit:
+
+    I_charge_limit = megadott töltőáram
+
+Például:
+    7 Ah AGM, 0,1C -> 0,7 A
+    7 Ah AGM, 0,2C -> 1,4 A
+
+Műveletek:
+- PSU output OFF
+- PSU voltage set = U_psu_set_start
+- PSU current set = I_charge_limit
+
+
+7.5 CONNECT_RELAY
+-----------------
+
+Műveletek:
+- töltőrelé zárása
+- rövid várakozás, például 0,5 ... 2 s
+- DMM újramérés
+- ha hirtelen nagy feszültségváltozás vagy polaritási hiba van: FAULT
+
+Megjegyzés:
+Alternatív sorrend:
+- relé zárása PSU OFF állapotban,
+- majd PSU ON.
+Ez általában biztonságosabb, mint magas feszültségű PSU-val relét zárni.
+
+
+7.6 CHARGE_RAMP
+---------------
+
+Cél:
+A PSU_set lassú emelése a DMM-alapú szabályozási tartományig.
+
+Folyamat:
+- PSU output ON
+- U_psu_set lassan emelhető
+- figyelni kell:
+  - U_batt_DMM
+  - I_charge
+  - U_psu_readback
+  - U_drop
+
+Ha az akku alacsonyabb feszültségen van, a tápegység áramlimitben fog dolgozni.
+Ez a CC szakasz.
+
+
+7.7 CHARGE_CC
+-------------
+
+CC szakasz:
+- a töltőáram közel az áramlimit,
+- az akku feszültsége emelkedik,
+- a DMM-kompenzáció nem agresszíven szabályoz, csak biztosítja, hogy a PSU_set elég magas legyen
+  a későbbi CV cél eléréséhez.
+
+Feltételek:
+- ha U_batt_DMM < U_batt_target - cv_entry_margin:
+    marad CC/ramp jellegű szakasz
+
+Javasolt:
+    cv_entry_margin = 0,050 ... 0,100 V
+
+Ha:
+    U_batt_DMM >= U_batt_target - cv_entry_margin
+
+akkor:
+    állapot -> CHARGE_CV_DMM_CONTROL
+
+
+7.8 CHARGE_CV_DMM_CONTROL
+-------------------------
+
+Ez a fő DMM-alapú diódaesés-kompenzáló szakasz.
+
+Minden control_update_period_s időben:
+
+    error = U_batt_target - U_batt_DMM
+
+    ha abs(error) <= voltage_deadband:
+        nincs változtatás
+
+    ha error > voltage_deadband:
+        step = min(error, max_voltage_step)
+        U_psu_set = U_psu_set + step
+
+    ha error < -voltage_deadband:
+        step = min(abs(error), max_voltage_step)
+        U_psu_set = U_psu_set - step
+
+Majd korlátozás:
+
+    U_psu_set = min(U_psu_set, U_psu_set_max)
+    U_psu_set = min(U_psu_set, U_batt_target + max_expected_series_drop)
+
+Ha U_psu_set eléri a maximumot, és U_batt_DMM még mindig target alatt van:
+
+    WARNING vagy FAULT: PSU_HEADROOM_LIMIT
+
+A program ne próbáljon a táp fizikai maximuma fölé menni.
+
+
+7.9 TAPER_HOLD
+--------------
+
+Töltés kész feltétel:
+
+    U_batt_DMM >= U_batt_target - taper_voltage_window
+    ÉS
+    I_charge <= I_taper
+    legalább taper_hold_time_s ideig
+
+Javasolt:
+
+    taper_voltage_window = 0,010 ... 0,020 V
+    taper_hold_time_s = 60 ... 120 s
+
+Ha bármelyik feltétel megszűnik:
+- taper_timer nullázódik vagy csökken,
+- vissza CHARGE_CV_DMM_CONTROL állapotba.
+
+Ha taper_timer eléri a limitet:
+- CHARGE_DONE
+
+
+7.10 CHARGE_DONE
+----------------
+
+Műveletek:
+1. PSU output OFF.
+2. Rövid várakozás, például 1 ... 5 s.
+3. Relé bontása.
+4. DMM tovább méri az akkut.
+5. Log: CHARGE_DONE.
+6. Következő állapot:
+   - RELAX, ha learning / karakterizálás része,
+   - DONE, ha csak töltés volt.
+
+
+7.11 RELAX
+----------
+
+Relax alatt:
+- PSU OFF,
+- töltőrelé bontva,
+- load OFF,
+- DMM az akkun marad,
+- DMM logolás hosszabb periódussal.
+
+Javaslat:
+- töltés utáni relax: minimum 2 h BQ learninghez,
+- karakterizáláshoz: 5 h is lehet,
+- DMM NPLC: 10 vagy 100.
+
+
+8. BIZTONSÁGI FELTÉTELEK
+========================
+
+8.1 DMM feedback elvesztése
+---------------------------
+
+Mivel a DMM a külső szabályozási referencia, DMM nélkül tilos tovább tölteni.
+
+Feltétel:
+
+    ha DMM timeout
+    vagy DMM reading invalid
+    vagy DMM reading NaN
+    vagy DMM reading irreális ugrást mutat:
+
+        PSU OFF
+        relé bont
+        FAULT: DMM_FEEDBACK_LOST
+
+
+8.2 Akkufeszültség túllépés
+---------------------------
+
+Elsődleges védelem:
+
+    ha U_batt_DMM > U_batt_absolute_max:
+
+        PSU OFF
+        relé bont
+        FAULT: BATTERY_OVERVOLTAGE
+
+Ez a legfontosabb védelmi feltétel.
+
+
+8.3 PSU set maximum
+-------------------
+
+    ha U_psu_set > U_psu_set_max:
+
+        U_psu_set = U_psu_set_max
+        WARNING: PSU_SET_LIMIT_REACHED
+
+Ha ezután U_batt_DMM nem éri el a célt:
+
+        FAULT vagy WARNING: HEADROOM_LIMIT_REACHED
+
+
+8.4 Soros esés figyelése
+------------------------
+
+Számítás:
+
+    U_drop = U_psu_readback - U_batt_DMM
+
+Ez tartalmazhatja:
+- diódaesést,
+- kábelveszteséget,
+- relékontakt-veszteséget,
+- csatlakozási hibát.
+
+Ha:
+
+    U_drop > max_allowed_series_drop
+
+akkor:
+
+    PSU OFF
+    relé bont
+    FAULT: SERIES_DROP_TOO_HIGH
+
+Javasolt határok:
+
+Schottky diódás rendszer:
+    12 V: 0,8 ... 1,0 V
+    24 V: 0,8 ... 1,2 V
+
+Ideális diódás rendszer:
+    0,1 ... 0,2 V
+
+Relés direkt rendszer:
+    0,05 ... 0,1 V
+
+
+8.5 Negatív vagy irreális drop
+------------------------------
+
+Ha:
+
+    U_psu_readback - U_batt_DMM < -0,050 V
+
+akkor gyanús:
+- rossz mérési pont,
+- DMM bekötési hiba,
+- PSU readback hiba,
+- relé/dióda megkerülés,
+- földhurok vagy bekötési eltérés.
+
+Esemény:
+
+    WARNING vagy FAULT: NEGATIVE_SERIES_DROP
+
+
+8.6 Túl nagy töltőáram
+----------------------
+
+Ha:
+
+    I_charge > I_charge_limit + tolerance
+
+akkor:
+
+    PSU OFF
+    relé bont
+    FAULT: CHARGE_CURRENT_TOO_HIGH
+
+Javasolt tolerance:
+    2 ... 5%
+
+
+8.7 Töltési idő maximum
+-----------------------
+
+Ha:
+
+    elapsed_charge_time > max_charge_time
+
+akkor:
+
+    PSU OFF
+    relé bont
+    FAULT vagy STOP: MAX_CHARGE_TIME_REACHED
+
+
+8.8 Betöltött Ah maximum
+------------------------
+
+Ha:
+
+    charged_Ah > nominal_capacity_Ah * max_charge_Ah_factor
+
+akkor:
+
+    PSU OFF
+    relé bont
+    FAULT vagy STOP: MAX_CHARGE_AH_REACHED
+
+Javasolt:
+    max_charge_Ah_factor = 1,15 ... 1,30
+
+
+8.9 Hőmérséklet
+---------------
+
+Ha van hőmérés:
+
+    ha T_batt > T_max:
+        PSU OFF
+        relé bont
+        FAULT: BATTERY_TEMPERATURE_HIGH
+
+AGM learning / karakterizálás célhoz:
+    ideális: 20 ... 25 °C
+    elfogadható: 15 ... 30 °C
+    35 °C felett töltés megszakítása javasolt
+
+
+9. LOGOLANDÓ ADATOK
+===================
+
+Minden mintában:
+
+    timestamp
+    elapsed_s
+    state
+    U_batt_DMM
+    U_psu_set
+    U_psu_readback
+    I_psu_readback
+    P_psu_readback
+    U_drop = U_psu_readback - U_batt_DMM
+    U_batt_target
+    regulation_error = U_batt_target - U_batt_DMM
+    compensation_step
+    I_charge_limit
+    I_taper
+    taper_timer_s
+    charged_Ah
+    charged_Wh
+    relay_state
+    psu_output_state
+    dmm_valid
+    fault_flags
+    warning_flags
+    temperature_batt_C
+    temperature_ambient_C
+
+Eseménylog külön:
+
+    TEST_START
+    PRECHECK_OK
+    RELAY_CLOSED
+    PSU_ON
+    CHARGE_RAMP_START
+    CV_CONTROL_START
+    TAPER_START
+    TAPER_RESET
+    CHARGE_DONE
+    PSU_OFF
+    RELAY_OPENED
+    FAULT
+    EMERGENCY_STOP
+
+
+10. AH / WH INTEGRÁLÁS
+======================
+
+Töltés alatt:
+
+    delta_Ah = I_charge_A * dt_s / 3600
+    delta_Wh = U_batt_DMM * I_charge_A * dt_s / 3600
+
+Ahol:
+- I_charge_A lehet PSU readback,
+- pontosabb rendszerben külső shuntből mért áram,
+- U_batt_DMM az akkuoldali feszültség.
+
+Összegzés:
+
+    charged_Ah += delta_Ah
+    charged_Wh += delta_Wh
+
+
+11. PSZEUDOKÓD
+==============
+
+11.1 Fő töltési ciklus
+----------------------
+
+function charge_with_dmm_compensation(config):
+
+    state = INIT
+    connect_instruments()
+    safe_all_off()
+
+    state = PRECHECK
+    U_batt = dmm.read_voltage()
+    validate_battery_voltage(U_batt)
+
+    psu.output_off()
+    load.input_off()
+    relay.open()
+
+    state = PSU_PRESET
+    U_psu_set = min(U_batt + config.start_margin_V,
+                    config.target_batt_V + config.start_target_margin_V)
+
+    U_psu_set = clamp(U_psu_set,
+                      config.psu_set_min_V,
+                      config.psu_set_max_V)
+
+    psu.set_voltage(U_psu_set)
+    psu.set_current(config.charge_current_A)
+
+    state = CONNECT_RELAY
+    relay.close()
+    wait(config.relay_settle_s)
+
+    state = CHARGE_RAMP
+    psu.output_on()
+
+    taper_timer = 0
+    charged_Ah = 0
+    charged_Wh = 0
+    last_control_update = now()
+    last_sample_time = now()
+
+    while True:
+
+        now_t = now()
+        dt = now_t - last_sample_time
+        last_sample_time = now_t
+
+        U_batt = dmm.read_voltage()
+        U_psu = psu.measure_voltage()
+        I_psu = psu.measure_current()
+
+        validate_measurements(U_batt, U_psu, I_psu)
+
+        charged_Ah += I_psu * dt / 3600
+        charged_Wh += U_batt * I_psu * dt / 3600
+
+        U_drop = U_psu - U_batt
+        error = config.target_batt_V - U_batt
+
+        safety_check(
+            U_batt=U_batt,
+            U_psu=U_psu,
+            I_psu=I_psu,
+            U_drop=U_drop,
+            charged_Ah=charged_Ah,
+            elapsed=elapsed_time
+        )
+
+        if now_t - last_control_update >= config.control_update_period_s:
+            last_control_update = now_t
+
+            if abs(error) > config.deadband_V:
+                if error > 0:
+                    step = min(error, config.max_step_V)
+                    U_psu_set += step
+                else:
+                    step = min(abs(error), config.max_step_V)
+                    U_psu_set -= step
+
+                U_psu_set = min(U_psu_set, config.psu_set_max_V)
+                U_psu_set = min(U_psu_set,
+                                config.target_batt_V + config.max_expected_series_drop_V)
+
+                psu.set_voltage(U_psu_set)
+
+        if U_batt >= config.target_batt_V - config.taper_voltage_window_V            and I_psu <= config.taper_current_A:
+            taper_timer += dt
+        else:
+            taper_timer = 0
+
+        if taper_timer >= config.taper_hold_time_s:
+            break
+
+        log_sample()
+
+        sleep(config.sample_interval_s)
+
+    state = CHARGE_DONE
+    psu.output_off()
+    wait(config.psu_off_settle_s)
+    relay.open()
+
+    log_event("CHARGE_DONE")
+    return result
+
+
+11.2 safety_check()
+-------------------
+
+function safety_check(U_batt, U_psu, I_psu, U_drop, charged_Ah, elapsed):
+
+    if not dmm.valid:
+        emergency_stop("DMM_FEEDBACK_LOST")
+
+    if U_batt > config.batt_absolute_max_V:
+        emergency_stop("BATTERY_OVERVOLTAGE")
+
+    if U_batt < config.batt_min_allowed_V:
+        emergency_stop("BATTERY_UNDERVOLTAGE_OR_DISCONNECTED")
+
+    if I_psu > config.charge_current_A * (1 + config.current_tolerance):
+        emergency_stop("CHARGE_CURRENT_TOO_HIGH")
+
+    if U_drop > config.max_allowed_series_drop_V:
+        emergency_stop("SERIES_DROP_TOO_HIGH")
+
+    if U_drop < config.min_allowed_series_drop_V:
+        warning_or_fault("NEGATIVE_SERIES_DROP")
+
+    if charged_Ah > config.max_charge_Ah:
+        emergency_stop("MAX_CHARGE_AH_REACHED")
+
+    if elapsed > config.max_charge_time_s:
+        emergency_stop("MAX_CHARGE_TIME_REACHED")
+
+    if temperature_enabled and T_batt > config.max_temperature_C:
+        emergency_stop("BATTERY_TEMPERATURE_HIGH")
+
+
+11.3 emergency_stop()
+---------------------
+
+function emergency_stop(reason):
+
+    try:
+        psu.output_off()
+    except:
+        log("PSU_OFF_FAILED")
+
+    try:
+        load.input_off()
+    except:
+        log("LOAD_OFF_FAILED")
+
+    try:
+        relay.open()
+    except:
+        log("RELAY_OPEN_FAILED")
+
+    log_event("EMERGENCY_STOP", reason)
+    raise TestAborted(reason)
+
+
+12. KONFIGURÁCIÓS PÉLDA
+=======================
+
+12.1 12 V / 7 Ah AGM
+--------------------
+
+battery:
+    cell_count: 6
+    nominal_capacity_Ah: 7.0
+    target_batt_V: 14.400
+    batt_absolute_max_V: 14.550
+    batt_min_allowed_V: 8.000
+
+charge:
+    charge_current_A: 0.700
+    taper_current_A: 0.140
+    taper_hold_time_s: 120
+    taper_voltage_window_V: 0.010
+    max_charge_time_s: 43200
+    max_charge_Ah: 9.0
+
+psu:
+    psu_set_min_V: 0.0
+    psu_set_max_V: 15.300
+    start_margin_V: 0.200
+    start_target_margin_V: 0.200
+    max_expected_series_drop_V: 0.900
+
+control:
+    sample_interval_s: 2
+    control_update_period_s: 5
+    deadband_V: 0.010
+    max_step_V: 0.010
+
+safety:
+    max_allowed_series_drop_V: 1.000
+    min_allowed_series_drop_V: -0.050
+    current_tolerance: 0.05
+    max_temperature_C: 35
+
+
+12.2 24 V / 18 Ah AGM
+---------------------
+
+battery:
+    cell_count: 12
+    nominal_capacity_Ah: 18.0
+    target_batt_V: 28.800
+    batt_absolute_max_V: 29.100
+    batt_min_allowed_V: 16.000
+
+charge:
+    charge_current_A: 1.800
+    taper_current_A: 0.360
+    taper_hold_time_s: 120
+    taper_voltage_window_V: 0.020
+    max_charge_time_s: 57600
+    max_charge_Ah: 23.0
+
+psu:
+    psu_set_min_V: 0.0
+    psu_set_max_V: 30.000
+    start_margin_V: 0.200
+    start_target_margin_V: 0.200
+    max_expected_series_drop_V: 1.000
+
+control:
+    sample_interval_s: 2
+    control_update_period_s: 5
+    deadband_V: 0.020
+    max_step_V: 0.010
+
+safety:
+    max_allowed_series_drop_V: 1.200
+    min_allowed_series_drop_V: -0.050
+    current_tolerance: 0.05
+    max_temperature_C: 35
+
+
+13. FEJLESZTÉSI MEGJEGYZÉSEK
+============================
+
+13.1 DMM mintavétel
+------------------
+
+Töltés közben:
+- NPLC 1 vagy 10
+- READ? elég lehet 1...5 s mintavételhez
+
+OCV / relax mérésnél:
+- NPLC 10 vagy 100
+- ritkább mintavétel, például 30...60 s
+
+Ha DMM timeout történik:
+- nem szabad tovább szabályozni,
+- töltést le kell állítani.
+
+
+13.2 PSU beállítás
+------------------
+
+A PSU-t soha ne állítsd agresszívan nagy feszültségre.
+A PSU_set lassan kövesse a DMM alapján szükséges értéket.
+
+Tilos:
+- rögtön target + 1 V beállítása,
+- DMM nélkül kompenzált töltés,
+- DMM hiba figyelmen kívül hagyása.
+
+
+13.3 Relé
+---------
+
+A relé célja:
+- valódi leválasztás relax alatt,
+- hiba esetén a tápegység leválasztása,
+- output OFF nem feltétlenül jelent galvanikus leválasztást.
+
+Javasolt sorrend:
+1. PSU OFF
+2. relé zár
+3. PSU induló alacsony set
+4. PSU ON
+5. lassú szabályozás
+
+Leállítás:
+1. PSU OFF
+2. rövid várakozás
+3. relé bont
+
+
+13.4 Dióda méretezése
+---------------------
+
+A dióda legyen méretezve:
+- maximális töltőáramra,
+- várható hőterhelésre,
+- fordított feszültségre,
+- hűtésre.
+
+Disszipáció:
+
+    P_diode = I_charge * U_diode
+
+Példa:
+    I = 3,6 A
+    U_diode = 0,5 V
+    P = 1,8 W
+
+Ez már hűtést igényelhet.
+
+Ideális dióda MOSFET használata erősen ajánlott, ha:
+- nagyobb töltőáram van,
+- 24 V packot töltesz 30 V-os táppal,
+- pontosabb feszültségtartás kell,
+- kisebb hőtermelés kell.
+
+
+14. TESZTVALIDÁLÁS
+==================
+
+14.1 Első teszt akku nélkül
+---------------------------
+
+Mielőtt valódi akkut kötsz rá:
+
+1. Próbaterhelés vagy elektronikus load.
+2. Kis feszültség, például 5 V.
+3. Kis áramlimit, például 100 mA.
+4. DMM mérés ellenőrzése.
+5. Relé zár/bont ellenőrzése.
+6. PSU_set léptetés ellenőrzése.
+7. Vészleállítás teszt.
+
+
+14.2 Teszt kis akkuval
+----------------------
+
+1. 12 V kis AGM akku.
+2. Alacsony áram, például C/20.
+3. Alacsonyabb célfeszültség próbaként, például 13,2 V.
+4. Ellenőrizd:
+   - DMM mérés stabil,
+   - PSU_set emelkedik,
+   - U_batt eléri a célt,
+   - taper logika működik,
+   - hiba esetén lekapcsol.
+
+
+14.3 Teljes üzem validálás
+--------------------------
+
+Teljes töltésnél ellenőrizd:
+- U_batt_DMM soha nem lépi túl az abszolút limitet,
+- U_drop reális tartományban van,
+- PSU_set nem éri el váratlanul a maximumot,
+- töltőáram taper felé csökken,
+- logból látszik CC -> CV átmenet.
+
+
+15. RÖVID ÖSSZEFOGLALÓ
+======================
+
+A javasolt megoldás:
+
+    1. A tápegység fő pozitív ágába soros védődióda / ideális dióda kerül.
+    2. A tápegység sense pontja a dióda előtt marad.
+    3. A DMM az akkumulátor valódi kapcsait méri.
+    4. A szoftver a DMM alapján lassan korrigálja a PSU set voltage értékét.
+    5. A töltés végét az akkuoldali DMM feszültség + töltőáram taper feltétel alapján dönti el.
+    6. DMM hiba, túlfeszültség, túl nagy soros esés vagy headroom limit esetén a töltés leáll.
+    7. A relé biztosítja a valódi leválasztást relax és hiba esetén.
+
+Ez biztonságosabb, mint a sense közvetlen akkuoldalra vitele, de pontosabb, mint a sima
+diódás, kompenzáció nélküli töltés.
+
+A DMM így gyakorlatilag külső lassú sense-ként működik, miközben a tápegység belső
+remote sense rendszere nem kerül közvetlenül a dióda utáni akkuforrásra.

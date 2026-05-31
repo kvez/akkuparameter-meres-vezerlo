@@ -1,0 +1,200 @@
+--- 1. oldal ---
+AGM 
+technology
+High-rate 
+performance 
+battery
+FGH FGHL 
+Data Centre
+Flame 
+retardant 
+casing
+(FGHL only)
+High-rate 
+performance
+Long life high-rate 
+performance battery
+(FGHL only)
+
+--- 2. oldal ---
+FGH
+FGHL
+5 years design life small industrial lead acid range with AGM technology.
+Long life, flame retardant small industrial lead acid range AGM technology with a fast on 
+terminal design for easy installation.
+Headquarters: FIAMM Energy Technology S.p.A. - Viale Europa, 75 - 36075 - Montecchio Maggiore (VI) - Italy - tel. +39 0444 709311 - fax +39 0444 709878 - www.fiamm.com
+FGH range is designed for maximum performance in critical power 
+applications such as UPS and is available in 12V blocks with a 
+capacity range from 5Ah to 18Ah. The FGH batteries are designed 
+with unsurpassed proven reliability and are compliant with the highest 
+recognised international standards. The FGH range is designed around 
+AGM VRLA technology with the exterior casing made in ABS plastic, 
+fully recyclable, non-spillable and maintenance-free. FGH range is non-
+hazardous for air/sea/rail/road transportation. Batteries can be installed in 
+upright and horizontal planes.
+FGHL is designed for maximum performance in critical power applications 
+such as UPS and is classified as “long life” according to the Eurobat 
+Guide; this means 10 years of design life. The range is available with a 
+capacity range from 5Ah to 12Ah. Our FGHL can be used in a wide range 
+of solutions in many applications and have unsurpassed reliability. They 
+are compliant with the highest recognised international standards.
+The exterior casing is made with a flame retardant ABS plastic to UL94 V0 
+and it grants the safeties protection in high voltage UPS application. The 
+FGHL range is designed around AGM VRLA technology, fully recyclable, 
+non-spillable and maintenance-free. FGHL range is non-hazardous for air/
+sea/rail/road transportation.
+Batteries can be installed in upright and horizontal planes.
+Standards
+IEC 60896 Part 21 - VRLA methods of testing
+IEC 60896 Part 22 - VRLA requirements
+Eurobat “10-12 years long life”
+UL Recognized 
+BS6334 / UL 94 V0 materials flammability
+Standards
+IEC 60896 Part 21 - VRLA methods of testing
+IEC 60896 Part 22 - VRLA requirements
+Eurobat “3-5 years standard commercial”
+UL Recognized
+Rev. 11.2025
+Battery type
+Nominal
+voltage
+(V)
+Nominal capacity
+(Ah)
+Nominal capacity
+(Ah)
+Nominal dimension
+(mm)
+Typical weight
+(kg)
+Terminal 
+type
+10H 1.80VPC 25°C
+20H 1.75VPC 25°C
+Length
+Width
+Height
+Terminal 
+Height
+12FGH23 slim
+12
+4,7
+5.0
+151
+51
+95
+100
+1.9
+Faston 4.8
+12FGH23
+12
+47,7
+5.0
+90
+70
+101
+107
+1.8
+Faston 6.3
+12FGH36
+12
+7,6
+9.0
+151
+65
+95
+100
+2.7
+Faston 6.3
+12FGH50
+12
+11,2
+12
+151
+98
+95
+100
+3.8
+Faston 6.3
+12FGH65
+12
+17
+18
+181
+76
+167
+165
+5.6
+Flag Ø5.5
+Battery type
+Nominal
+voltage
+(V)
+Nominal capacity
+(Ah)
+Nominal capacity
+(Ah)
+Nominal dimension
+(mm)
+Typical weight
+(kg)
+Terminal 
+type
+10H 1.80VPC 25°C
+20H 1.75VPC 25°C
+Length
+Width
+Height
+Terminal 
+Height
+12FGHL22
+12
+4,7
+5.0
+90
+70
+101
+107
+1.9
+Faston 6.3
+12FGHL28
+12
+6,7
+7.2
+151
+65
+95
+100
+2.6
+Faston 6.3
+12FGHL34
+12
+7,8
+8.4
+151
+65
+95
+100
+2.7
+Faston 6.3
+12FGHL48
+12
+11,2
+12
+151
+98
+95
+100
+4.0
+Faston 6.3
+12FGHL70
+12
+15,5
+17
+181
+76
+167
+157
+5.6
+Female M5

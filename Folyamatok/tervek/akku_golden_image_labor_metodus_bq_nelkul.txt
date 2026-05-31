@@ -1,0 +1,1237 @@
+AKKU LABOR- ÉS GOLDEN IMAGE ELŐKÉSZÍTŐ TESZTMETÓDUS
+BQ34Z110 / AGM-VRLA AKKUMULÁTOR KARAKTERIZÁLÁSHOZ
+SZOFTVERFEJLESZTÉSI SPECIFIKÁCIÓ - BQ KOMMUNIKÁCIÓ NÉLKÜL
+
+Verzió: 1.0
+Cél: Laborfolyamatok automatizálása akkumulátor karakterizáláshoz, töltési/kisütési görbékhez,
+kapacitásméréshez, OCV-SOC görbe felvételéhez, terheléses ellenállás/impedancia becsléshez,
+valamint BQ34Z110 golden image előkészítéséhez.
+
+FONTOS KORLÁTOZÁS
+-----------------
+Ez az eljárás NEM kommunikál közvetlenül a BQ34Z110 IC-vel.
+A szoftver nem olvas és nem ír BQ regisztereket, nem ellenőrzi automatikusan az UpdateStatus,
+QEN, VOK, RUP_DIS, FC, Ra table vagy Qmax értékeket.
+
+A folyamat célja:
+- akkumulátor objektív labor-karakterizálása,
+- reprodukálható töltés/kisütés/relax ciklusok végrehajtása,
+- görbék, Ah, Wh, OCV-SOC, belső ellenállás jellegű értékek meghatározása,
+- olyan mérési adatok előállítása, amelyek alapján a BQ34Z110 konfiguráció és golden image
+  később kézzel vagy külön BQ-eszközzel elkészíthető.
+
+A BQ34Z110 tanulási folyamat szempontjából a szoftver csak a fizikai akkuciklusokat biztosítja:
+- teljes töltés,
+- relax,
+- C/5 kisütés terminate feszültségig,
+- relax,
+- ismételt ciklus.
+
+A BQ állapotok ellenőrzése külön, kézzel vagy külön szoftverrel történik.
+
+
+1. ALAPFOGALMAK
+===============
+
+1.1 C-ráta
+----------
+C-ráta az akkumulátor kapacitásához viszonyított áram.
+
+Példa:
+- 7 Ah akku:
+  C/20 = 0,35 A
+  C/10 = 0,70 A
+  C/5  = 1,40 A
+  0,2C = 1,40 A
+
+- 18 Ah akku:
+  C/20 = 0,90 A
+  C/10 = 1,80 A
+  C/5  = 3,60 A
+
+Soros kapcsolásnál az Ah nem változik.
+Példa:
+- 24 V / 18 Ah pack esetén C/5 = 3,6 A, nem 7,2 A.
+
+
+1.2 AGM/VRLA cellaszám
+----------------------
+Tipikus ólomakku cellafeszültségek:
+
+- 12 V-os AGM akku: 6 cella
+- 24 V-os AGM pack: 12 cella
+
+A szoftver minden fontos feszültséghatárt cellaszám alapján számoljon:
+
+PackVoltage = CellVoltage * CellCount
+
+
+1.3 Javasolt feszültséghatárok AGM/VRLA esetén
+----------------------------------------------
+Töltési CV feszültség, ciklikus töltéshez:
+- konzervatív: 2,40 V/cella
+- erősebb:     2,45 V/cella
+- 12 V pack:   14,40...14,70 V
+- 24 V pack:   28,80...29,40 V
+
+Float feszültség nem learninghez:
+- kb. 2,25...2,30 V/cella
+- learning / karakterizálás alatt nem float folyamatot használunk.
+
+Kisütési végfeszültség:
+- kímélőbb: 1,80 V/cella
+- mélyebb:  1,75 V/cella, csak ha az akku adatlapja engedi
+
+Példák:
+- 12 V / 6 cella:
+  1,80 V/cella -> 10,80 V
+  1,75 V/cella -> 10,50 V
+
+- 24 V / 12 cella:
+  1,80 V/cella -> 21,60 V
+  1,75 V/cella -> 21,00 V
+
+
+1.4 Relaxáció
+-------------
+Relax = töltő és terhelés nélküli nyugalmi állapot.
+
+Akkor tekinthető relaxnak:
+- töltő lekapcsolva,
+- műterhelés lekapcsolva,
+- relék stabil állapotban,
+- akku kapcsain nincs szándékos áramterhelés,
+- csak mérőműszerek nagy impedanciájú bemenetei maradnak rajta.
+
+BQ learning szempontból a gyári logika miatt tipikus relax idők:
+- teljes töltés után: legalább 2 óra,
+- teljes kisütés után: legalább 5 óra.
+
+A szoftverben ezek paraméterezhető értékek legyenek.
+
+
+2. MÉRŐRENDSZER FELÉPÍTÉSE
+==========================
+
+2.1 Kötelező vezérelhető eszközök
+--------------------------------
+A szoftver az alábbi eszközöket kezelje:
+
+1. Programozható tápegység / töltő
+   - CC/CV mód
+   - feszültség beállítás
+   - áramlimit beállítás
+   - kimenet be/ki
+   - mért feszültség/áram lekérdezés, ha támogatott
+
+2. Programozható elektronikus műterhelés
+   - CC mód
+   - áram beállítás
+   - bemenet be/ki
+   - mért feszültség/áram lekérdezés, ha támogatott
+
+3. Feszültségmérő műszer
+   - akku kapocsfeszültség pontos mérése
+
+4. Árammérő vagy shunt + feszültségmérés
+   - töltőáram és kisütőáram ellenőrzése
+
+5. Hőmérsékletmérés
+   - akku felületi hőmérséklet
+   - környezeti hőmérséklet
+
+6. Relé / kapcsolómátrix
+   - töltő csatlakoztatás/leválasztás
+   - műterhelés csatlakoztatás/leválasztás
+   - biztonsági leválasztás
+
+
+2.2 BQ-kommunikáció
+-------------------
+Nincs.
+A szoftver ne tartalmazzon kötelező BQ lekérdezési pontokat.
+
+Opcionális kézi mezők lehetnek:
+- BQ UpdateStatus kézi beírása,
+- Qmax kézi beírása,
+- Ra table mentés megtörtént/nem történt meg,
+- BQ golden export megtörtént/nem történt meg.
+
+Ezek csak naplózási / dokumentációs mezők, nem automatizált döntési feltételek.
+
+
+3. ÁLTALÁNOS SZOFTVER-ARCHITEKTÚRA
+==================================
+
+3.1 Fő modulok
+--------------
+Javasolt modulok:
+
+- device_psu.py
+  Tápegység vezérlése.
+
+- device_load.py
+  Elektronikus műterhelés vezérlése.
+
+- device_dmm.py
+  Feszültség/áram/hőmérséklet mérés.
+
+- relay_matrix.py
+  Kapcsolási állapotok vezérlése.
+
+- battery_profile.py
+  Akkumulátor névleges adatai és számított C-ráta értékek.
+
+- test_runner.py
+  Állapotgép és tesztfolyamatok.
+
+- logger.py
+  CSV/JSON logolás.
+
+- safety.py
+  Hibafeltételek, limitek, azonnali leállítás.
+
+- report_generator.py
+  Teszt végi összefoglaló.
+
+
+3.2 Központi akkumulátor-konfiguráció
+-------------------------------------
+A szoftver indulásakor legyen egy akkumulátorprofil:
+
+BatteryProfile:
+- battery_name
+- manufacturer
+- model
+- nominal_voltage_V
+- cell_count
+- nominal_capacity_Ah
+- chemistry = AGM_VRLA
+- charge_voltage_per_cell_V
+- terminate_voltage_per_cell_V
+- float_voltage_per_cell_V, opcionális
+- max_charge_current_A
+- max_discharge_current_A
+- test_temperature_min_C
+- test_temperature_max_C
+
+Számított értékek:
+- charge_voltage_pack_V = charge_voltage_per_cell_V * cell_count
+- terminate_voltage_pack_V = terminate_voltage_per_cell_V * cell_count
+- C20_current_A = nominal_capacity_Ah / 20
+- C10_current_A = nominal_capacity_Ah / 10
+- C5_current_A  = nominal_capacity_Ah / 5
+- C2_current_A  = nominal_capacity_Ah / 2
+
+
+3.3 Általános log formátum
+--------------------------
+Minden mérési pont tartalmazza:
+
+- timestamp_iso
+- elapsed_s
+- test_name
+- step_name
+- state
+- battery_voltage_V
+- charge_current_A
+- discharge_current_A
+- signed_current_A
+  Pozitív lehet töltés, negatív kisütés.
+- battery_temperature_C
+- ambient_temperature_C
+- psu_set_voltage_V
+- psu_set_current_A
+- psu_output_on
+- load_set_current_A
+- load_input_on
+- relay_state
+- accumulated_charge_Ah
+- accumulated_discharge_Ah
+- accumulated_charge_Wh
+- accumulated_discharge_Wh
+- event_code
+- event_message
+
+Javasolt mintavétel:
+- normál folyamat: 5...10 s
+- gyors impulzus / ellenállásteszt: 0,1...1 s
+- relax hosszú várakozás: 30...60 s is elég, de első 10 percben maradjon 5...10 s
+
+
+3.4 Ah és Wh számítás
+--------------------
+A szoftver numerikus integrálással számolja:
+
+delta_Ah = I_A * delta_t_s / 3600
+
+delta_Wh = V_V * I_A * delta_t_s / 3600
+
+Külön integrálás:
+- charge_Ah
+- discharge_Ah
+- charge_Wh
+- discharge_Wh
+
+Előjelkonvenció:
+- töltés: pozitív áram
+- kisütés: negatív áram
+
+A logban legyen külön pozitív discharge_current_A is, hogy könnyebb legyen értelmezni.
+
+
+4. BIZTONSÁGI FELTÉTELEK
+========================
+
+4.1 Azonnali leállítás feltételei
+---------------------------------
+A szoftver azonnal kapcsolja le a töltőt és a terhelést, ha:
+
+- battery_voltage_V > max_allowed_voltage_V
+- battery_voltage_V < min_allowed_voltage_V
+- battery_temperature_C > max_allowed_temperature_C
+- battery_temperature_C < min_allowed_temperature_C
+- abs(current_A) > max_allowed_current_A
+- kommunikációs hiba kritikus eszközzel
+- feszültségmérés érvénytelen vagy hiányzik
+- reléállapot nem egyezik a várt állapottal
+- tápegység bekapcsolva maradt relax alatt
+- műterhelés bekapcsolva maradt relax alatt
+
+Vészleállításkor:
+1. PSU output OFF
+2. Load input OFF
+3. relék biztonságos állapotba
+4. log: EMERGENCY_STOP
+5. felhasználói figyelmeztetés
+
+
+4.2 Hőmérsékleti ajánlás
+------------------------
+Learning / karakterizálás:
+- ideális: 20...25 °C
+- elfogadható: 15...30 °C
+- 10 °C alatt vagy 35 °C felett a mérés ne legyen golden image alapja.
+
+Hőmérsékletváltozás:
+- ha az akku hőmérséklete 5 °C-nál többet változik egy ciklus alatt, a teszt megjelölendő:
+  TEMPERATURE_DRIFT_HIGH
+
+
+4.3 Töltés biztonsága AGM-nél
+-----------------------------
+A szoftver ne hagyja a tápegységet végtelen ideig CV módban.
+
+Kötelező töltési végfeltételek:
+- taper áram elérése,
+- vagy maximum töltési idő,
+- vagy maximum betöltött Ah,
+- vagy maximum hőmérséklet,
+- vagy manuális stop.
+
+Töltés vége után a tápegységet fizikailag le kell választani relével is, ha van rá lehetőség.
+
+
+5. ALAP TESZTFOLYAMATOK
+=======================
+
+5.1 Teljes töltés CC/CV módban
+------------------------------
+Cél:
+- akku teljes feltöltése,
+- töltési görbe rögzítése,
+- taper pont meghatározása,
+- későbbi relax és kisütési tesztek előkészítése.
+
+Bemenő paraméterek:
+- charge_current_C_rate, javasolt 0,1C...0,2C
+- charge_voltage_per_cell_V, javasolt 2,40...2,45 V/cella
+- taper_current_C_rate, javasolt C/50...C/100
+- max_charge_time_h
+- max_charge_Ah_factor, például 1,20 * nominal_capacity_Ah
+- max_temperature_C
+
+Számítás:
+- charge_current_A = nominal_capacity_Ah * charge_current_C_rate
+- charge_voltage_pack_V = charge_voltage_per_cell_V * cell_count
+- taper_current_A = nominal_capacity_Ah * taper_current_C_rate
+
+Folyamat:
+1. Ellenőrizd, hogy terhelés OFF.
+2. Kapcsold töltő relét ON.
+3. PSU beállítás:
+   - voltage = charge_voltage_pack_V
+   - current_limit = charge_current_A
+4. PSU output ON.
+5. Állapot: CHARGE_CC_CV.
+6. Logolás.
+7. Várakozás, amíg:
+   - measured_charge_current_A <= taper_current_A legalább taper_hold_time_s ideig,
+   VAGY
+   - elapsed_time >= max_charge_time_h,
+   VAGY
+   - charge_Ah >= max_charge_Ah_factor * nominal_capacity_Ah,
+   VAGY
+   - biztonsági hiba.
+8. PSU output OFF.
+9. Töltő relé OFF.
+10. Állapot: CHARGE_DONE.
+11. Esemény log: CHARGE_COMPLETED.
+
+Megjegyzés:
+A taper_hold_time_s legyen legalább 60 s.
+A BQ szempontjából is fontos, hogy a taper állapot ne csak pillanatnyi legyen.
+
+
+5.2 Relaxáció töltés után
+-------------------------
+Cél:
+- feszültség stabilizálódás,
+- OCV-szerű nyugalmi feszültség mérése,
+- BQ learning esetén a teljes töltés utáni relax fizikai biztosítása.
+
+Bemenő paraméterek:
+- relax_time_h, javasolt minimum 2 h
+- dvdt_limit_uV_s, opcionális, például 4 uV/s
+- dvdt_window_min, például 10...30 perc
+
+Folyamat:
+1. PSU OFF.
+2. Load OFF.
+3. Relék biztonságos nyugalmi állapotban.
+4. Állapot: RELAX_AFTER_CHARGE.
+5. Mérd és logold a feszültséget.
+6. Számolj dV/dt értéket mozgó időablakban.
+7. Várj legalább relax_time_h ideig.
+8. Ha dV/dt ellenőrzés aktív, akkor a relax akkor jó:
+   - elapsed >= relax_time_h
+   ÉS
+   - abs(dVdt) <= dvdt_limit_uV_s
+9. Log: RELAX_AFTER_CHARGE_DONE.
+
+Konyhanyelven a dV/dt < 4 uV/s azt jelenti:
+- a feszültség kevesebb mint kb. 0,24 mV/perc értékkel változik,
+- az akku már elég nyugodt OCV jellegű méréshez.
+
+
+5.3 Teljes kisütés CC módban
+----------------------------
+Cél:
+- akku kontrollált merítése végfeszültségig,
+- kapacitás és Wh meghatározása,
+- BQ learninghez C/5 kisütés biztosítása.
+
+Bemenő paraméterek:
+- discharge_current_C_rate
+  - kapacitásméréshez: C/20 vagy C/10
+  - BQ learninghez: C/5
+- terminate_voltage_per_cell_V
+  - javasolt AGM: 1,80 V/cella vagy adatlap szerint 1,75 V/cella
+- max_discharge_time_h
+- min_temperature_C
+- max_temperature_C
+
+Számítás:
+- discharge_current_A = nominal_capacity_Ah * discharge_current_C_rate
+- terminate_voltage_pack_V = terminate_voltage_per_cell_V * cell_count
+
+Folyamat:
+1. PSU OFF.
+2. Töltő relé OFF.
+3. Kapcsold a műterhelés relét ON.
+4. Load mód = CC.
+5. Load current = discharge_current_A.
+6. Load input ON.
+7. Állapot: DISCHARGE_CC.
+8. Nullázd az adott kisütési szakasz Ah/Wh számlálóit.
+9. Logolás.
+10. Várakozás, amíg:
+    - battery_voltage_V <= terminate_voltage_pack_V,
+    VAGY
+    - elapsed_time >= max_discharge_time_h,
+    VAGY
+    - biztonsági hiba.
+11. Load input OFF.
+12. Terhelés relé OFF.
+13. Állapot: DISCHARGE_DONE.
+14. Log:
+    - discharge_Ah
+    - discharge_Wh
+    - final_loaded_voltage
+    - elapsed_time
+
+Fontos:
+Learning ciklusnál a kisütést lehetőleg ne szakítsd meg.
+Rövid technikai megszakítás beleférhet, de hosszú pihenővel két részletben nem ajánlott.
+
+
+5.4 Relaxáció kisütés után
+--------------------------
+Cél:
+- feszültség visszarendeződés mérése,
+- OCV-szerű pont meghatározása,
+- BQ learninghez a kisütés utáni 5 órás relax fizikai biztosítása.
+
+Bemenő paraméterek:
+- relax_time_h, javasolt minimum 5 h
+- dvdt_limit_uV_s, opcionális 4 uV/s
+- dvdt_window_min
+
+Folyamat:
+1. PSU OFF.
+2. Load OFF.
+3. Relék nyugalmi állapot.
+4. Állapot: RELAX_AFTER_DISCHARGE.
+5. Logolás.
+6. Várj legalább relax_time_h ideig.
+7. Számolj dV/dt-t.
+8. Esemény:
+   - RELAX_AFTER_DISCHARGE_DONE
+   - OCV_AFTER_DISCHARGE = utolsó stabil feszültség
+
+
+6. AKKU-KARAKTERIZÁLÓ METÓDUS
+=============================
+
+6.1 Cél
+-------
+Az akku teljes labor-paraméterezése:
+
+- valódi kapacitás C/20 mellett,
+- kapacitás C/5 mellett,
+- töltési görbe,
+- kisütési görbe,
+- OCV-SOC görbe,
+- terheléses feszültségesés,
+- dinamikus belső ellenállás jellegű becslés,
+- javasolt BQ paraméterek:
+  - Design Capacity,
+  - Terminate Voltage,
+  - Taper Current,
+  - Quit Current,
+  - javasolt learning áram.
+
+
+6.2 Karakterizáló folyamat áttekintés
+-------------------------------------
+Ajánlott teljes sorrend:
+
+PHASE 0: Előkészítés
+PHASE 1: Teljes töltés + relax
+PHASE 2: C/20 kapacitásteszt + relax
+PHASE 3: Teljes töltés + relax
+PHASE 4: C/5 kapacitásteszt + relax
+PHASE 5: Teljes töltés + relax
+PHASE 6: OCV-SOC lépcsős teszt
+PHASE 7: Terheléses ellenállás/impedancia teszt
+PHASE 8: Jelentés generálás
+
+
+6.3 PHASE 0 - Előkészítés
+-------------------------
+1. Akku azonosító rögzítése:
+   - gyártó
+   - típus
+   - névleges feszültség
+   - névleges Ah
+   - gyártási dátum, ha ismert
+   - mérés dátuma
+   - kezelő neve
+
+2. Akku temperálás:
+   - 20...25 °C
+   - legalább 12...24 h ajánlott komoly karakterizáláshoz
+
+3. Nyugalmi feszültség mérése:
+   - initial_ocv_V
+   - initial_temperature_C
+
+4. Biztonsági limitek betöltése.
+
+
+6.4 PHASE 1 - Teljes töltés + relax
+-----------------------------------
+Töltés:
+- 0,1C...0,2C CC áram
+- 2,40...2,45 V/cella CV
+- taper: C/50...C/100
+- töltő lekapcsolás
+
+Relax:
+- 5 h, ha karakterizálási referencia kell
+- minimum 2 h, ha csak BQ learning előkészítés
+
+Mentendő:
+- charge_Ah
+- charge_Wh
+- charge_time
+- taper_current
+- voltage_at_taper
+- relaxed_full_ocv_V
+
+
+6.5 PHASE 2 - C/20 kapacitásteszt
+---------------------------------
+Cél:
+Adatlap-szerű kapacitás meghatározása.
+
+Kisütés:
+- discharge_current = C/20
+- terminate_voltage = 1,80 V/cella vagy adatlap szerint
+- log 5...10 s
+
+Stop:
+- pack voltage <= terminate_voltage_pack
+
+Relax:
+- 5 h
+
+Eredmények:
+- capacity_C20_Ah
+- energy_C20_Wh
+- discharge_time_C20_h
+- voltage_curve_C20
+- relaxed_empty_ocv_after_C20
+
+Ez az érték használható az akku tényleges kapacitásának becslésére.
+Az OCV-SOC lépcsőzésnél a lépésméretet lehet ebből számítani.
+
+
+6.6 PHASE 3 - Teljes töltés + relax
+-----------------------------------
+Ismét teljes töltés PHASE 1 szerint.
+
+Cél:
+A C/5 teszt előtt az akku teljesen feltöltött állapotba kerüljön.
+
+
+6.7 PHASE 4 - C/5 kapacitásteszt
+--------------------------------
+Cél:
+BQ learninghez közeli kisütés és valósabb terhelési kapacitás meghatározása.
+
+Kisütés:
+- discharge_current = C/5
+- terminate_voltage = 1,80 V/cella vagy adatlap szerint
+- log 5...10 s
+
+Stop:
+- pack voltage <= terminate_voltage_pack
+
+Relax:
+- 5 h
+
+Eredmények:
+- capacity_C5_Ah
+- energy_C5_Wh
+- discharge_time_C5_h
+- voltage_curve_C5
+- relaxed_empty_ocv_after_C5
+
+Értelmezés:
+Ha capacity_C5 jelentősen kisebb, mint capacity_C20, az AGM akku terhelésfüggése erős.
+A BQ Design Capacity értékhez nem feltétlenül a C/20 értéket kell vakon használni,
+hanem a termék valós terhelését is figyelembe kell venni.
+
+
+6.8 PHASE 5 - Teljes töltés + relax
+-----------------------------------
+Ismét teljes töltés.
+
+Relax:
+- 5 h ajánlott
+
+Cél:
+OCV-SOC lépcsős teszt indítása 100%-ról.
+
+
+6.9 PHASE 6 - OCV-SOC lépcsős teszt
+-----------------------------------
+Cél:
+Akku nyugalmi feszültség - töltöttség görbéjének felvétele.
+
+Fontos:
+Ez nem helyettesíti a BQ Impedance Track learning ciklust.
+Ez az akku saját karakterizálását szolgálja.
+
+Referencia kapacitás:
+- javasolt: capacity_C20_Ah
+- alternatíva: capacity_C5_Ah, ha a termék jellemzően nagy terhelésű
+
+Lépcsőméret:
+- alap: 5% SOC
+- 20% alatt opcionálisan 2,5% SOC
+
+Ah lépés számítása:
+step_Ah = reference_capacity_Ah * step_percent / 100
+
+Példa:
+- reference_capacity_Ah = 1,000 Ah
+- step_percent = 5%
+- step_Ah = 0,050 Ah = 50 mAh
+
+Javasolt lépcsős kisütőáram:
+- pontosabb OCV görbéhez: C/20
+- gyorsabb méréshez: C/10
+
+Javasolt relax lépésenként:
+- gyors közelítő görbe: 30...60 perc
+- mérnöki görbe: 1...2 óra
+- pontos görbe: 5 óra
+- kulcspontokon 100%, 50%, 20%, 10%, 0%: 5 óra ajánlott
+
+Folyamat:
+1. SOC_index = 100%
+2. Mérd és logold OCV_100.
+3. Amíg SOC_index > 0:
+   a. target_discharge_Ah = step_Ah
+   b. Kapcsold be a műterhelést C/10 vagy C/20 árammal.
+   c. Meríts pontosan target_discharge_Ah mennyiséget.
+   d. Kapcsold le a terhelést.
+   e. Relaxálj step_relax_time_h ideig.
+   f. Mérd OCV-t.
+   g. SOC_index = SOC_index - step_percent.
+   h. Logold:
+      - SOC_index
+      - removed_Ah_total
+      - removed_Wh_total
+      - relaxed_voltage_V
+      - temperature_C
+      - dVdt
+4. Ha feszültség eléri terminate_voltage_pack értéket a lépcső közben:
+   - állítsd le a kisütést,
+   - jelöld ACTUAL_EMPTY_REACHED,
+   - menj relaxra,
+   - zárd a tesztet.
+
+Megjegyzés:
+A 0% nem fizikai nulla energiát jelent, hanem a választott terminate feszültséghez tartozó üres állapotot.
+
+
+6.10 PHASE 7 - Terheléses ellenállás / impedancia jellegű teszt
+---------------------------------------------------------------
+Cél:
+Feszültségesés alapján becsült dinamikus belső ellenállás meghatározása.
+
+Javasolt SOC pontok:
+- 100%
+- 80%
+- 60%
+- 40%
+- 20%
+- 10%
+- 0%
+
+Ez integrálható az OCV-SOC tesztbe.
+
+Minden kiválasztott SOC ponton:
+1. Akku relaxált.
+2. Mérd OCV-t.
+3. Kapcsolj rá C/5 vagy C/3 terhelést 10...30 s-ig.
+4. Mérd a feszültséget:
+   - közvetlenül terhelés előtt
+   - 1 s után
+   - 10 s után
+   - 30 s után
+5. Kapcsold le a terhelést.
+6. Számíts:
+   R_1s  = (OCV - V_1s)  / I_load
+   R_10s = (OCV - V_10s) / I_load
+   R_30s = (OCV - V_30s) / I_load
+7. Logold az eredményt.
+
+Fontos:
+Ez nem tiszta DC ellenállás, hanem időfüggő, polarizációt is tartalmazó dinamikus érték.
+Összehasonlításra és hibás akkuk szűrésére nagyon hasznos.
+
+
+7. BQ34Z110 GOLDEN IMAGE ELŐKÉSZÍTŐ FIZIKAI CIKLUSOK BQ-KOMMUNIKÁCIÓ NÉLKÜL
+============================================================================
+
+7.1 Cél
+-------
+A szoftver csak a szükséges fizikai ciklusokat végzi:
+
+- teljes töltés,
+- relax,
+- C/5 kisütés,
+- relax,
+- ismétlés.
+
+A BQ IC állapotait nem ellenőrzi.
+A kezelőnek külön kell ellenőriznie:
+- UpdateStatus,
+- Qmax,
+- Ra table,
+- golden image export.
+
+7.2 Ajánlott BQ-learning fizikai ciklus
+---------------------------------------
+A folyamat:
+
+1. Teljes töltés CC/CV-vel
+2. Töltő lekapcsolása
+3. Relax minimum 2 óra
+4. Kisütés C/5 árammal Terminate Voltage-ig
+5. Terhelés lekapcsolása
+6. Relax minimum 5 óra
+7. Ismétlés még egyszer
+8. Kézi BQ ellenőrzés és golden export
+
+7.3 Részletes állapotgép
+------------------------
+STATE: INIT
+- eszközök inicializálása
+- biztonsági limitek betöltése
+- akku profil betöltése
+
+STATE: PRECHECK
+- mérőműszerek ellenőrzése
+- feszültség ésszerű tartományban van-e
+- hőmérséklet ésszerű tartományban van-e
+- PSU OFF
+- LOAD OFF
+
+STATE: FULL_CHARGE_1
+- CC/CV töltés
+- 0,1C...0,2C javasolt AGM-hez
+- 2,40...2,45 V/cella CV
+- taper C/50...C/100
+
+STATE: RELAX_AFTER_CHARGE_1
+- minimum 2 h
+- opcionálisan dV/dt ellenőrzés
+- töltő és terhelés OFF
+
+STATE: DISCHARGE_C5_1
+- C/5 kisütés
+- terminate 1,80 vagy 1,75 V/cella
+- folyamatos kisütés, lehetőleg megszakítás nélkül
+
+STATE: RELAX_AFTER_DISCHARGE_1
+- minimum 5 h
+- töltő és terhelés OFF
+- OCV rögzítés
+
+STATE: FULL_CHARGE_2
+- ismét teljes töltés
+
+STATE: RELAX_AFTER_CHARGE_2
+- minimum 2 h
+
+STATE: DISCHARGE_C5_2
+- ismét C/5 kisütés
+
+STATE: RELAX_AFTER_DISCHARGE_2
+- minimum 5 h
+
+STATE: MANUAL_BQ_CHECKPOINT
+- szoftver megáll és kéri a kezelőt:
+  - Ellenőrizted a BQ UpdateStatus értékét?
+  - UpdateStatus = 0x06?
+  - Qmax reális?
+  - Ra table export megtörtént?
+  - Golden image export megtörtént?
+- Ezeket a szoftver csak jegyzőkönyvbe írja.
+
+STATE: DONE
+- összegző riport
+
+
+7.4 Miért C/5 kisütés?
+----------------------
+A BQ Impedance Track tanuláshoz az akkunak terhelés alatt mérhető feszültségesést kell produkálnia.
+Túl kis áram, például C/20 vagy C/10 alatt, gyenge lehet a Ra tanuláshoz.
+Ezért BQ learning fizikai ciklushoz C/5 ajánlott.
+
+Kapacitás karakterizáláshoz viszont C/20 is kell, mert az adatlapi kapacitás sok AGM-nél
+20 órás kisütésre van megadva.
+
+
+8. JAVASOLT RIPORT
+==================
+
+A szoftver minden nagyobb teszt végén készítsen riportot.
+
+8.1 Általános adatok
+--------------------
+- battery_name
+- manufacturer
+- model
+- nominal_capacity_Ah
+- nominal_voltage_V
+- cell_count
+- date
+- operator
+- ambient_temperature_range
+- battery_temperature_range
+
+8.2 Töltési eredmények
+----------------------
+- charge_current_set_A
+- charge_voltage_set_V
+- taper_current_A
+- charge_time_h
+- charged_Ah
+- charged_Wh
+- voltage_curve_file
+- current_curve_file
+
+8.3 Kisütési eredmények
+-----------------------
+- discharge_current_set_A
+- terminate_voltage_V
+- discharge_time_h
+- discharged_Ah
+- discharged_Wh
+- final_loaded_voltage_V
+- relaxed_voltage_after_discharge_V
+- capacity_result_Ah
+- energy_result_Wh
+
+8.4 C/20 és C/5 összehasonlítás
+-------------------------------
+- capacity_C20_Ah
+- capacity_C5_Ah
+- ratio_C5_to_C20_percent
+- energy_C20_Wh
+- energy_C5_Wh
+
+Értelmezés:
+- ha C/5 kapacitás sokkal kisebb, akkor az akku nagyobb terhelésen jelentősen gyengébb.
+- ez befolyásolja a termék runtime becslését.
+
+8.5 OCV-SOC tábla
+-----------------
+Oszlopok:
+- SOC_percent
+- removed_Ah
+- removed_Wh
+- relaxed_voltage_V
+- relax_time_h
+- dVdt_uV_s
+- battery_temperature_C
+
+8.6 Terheléses ellenállás tábla
+-------------------------------
+Oszlopok:
+- SOC_percent
+- OCV_V
+- load_current_A
+- V_1s
+- V_10s
+- V_30s
+- R_1s_mOhm
+- R_10s_mOhm
+- R_30s_mOhm
+- temperature_C
+
+8.7 BQ manuális ellenőrzés mezők
+--------------------------------
+Csak kézi kitöltés:
+- BQ connected? yes/no
+- UpdateStatus
+- Qmax Cell 0
+- Ra table exported? yes/no
+- Golden image exported? yes/no
+- UpdateStatus changed to 0x02 in golden file? yes/no
+- comments
+
+
+9. KONKRÉT ALAPÉRTELMEZETT PARAMÉTEREK
+======================================
+
+9.1 AGM karakterizáló alapbeállítás
+-----------------------------------
+- charge_current_C_rate = 0,10C vagy 0,20C
+- charge_voltage_per_cell = 2,40 V/cella
+- taper_current_C_rate = C/50 vagy C/100
+- terminate_voltage_per_cell = 1,80 V/cella
+- C20 capacity test = bekapcsolva
+- C5 capacity test = bekapcsolva
+- OCV step size = 5%
+- OCV step current = C/10 vagy C/20
+- OCV step relax = 1...2 h
+- keypoint relax = 5 h
+- temperature target = 20...25 °C
+
+9.2 BQ learning fizikai ciklus alapbeállítás
+-------------------------------------------
+- charge_current_C_rate = 0,10C...0,20C
+- charge_voltage_per_cell = akku adatlap szerint, tipikusan 2,40...2,45 V/cella
+- taper_current_C_rate = C/50...C/100
+- relax_after_charge = 2 h minimum
+- discharge_current_C_rate = C/5
+- terminate_voltage_per_cell = 1,80 V/cella vagy adatlap szerint 1,75 V/cella
+- relax_after_discharge = 5 h minimum
+- cycle_count = 2
+
+9.3 Gyors ellenőrző teszt
+------------------------
+Ha nem golden image cél, csak gyors akkuállapot ellenőrzés:
+
+- teljes töltés
+- 1 h relax
+- C/10 kisütés terminate voltage-ig
+- 1 h relax
+- kapacitás riport
+
+Ez nem alkalmas pontos BQ golden image alapnak.
+
+
+10. HIBAKEZELÉS ÉS ÉRVÉNYESSÉGI FELTÉTELEK
+==========================================
+
+10.1 Teszt érvénytelen, ha:
+---------------------------
+- töltés vagy kisütés közben kommunikációs hiba miatt nem ismert az áram/feszültség,
+- kisütés megszakadt hosszú időre,
+- töltő rajta maradt relax alatt,
+- terhelés rajta maradt relax alatt,
+- hőmérséklet túl sokat változott,
+- akku túlmelegedett,
+- feszültséghatár hibásan volt beállítva,
+- reléhiba történt,
+- mérőműszer saturált vagy hibás értéket adott.
+
+10.2 Figyelmeztetés, de nem feltétlenül érvénytelen:
+----------------------------------------------------
+- rövid, pár másodperces mérési kimaradás,
+- kis feszültségmérési zaj,
+- relax dV/dt nem érte el a 4 uV/s célt, de letelt a minimális idő,
+- C/5 áram ±2...5% tartományban eltért.
+
+10.3 Learning ciklushoz szigorúbb feltételek:
+---------------------------------------------
+- C/5 kisütés lehetőleg végig folyamatos legyen,
+- terminate voltage pontosan legyen beállítva,
+- töltés után valódi töltőleválasztás legyen,
+- kisütés után valódi terhelésleválasztás legyen,
+- relax idők legyenek betartva.
+
+
+11. PÉLDA 12 V / 7 Ah AGM AKKURA
+================================
+
+Akkuprofil:
+- cell_count = 6
+- nominal_capacity_Ah = 7
+- charge_voltage_per_cell = 2,40 V
+- charge_voltage_pack = 14,40 V
+- terminate_voltage_per_cell = 1,80 V
+- terminate_voltage_pack = 10,80 V
+
+Áramok:
+- C/20 = 0,35 A
+- C/10 = 0,70 A
+- C/5  = 1,40 A
+- 0,2C = 1,40 A
+
+Karakterizálás:
+1. Töltés 14,40 V / 0,70...1,40 A, taper 70...140 mA.
+2. Relax 5 h.
+3. Kisütés 0,35 A-rel 10,80 V-ig.
+4. Relax 5 h.
+5. Töltés.
+6. Relax 5 h.
+7. Kisütés 1,40 A-rel 10,80 V-ig.
+8. Relax 5 h.
+9. OCV-SOC teszt:
+   - referencia kapacitás például mért 6,8 Ah
+   - 5% lépés = 0,34 Ah
+   - C/10 áram = 0,70 A
+   - egy lépés kisütési ideje kb. 29 perc
+   - relax lépésenként 1...2 h
+
+BQ learning fizikai ciklus:
+1. Töltés 14,40 V / 0,70...1,40 A, taper 70...140 mA.
+2. Relax 2 h.
+3. Kisütés 1,40 A-rel 10,80 V-ig.
+4. Relax 5 h.
+5. Ismételd még egyszer.
+6. Kézi BQ ellenőrzés és golden export.
+
+
+12. PÉLDA 24 V / 18 Ah AGM PACKRA
+=================================
+
+Akkuprofil:
+- cell_count = 12
+- nominal_capacity_Ah = 18
+- charge_voltage_per_cell = 2,40 V
+- charge_voltage_pack = 28,80 V
+- terminate_voltage_per_cell = 1,80 V
+- terminate_voltage_pack = 21,60 V
+
+Áramok:
+- C/20 = 0,90 A
+- C/10 = 1,80 A
+- C/5  = 3,60 A
+- 0,2C = 3,60 A
+
+Fontos:
+Mivel a pack soros, az Ah továbbra is 18 Ah.
+Nem 36 Ah.
+
+BQ learning fizikai ciklus:
+1. Töltés 28,80 V / 1,8...3,6 A.
+2. Taper például C/50...C/100 = 360...180 mA.
+3. Relax 2 h.
+4. Kisütés 3,6 A-rel 21,60 V-ig.
+5. Relax 5 h.
+6. Ismétlés.
+7. Kézi BQ ellenőrzés.
+
+
+13. SZOFTVERES ÁLLAPOTGÉP RÖVID PSZEUDÓFOLYAMATA
+================================================
+
+main():
+    load_battery_profile()
+    init_devices()
+    safety_precheck()
+
+    if selected_test == "CHARACTERIZATION":
+        run_full_charge()
+        run_relax_after_charge(5h)
+        run_discharge(C20, terminate_voltage)
+        run_relax_after_discharge(5h)
+
+        run_full_charge()
+        run_relax_after_charge(5h)
+        run_discharge(C5, terminate_voltage)
+        run_relax_after_discharge(5h)
+
+        run_full_charge()
+        run_relax_after_charge(5h)
+        run_ocv_soc_step_test(step=5%, current=C10_or_C20)
+
+        run_report()
+
+    if selected_test == "BQ_LEARNING_PHYSICAL":
+        repeat 2 times:
+            run_full_charge()
+            run_relax_after_charge(2h)
+            run_discharge(C5, terminate_voltage)
+            run_relax_after_discharge(5h)
+
+        manual_bq_checkpoint()
+        run_report()
+
+    shutdown_devices()
+
+
+14. MANUÁLIS BQ GOLDEN IMAGE LÉPÉSEK A LABORCIKLUS UTÁN
+=======================================================
+
+A szoftver ezt nem végzi el automatikusan, csak emlékeztetőként írja ki.
+
+A kezelő feladata:
+1. Csatlakozás BQ34Z110-hez külön eszközzel.
+2. Ellenőrzés:
+   - UpdateStatus elérte-e a 0x06 értéket.
+   - Qmax reális-e.
+   - Ra table frissült-e.
+   - MaxError megfelelő-e.
+3. Data Flash export.
+4. Golden image / gg.csv mentés.
+5. Golden fájlban gyártási image-hez:
+   - UpdateStatus 0x06 -> 0x02.
+   - Cycle Count nullázás, ha szükséges.
+   - egyedi mezők törlése vagy sablonosítása.
+6. Image validálása egy második azonos akkun.
+
+
+15. LÉNYEGI DÖNTÉSI JAVASLATOK
+==============================
+
+15.1 Milyen kisütést használjunk?
+---------------------------------
+- Kapacitás adatlap-szerű méréshez: C/20.
+- Gyorsabb karakterizáláshoz: C/10.
+- BQ learning fizikai ciklushoz: C/5.
+- Valós termékteszt: a készülék tényleges fogyasztásával.
+
+
+15.2 Milyen töltést használjunk?
+--------------------------------
+AGM-nél:
+- 0,1C...0,2C ajánlott labor-karakterizáláshoz.
+- CV: akku adatlap szerint, tipikusan 2,40...2,45 V/cella.
+- Taper: C/50...C/100.
+- Töltés után valódi lekapcsolás.
+
+
+15.3 1,75 V/cella vagy 1,80 V/cella?
+------------------------------------
+- 1,80 V/cella kímélőbb és sok alkalmazáshoz elég.
+- 1,75 V/cella mélyebb kisütés, csak ha adatlap és cél engedi.
+- Golden image learninghez az a jó, ami a termék tényleges üres definíciója lesz.
+- Ha a készülék 1,80 V/cella körül lekapcsol, akkor a BQ terminate is legyen ehhez illesztve.
+
+
+15.4 Kell-e 5%-os OCV-SOC lépcsős teszt?
+----------------------------------------
+BQ learninghez nem kötelező.
+Akku karakterizáláshoz nagyon hasznos.
+Szoftveres fejlesztéshez, riporthoz, validáláshoz és hibás akkuk felismeréséhez ajánlott.
+
+
+15.5 Kell-e BQ kommunikáció?
+----------------------------
+Ebben a specifikációban nem.
+A laborfolyamat BQ nélkül is lefuttatható.
+A BQ golden image elkészítése viszont külön, manuális vagy másik szoftveres lépés marad.
+
+
+16. MINIMÁLIS MEGVALÓSÍTANDÓ SZOFTVER FUNKCIÓK
+==============================================
+
+MVP funkciók:
+1. Akku profil megadása.
+2. C-ráta áramok automatikus számítása.
+3. CC/CV töltés vezérlése.
+4. CC kisütés vezérlése.
+5. Relax időzítés.
+6. Ah/Wh integrálás.
+7. CSV logolás.
+8. Biztonsági leállítás.
+9. Teszt riport.
+10. BQ-learning fizikai ciklus futtatása BQ-kommunikáció nélkül.
+
+Későbbi bővítések:
+1. OCV-SOC automata lépcsőzés.
+2. dV/dt alapú relax lezárás.
+3. Terheléses impedancia impulzusteszt.
+4. Grafikon generálás.
+5. PDF/HTML riport.
+6. Több akku összehasonlítása.
+7. Kézi BQ ellenőrző adatok hozzáfűzése.
+8. Golden image checklist kezelése.
+
+
+17. ÖSSZEFOGLALÓ
+================
+
+A szoftver feladata nem a BQ34Z110 közvetlen tanítása, hanem a tanításhoz és
+akku-karakterizáláshoz szükséges fizikai laborfolyamatok pontos, ismételhető végrehajtása.
+
+A legfontosabb automata folyamatok:
+
+1. Teljes töltés CC/CV-vel.
+2. Töltés utáni relax.
+3. Kontrollált CC kisütés.
+4. Kisütés utáni relax.
+5. Kapacitás és energia integrálása.
+6. OCV-SOC lépcsőzés.
+7. Terheléses ellenállás/impedancia becslés.
+8. Kétciklusos BQ-learning fizikai ciklus:
+   - töltés,
+   - 2 h relax,
+   - C/5 kisütés,
+   - 5 h relax,
+   - ismétlés.
+
+BQ kommunikáció nélkül a szoftver nem tudja megmondani, hogy a BQ learning ténylegesen sikerült-e.
+Ezt külön kell ellenőrizni a BQ oldalán.
+A laboroldali feltételeket viszont ez a metódus biztosítja és dokumentálja.

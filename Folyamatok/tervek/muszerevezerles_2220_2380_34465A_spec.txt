@@ -1,0 +1,1453 @@
+MŰSZERVEZÉRLÉSI SPECIFIKÁCIÓ
+AKKU LABORFOLYAMATOKHOZ
+
+Eszközök:
+- Tápegység: Keithley 2220-30-1, USB
+- Elektronikus műterhelés: Keithley 2380-120-60, USB
+- DMM: Keysight 34465A, LAN
+
+Verzió: 1.0
+Cél: A laborprogramba beépítendő műszervezérlési réteg, parancskészlet, inicializálás,
+biztonsági állapotgép, mérési és logolási eljárások definiálása akkumulátor töltés,
+kisütés, relaxáció, kapacitásmérés, OCV-SOC teszt és golden-image előkészítő
+laborfolyamatokhoz.
+
+FONTOS:
+Ez a dokumentum NEM tartalmaz BQ34Z110 kommunikációt.
+A szoftver csak a tápegységet, elektronikus terhelést, DMM-et és opcionális reléket vezérli.
+
+
+1. ÁLTALÁNOS KOMMUNIKÁCIÓS RÉTEG
+================================
+
+1.1 Ajánlott szoftveres alap
+----------------------------
+Python esetén javasolt:
+- pyvisa
+- pyvisa-py vagy NI-VISA / Keysight IO Libraries
+- time
+- logging
+- csv
+- dataclasses
+- threading opcionálisan
+- numpy/pandas opcionálisan utófeldolgozáshoz
+
+Minden műszert külön driver osztály kezeljen:
+
+- Keithley2220PSU
+- Keithley2380Load
+- Keysight34465ADMM
+- InstrumentManager
+- SafetyManager
+- BatteryTestController
+
+Minden driver azonos alapmetódusokat adjon:
+
+connect()
+disconnect()
+write(cmd)
+query(cmd)
+idn()
+reset()
+clear_status()
+check_error()
+safe_off()
+self_test()
+is_connected()
+
+
+1.2 Parancsküldési szabályok
+----------------------------
+Minden SCPI parancs végére LF karakter kell:
+
+"\n"
+
+A write() metódus:
+- küldi a parancsot,
+- opcionálisan vár *OPC? lekérdezést,
+- hiba esetén kivételt dob.
+
+A query() metódus:
+- küldi a lekérdezést,
+- visszaolvassa a választ,
+- levágja a whitespace karaktereket,
+- timeout esetén hibát dob.
+
+Minden műszerhez legyen:
+- timeout_ms
+- command_delay_s
+- retry_count
+- log_all_scpi_commands = True/False
+
+Javasolt alap:
+- timeout = 5000 ms
+- hosszú műveleteknél: 10000...30000 ms
+- parancsok között: 20...100 ms
+
+
+1.3 VISA resource stringek
+--------------------------
+2220-30-1 USB:
+- USBTMC eszköz
+- Példa:
+  USB0::0x0699::0x0397::<SERIAL>::INSTR
+- A pontos resource stringet a VISA Resource Manager listázza.
+
+2380-120-60 USB:
+- USBTMC eszköz
+- Példa:
+  USB0::<VID>::<PID>::<SERIAL>::INSTR
+- A pontos resource stringet a VISA Resource Manager listázza.
+
+34465A LAN:
+Ajánlott VISA LAN:
+- TCPIP0::<IP_ADDRESS>::inst0::INSTR
+
+Alternatív socket mód, ha engedélyezett:
+- TCPIP0::<IP_ADDRESS>::5025::SOCKET
+
+Megjegyzés:
+Socket módban különösen figyelni kell a sorvégekre és timeoutokra.
+VISA INSTR módban általában kényelmesebb a SCPI kezelés.
+
+
+1.4 Kapcsolódási sorrend
+------------------------
+A szoftver indulásakor:
+
+1. VISA Resource Manager inicializálása.
+2. Műszerek megnyitása.
+3. *IDN? minden műszeren.
+4. ID ellenőrzés:
+   - 2220 esetén tartalmazza: KEITHLEY és 2220-30-1
+   - 2380 esetén tartalmazza: Keithley és 2380-120-60
+   - 34465A esetén tartalmazza: Keysight/Agilent és 34465A
+5. *CLS minden műszeren.
+6. Biztonsági kikapcsolás:
+   - PSU output OFF
+   - LOAD input OFF
+7. Kezdő mérés:
+   - DMM feszültség
+   - load readback feszültség/áram
+   - PSU readback feszültség/áram
+8. Ha minden rendben: READY állapot.
+
+
+1.5 Leállási sorrend
+--------------------
+Normál vagy hibás leálláskor mindig:
+
+1. Elektronikus terhelés input OFF.
+2. Tápegység output OFF.
+3. Opcionális relék nyugalmi állapotba.
+4. Műszerek error queue lekérdezése.
+5. Log lezárása.
+6. VISA session zárása.
+
+Vészleálláskor:
+- először LOAD OFF,
+- utána PSU OFF,
+- utána relék bontása.
+
+
+2. KEITHLEY 2220-30-1 TÁPEGYSÉG USB VEZÉRLÉS
+============================================
+
+2.1 Funkció a laborprogramban
+-----------------------------
+A 2220-30-1 feladata:
+- AGM akku CC/CV töltése,
+- feszültség- és áramlimit beállítása,
+- töltés indítása/leállítása,
+- PSU saját visszamért feszültség/áram logolása,
+- biztonsági limit funkciók támogatása.
+
+A 2220-30-1 két csatornás tápegység.
+A programban első körben CH1 használata javasolt.
+CH2-t csak akkor használd, ha külön funkciót kap.
+
+
+2.2 Inicializálás
+-----------------
+Ajánlott parancssor:
+
+*IDN?
+*CLS
+SYST:REM
+INST:COMB:OFF
+INST:SEL CH1
+OUTP OFF
+SOUR:VOLT 0
+SOUR:CURR 0.1
+
+Megjegyzés:
+- INST:COMB:OFF: csatorna-kombinációk kikapcsolása, független CH1/CH2 használat.
+- SYST:REM: remote mód.
+- A kimenet mindig OFF legyen beállítás előtt.
+
+
+2.3 Csatornaválasztás
+---------------------
+CH1 kiválasztása:
+
+INST:SEL CH1
+
+CH2 kiválasztása:
+
+INST:SEL CH2
+
+Aktuális csatorna lekérdezése:
+
+INST:SEL?
+
+
+2.4 Feszültség és áram beállítása
+---------------------------------
+CH1-re:
+
+INST:SEL CH1
+SOUR:VOLT <voltage_V>
+SOUR:CURR <current_A>
+
+Példa 12 V AGM töltéshez:
+
+INST:SEL CH1
+SOUR:VOLT 14.400
+SOUR:CURR 1.400
+
+Példa 24 V AGM töltéshez:
+
+INST:SEL CH1
+SOUR:VOLT 28.800
+SOUR:CURR 3.600
+
+Lekérdezés:
+
+SOUR:VOLT?
+SOUR:CURR?
+
+
+2.5 Kimenet vezérlése
+---------------------
+Kimenet bekapcsolása:
+
+OUTP ON
+
+Kimenet kikapcsolása:
+
+OUTP OFF
+
+Alternatív, csatornaspecifikus forma, ha az adott firmware igényli:
+
+INST:SEL CH1
+OUTP:ENAB ON
+CHAN:OUTP ON
+
+A driver implementációban legyen egyetlen publikus metódus:
+
+psu.output_on(channel="CH1")
+psu.output_off(channel="CH1")
+psu.all_outputs_off()
+
+A metódus firmware-től függően használhat:
+- OUTP OFF
+- OUTP:ALL OFF
+- OUTP:ENAB OFF
+- SOUR:CHAN:OUTP OFF
+
+A program induláskor tesztelje, melyik parancs működik, és azt használja.
+
+
+2.6 Mérés / readback
+--------------------
+PSU kimeneti feszültség mérése:
+
+MEAS:VOLT? CH1
+
+PSU kimeneti áram mérése:
+
+MEAS:CURR? CH1
+
+PSU kimeneti teljesítmény mérése:
+
+MEAS:POW? CH1
+
+Összes csatorna lekérdezése:
+
+MEAS:VOLT? ALL
+MEAS:CURR? ALL
+MEAS:POW? ALL
+
+A FETCh? parancs nem indít új mérést, csak az utolsó pufferelt értéket adja vissza:
+
+FETC:VOLT? CH1
+FETC:CURR? CH1
+FETC:POW? CH1
+
+Ajánlás:
+- logoláshoz 1...10 s periódussal MEAS? használható.
+- gyors belső szabályozási döntéshez inkább DMM vagy dedikált mérés legyen az elsődleges.
+- a PSU readback csak ellenőrző adat legyen.
+
+
+2.7 Töltési mód megvalósítása
+-----------------------------
+A 2220-30-1 tápegységet CC/CV töltőként így kell használni:
+
+1. PSU OFF.
+2. Csatorna kiválasztás.
+3. Feszültség beállítása: akku CV végfeszültség.
+4. Áramlimit beállítása: töltőáram.
+5. PSU ON.
+6. Periodikus logolás:
+   - DMM akku feszültség,
+   - PSU measured voltage,
+   - PSU measured current,
+   - hőmérséklet.
+7. Töltés vége, ha:
+   - áram <= taper_current_A legalább taper_hold_time_s ideig,
+   VAGY
+   - max_charge_time elérve,
+   VAGY
+   - max_charge_Ah elérve,
+   VAGY
+   - biztonsági hiba.
+8. PSU OFF.
+9. Relé bontás, ha van.
+
+
+2.8 Töltési végfeltétel
+-----------------------
+Taper alapú leállítás:
+
+if measured_charge_current_A <= taper_current_A folyamatosan legalább 60 s-ig:
+    charge_done = True
+
+Javasolt taper:
+- C/50...C/100 AGM akkunál, adatlap szerint.
+
+Példa 7 Ah:
+- C/50 = 140 mA
+- C/100 = 70 mA
+
+Példa 18 Ah:
+- C/50 = 360 mA
+- C/100 = 180 mA
+
+
+2.9 PSU biztonsági limitek
+--------------------------
+A programban legyen szoftveres limit is:
+
+- max_psu_voltage_set_V
+- max_psu_current_set_A
+- max_measured_voltage_V
+- max_measured_current_A
+- max_charge_time_h
+- max_charge_Ah
+- max_charge_Wh
+- max_temperature_C
+
+Ha bármelyik túllép:
+- PSU OFF,
+- LOAD OFF,
+- ERROR log.
+
+
+2.10 PSU driver publikus metódusok
+----------------------------------
+class Keithley2220PSU:
+
+    connect(resource)
+    disconnect()
+    idn() -> str
+    reset()
+    clear_status()
+    remote()
+    local()
+    select_channel(channel)
+    set_voltage(channel, voltage_V)
+    set_current(channel, current_A)
+    get_set_voltage(channel) -> float
+    get_set_current(channel) -> float
+    output_on(channel)
+    output_off(channel)
+    all_outputs_off()
+    measure_voltage(channel) -> float
+    measure_current(channel) -> float
+    measure_power(channel) -> float
+    check_error() -> list
+    safe_off()
+
+
+3. KEITHLEY 2380-120-60 ELEKTRONIKUS TERHELÉS USB VEZÉRLÉS
+===========================================================
+
+3.1 Funkció a laborprogramban
+-----------------------------
+A 2380-120-60 feladata:
+- akkumulátor kontrollált kisütése,
+- CC, CR, CP, CV mód támogatása,
+- akku tesztekhez elsősorban CC mód,
+- kapacitás és kisütési idő saját mérésének opcionális lekérdezése,
+- feszültség, áram, teljesítmény readback.
+
+A 2380-120-60 névleges tartománya:
+- max. 120 V
+- max. 60 A
+- max. 250 W körüli teljesítményosztály
+
+A programban minden kisütési pontnál ellenőrizni kell:
+P = V * I
+P <= megengedett teljesítmény
+
+
+3.2 Inicializálás
+-----------------
+Ajánlott parancssor:
+
+*IDN?
+*CLS
+SYST:REM
+INPUT OFF
+SOUR:FUNC CURR
+SOUR:CURR 0
+
+Megjegyzés:
+Egyes firmware-eknél a rövidített vagy alternatív forma működhet:
+- INP OFF
+- FUNC CURR
+- SOUR:FUNC:MODE CURR
+- CURR <A>
+
+A driverben legyen parancs-kompatibilitási réteg.
+
+
+3.3 Üzemmód kiválasztás
+-----------------------
+Konstans áram mód:
+
+SOUR:FUNC CURR
+
+Alternatív formák, ha szükséges:
+SOUR:FUNC:MODE CURR
+FUNC CURR
+
+Lekérdezés:
+
+SOUR:FUNC?
+SOUR:FUNC:MODE?
+
+A program elsődlegesen CC módot használjon akku kisütéshez.
+
+
+3.4 Kisütőáram beállítása
+-------------------------
+Áram beállítása:
+
+SOUR:CURR <current_A>
+
+Példa:
+
+SOUR:FUNC CURR
+SOUR:CURR 1.400
+
+Lekérdezés:
+
+SOUR:CURR?
+
+
+3.5 Terhelés input vezérlés
+---------------------------
+Terhelés bekapcsolása:
+
+INPUT ON
+
+Terhelés kikapcsolása:
+
+INPUT OFF
+
+Rövid forma:
+
+INP ON
+INP OFF
+
+A driverben:
+
+load.input_on()
+load.input_off()
+load.safe_off()
+
+
+3.6 Readback mérések
+--------------------
+Terhelés bemeneti feszültség:
+
+MEAS:VOLT?
+
+Terhelés bemeneti áram:
+
+MEAS:CURR?
+
+Terhelés bemeneti teljesítmény:
+
+MEAS:POW?
+
+Kisütött kapacitás, ha a load belső battery/capability mérése aktív:
+
+MEAS:CAP?
+
+Kisütési idő:
+
+MEAS:TIME?
+
+Megjegyzés:
+A program saját Ah/Wh integrálást végezzen a DMM/load/PSU mért adatokból.
+A MEAS:CAP? és MEAS:TIME? csak ellenőrző adatként legyen használva, ne kizárólagos forrásként.
+
+
+3.7 Védelem beállítása
+----------------------
+Soft OCP, ha használod:
+
+CURR:PROT:STAT ON
+CURR:PROT:LEV <current_A>
+CURR:PROT:DEL <delay_s>
+
+Slew rate:
+Gyors váltásokhoz alapértelmezés lehet MAX.
+Akku teszteknél célszerű nem túl agresszív áramlépcsőt használni.
+
+Példa lassabb fel/lefutásra:
+
+CURR:SLOW:STAT ON
+CURR:SLEW:POS <A_per_ms>
+CURR:SLEW:NEG <A_per_ms>
+
+Vagy gyors mód:
+
+CURR:SLOW:STAT OFF
+CURR:SLEW:POS MAX
+CURR:SLEW:NEG MAX
+
+
+3.8 CC kisütés állapotgépe
+--------------------------
+1. PSU OFF.
+2. Load INPUT OFF.
+3. Set mode CC:
+   SOUR:FUNC CURR
+4. Set current:
+   SOUR:CURR <discharge_current_A>
+5. Ellenőrizd DMM-mel az akku feszültségét.
+6. Ha battery_voltage_V > terminate_voltage_pack_V:
+   INPUT ON
+7. Logolás ciklus:
+   - DMM voltage
+   - load measured voltage
+   - load measured current
+   - load measured power
+   - Ah/Wh integrálás
+8. Stop feltételek:
+   - DMM voltage <= terminate_voltage_pack_V
+   - load voltage <= terminate_voltage_pack_V, ha DMM hibás
+   - elapsed_time >= max_discharge_time
+   - discharge_Ah >= max_expected_discharge_Ah
+   - temperature > max_temperature
+   - power > max_power_limit
+   - kommunikációs hiba
+9. INPUT OFF.
+10. Log: DISCHARGE_DONE.
+
+
+3.9 2380 driver publikus metódusok
+----------------------------------
+class Keithley2380Load:
+
+    connect(resource)
+    disconnect()
+    idn() -> str
+    reset()
+    clear_status()
+    remote()
+    local()
+    set_mode_cc()
+    set_current(current_A)
+    get_set_current() -> float
+    input_on()
+    input_off()
+    measure_voltage() -> float
+    measure_current() -> float
+    measure_power() -> float
+    measure_capacity_Ah() -> float
+    measure_time_s() -> float
+    set_ocp(level_A, delay_s)
+    enable_ocp(enable)
+    set_slew(pos, neg, slow_mode)
+    check_error() -> list
+    safe_off()
+
+
+4. KEYSIGHT 34465A DMM LAN VEZÉRLÉS
+===================================
+
+4.1 Funkció a laborprogramban
+-----------------------------
+A 34465A legyen az elsődleges feszültségmérő az akku kapcsain.
+
+Feladat:
+- akku kapocsfeszültség pontos mérése töltés/kisütés/relax alatt,
+- OCV mérés relax végén,
+- dV/dt számításhoz feszültséglog,
+- opcionálisan shunt feszültség mérése, ha külön csatornázás/relé van.
+
+Alapeset:
+- DCV mérés
+- fix tartomány
+- NPLC 1, 10 vagy 100 a mérési céltól függően
+
+
+4.2 LAN kapcsolat
+-----------------
+Ajánlott VISA resource:
+
+TCPIP0::<IP_ADDRESS>::inst0::INSTR
+
+Példa:
+
+TCPIP0::192.168.2.120::inst0::INSTR
+
+Alternatív socket:
+
+TCPIP0::192.168.2.120::5025::SOCKET
+
+A 34465A LAN szolgáltatásai között lehet:
+- VISA LAN
+- Sockets
+- Telnet
+- Web Server
+- mDNS
+- HiSLIP
+
+A programban az elsődleges megoldás VISA LAN INSTR legyen.
+
+
+4.3 Inicializálás
+-----------------
+Ajánlott parancssor:
+
+*IDN?
+*CLS
+SYST:PRES
+CONF:VOLT:DC <range>,<resolution>
+VOLT:DC:NPLC <nplc>
+VOLT:DC:IMP:AUTO ON|OFF
+TRIG:SOUR IMM
+SAMP:COUN 1
+
+Példa 12 V/24 V akkuhoz:
+
+CONF:VOLT:DC 100,0.00001
+VOLT:DC:NPLC 10
+TRIG:SOUR IMM
+SAMP:COUN 1
+
+Megjegyzés:
+- 100 V range jó 12 V és 24 V packhoz.
+- 10 NPLC jó stabil OCV/log méréshez.
+- 1 NPLC gyorsabb folyamatloghoz.
+- 100 NPLC nagyon pontos, de lassú.
+
+
+4.4 Feszültségmérés egyszerű READ? módban
+-----------------------------------------
+Egyszerű mérés:
+
+READ?
+
+Példa:
+
+CONF:VOLT:DC 100,0.00001
+VOLT:DC:NPLC 10
+READ?
+
+A READ? konfiguráció után indít és visszaad egy mérést.
+Ez egyszerű és megbízható, hosszú akkuteszteknél elég lehet.
+
+
+4.5 INIT/FETCH mód
+------------------
+Ha gyorsabb vagy jobban kontrollált triggerelés kell:
+
+INIT
+FETC?
+
+Egyszeri mérés:
+
+ABOR
+INIT
+FETC?
+
+A FETC? az olvasási memóriából veszi ki az értéket.
+Ha sok mérést gyűjtesz triggerelt módban, előnyösebb lehet, mint minden pontnál READ?.
+
+
+4.6 Mintavételi beállítások
+---------------------------
+Egy mérés:
+
+SAMP:COUN 1
+TRIG:COUN 1
+
+Több mérés egy indítással:
+
+SAMP:COUN <N>
+TRIG:COUN 1
+INIT
+FETC?
+
+Példa 10 mérés átlagoláshoz:
+
+CONF:VOLT:DC 100,0.00001
+VOLT:DC:NPLC 1
+SAMP:COUN 10
+TRIG:SOUR IMM
+INIT
+FETC?
+
+A program oldalon is átlagolható.
+
+
+4.7 NPLC ajánlások
+------------------
+Töltés/kisütés folyamatlog:
+- NPLC = 1
+- mintavétel 1...10 s
+- elég stabil és nem túl lassú
+
+Relax / OCV mérés:
+- NPLC = 10
+- mintavétel 10...60 s
+- jó zajelnyomás
+
+Nagyon pontos OCV pont:
+- NPLC = 100
+- több mérés átlaga
+- csak ritkán, például lépcsők végén
+
+Gyors impulzusos ellenállásteszt:
+- NPLC = 0.02 vagy aperture alapú mérés
+- csak akkor, ha a sebesség fontosabb, mint a zaj
+
+
+4.8 Automatikus tartomány tiltása
+---------------------------------
+Akkufeszültség méréshez fix tartomány ajánlott.
+
+12/24 V akkuhoz:
+
+CONF:VOLT:DC 100
+VOLT:DC:RANG 100
+VOLT:DC:RANG:AUTO OFF
+
+Miért:
+- az autorange váltás lassíthat,
+- tranziens hibát okozhat,
+- logban ugrásokat okozhat.
+
+4.9 Bemeneti impedancia
+-----------------------
+DCV mérésnél:
+- default 10 MOhm
+- HighZ >10 GOhm mód is elérhető bizonyos tartományokon/beállításoknál
+
+Akkufeszültség mérésnél a 10 MOhm terhelés elhanyagolható.
+OCV finom mérésnél HighZ használható, de nem kötelező.
+
+Parancs, ha használni akarod:
+
+VOLT:DC:IMP:AUTO ON
+
+Vagy 10 MOhm fix:
+
+VOLT:DC:IMP:AUTO OFF
+
+
+4.10 DMM self-test
+------------------
+Teljes self-test:
+
+TEST:ALL?
+
+Válasz:
+- +0 = sikeres
+- +1 = sikertelen
+
+Fontos:
+A teljes self-test előtt a mérőbemeneteket le kell választani.
+A normál programindításnál ne fusson automatikusan teljes self-test, ha az akku rá van kötve.
+Helyette induláskor elég:
+
+*IDN?
+*CLS
+SYST:ERR?
+
+
+4.11 DMM driver publikus metódusok
+----------------------------------
+class Keysight34465ADMM:
+
+    connect(resource)
+    disconnect()
+    idn() -> str
+    reset()
+    preset()
+    clear_status()
+    configure_dcv(range_V, nplc, resolution=None, high_z=False)
+    read_voltage() -> float
+    init()
+    fetch() -> list[float]
+    set_sample_count(n)
+    set_trigger_immediate()
+    set_nplc(nplc)
+    set_range(range_V)
+    autorange_off()
+    check_error() -> list
+    self_test_full() -> int
+    safe_state()
+
+
+5. KÖZÖS ERROR QUEUE KEZELÉS
+============================
+
+5.1 Általános parancsok
+-----------------------
+Minden műszernél:
+
+*CLS
+*IDN?
+*OPC?
+*SYST:ERR?
+
+Nem minden műszer pontosan ugyanúgy nevezi a hibasort, ezért driverenként kell implementálni.
+
+Általános error polling:
+
+errors = []
+for i in range(20):
+    resp = query("SYST:ERR?")
+    errors.append(resp)
+    if resp starts with "0" or contains "No error":
+        break
+
+Ha a 2220 esetén SYST:ERR? nem ad megfelelő választ, használható lehet az event queue:
+- *ESR?
+- EVMSG?
+- ALLEV?
+
+A driverben legyen eszközspecifikus check_error().
+
+
+5.2 Hiba esetén
+---------------
+Ha bármelyik műszer hibát jelez:
+1. LOAD INPUT OFF
+2. PSU OUTPUT OFF
+3. Log: INSTRUMENT_ERROR
+4. Error queue mentése
+5. Teszt megszakítása vagy kezelői döntés
+
+
+6. INSTRUMENT MANAGER
+=====================
+
+6.1 Feladat
+-----------
+Az InstrumentManager kezeli a három műszert együtt.
+
+Fő metódusok:
+
+connect_all()
+identify_all()
+initialize_all()
+safe_all_off()
+disconnect_all()
+read_all_measurements()
+check_all_errors()
+
+
+6.2 read_all_measurements()
+---------------------------
+Egy mérési pont struktúrája:
+
+MeasurementSnapshot:
+- timestamp
+- dmm_voltage_V
+- psu_voltage_V
+- psu_current_A
+- psu_power_W
+- load_voltage_V
+- load_current_A
+- load_power_W
+- temperature_C, ha van külön mérő
+- state
+- step_name
+
+Példa log ciklus:
+
+while test_running:
+    v_dmm = dmm.read_voltage()
+    v_psu = psu.measure_voltage("CH1")
+    i_psu = psu.measure_current("CH1")
+    v_load = load.measure_voltage()
+    i_load = load.measure_current()
+    p_load = load.measure_power()
+
+    log(snapshot)
+
+    safety.check(snapshot)
+
+    sleep(sample_interval_s)
+
+
+6.3 Mérési prioritás
+--------------------
+Elsődleges akku feszültség:
+- 34465A DMM
+
+Másodlagos ellenőrző feszültség:
+- 2380 load MEAS:VOLT?
+- 2220 PSU MEAS:VOLT?
+
+Elsődleges kisütőáram:
+- 2380 load MEAS:CURR?
+
+Elsődleges töltőáram:
+- 2220 PSU MEAS:CURR?
+- ha van külső shunt + DMM, akkor az legyen pontosabb forrás
+
+Ah/Wh integráláshoz:
+- töltés alatt: PSU current vagy shunt current
+- kisütés alatt: load current
+- feszültséghez: DMM voltage
+
+
+7. TÖLTÉSI FOLYAMAT MŰSZERPARANCSAI
+===================================
+
+7.1 Töltés indítása
+-------------------
+Bemenet:
+- charge_voltage_V
+- charge_current_A
+- taper_current_A
+- taper_hold_s
+- max_time_s
+
+Parancssor:
+
+# biztonság
+load.input_off()
+psu.output_off("CH1")
+
+# DMM
+dmm.configure_dcv(range_V=100, nplc=1 vagy 10)
+
+# PSU
+psu.select_channel("CH1")
+psu.set_voltage("CH1", charge_voltage_V)
+psu.set_current("CH1", charge_current_A)
+psu.output_on("CH1")
+
+# állapot
+state = CHARGING_CC_CV
+
+
+7.2 Töltés közbeni log
+----------------------
+Minden sample_interval_s időben:
+
+- DMM READ?
+- PSU MEAS:VOLT? CH1
+- PSU MEAS:CURR? CH1
+- opcionálisan load MEAS:VOLT? input OFF mellett csak ellenőrzésre
+
+Taper logika:
+
+if psu_current_A <= taper_current_A:
+    taper_timer += dt
+else:
+    taper_timer = 0
+
+if taper_timer >= taper_hold_s:
+    stop_charge("TAPER_REACHED")
+
+
+7.3 Töltés leállítása
+---------------------
+Parancs:
+
+psu.output_off("CH1")
+
+Majd ellenőrzés:
+
+psu_current_A közel 0
+DMM voltage még akku feszültség, nem tápegység CV
+
+Ha van relé:
+- charger relay OFF
+
+
+8. KISÜTÉSI FOLYAMAT MŰSZERPARANCSAI
+====================================
+
+8.1 Kisütés indítása
+--------------------
+Bemenet:
+- discharge_current_A
+- terminate_voltage_V
+- max_time_s
+- max_power_W
+
+Parancssor:
+
+# biztonság
+psu.output_off("CH1")
+load.input_off()
+
+# DMM
+dmm.configure_dcv(range_V=100, nplc=1)
+
+# Load
+load.set_mode_cc()
+load.set_current(discharge_current_A)
+load.input_on()
+
+state = DISCHARGING_CC
+
+
+8.2 Kisütés közbeni log
+-----------------------
+Minden sample_interval_s időben:
+
+- DMM READ?
+- load MEAS:VOLT?
+- load MEAS:CURR?
+- load MEAS:POW?
+- opcionálisan load MEAS:CAP?
+- opcionálisan load MEAS:TIME?
+
+Stop feltétel:
+
+if dmm_voltage_V <= terminate_voltage_V:
+    stop_discharge("TERMINATE_VOLTAGE_REACHED")
+
+if load_power_W > max_power_W:
+    emergency_stop("LOAD_POWER_LIMIT")
+
+if elapsed_s > max_time_s:
+    stop_discharge("MAX_TIME_REACHED")
+
+
+8.3 Kisütés leállítása
+----------------------
+Parancs:
+
+load.input_off()
+
+Majd ellenőrzés:
+- load current közel 0
+- DMM voltage visszaemelkedés logolása relax állapotban
+
+Ha van relé:
+- load relay OFF
+
+
+9. RELAX FOLYAMAT MŰSZERPARANCSAI
+=================================
+
+9.1 Relax indítása
+------------------
+Parancsok:
+
+psu.output_off("CH1")
+load.input_off()
+dmm.configure_dcv(range_V=100, nplc=10)
+
+state = RELAX
+
+
+9.2 Relax log
+-------------
+Minden 30...60 s:
+- DMM READ?
+- opcionálisan PSU/LOAD readback ellenőrzés, hogy nincs áram
+
+dV/dt számítás:
+- tarts egy mozgó ablakot, például 10 vagy 30 perc
+- dVdt = (V_last - V_first) / (t_last - t_first)
+- egység: V/s
+- uV/s = dVdt * 1e6
+
+Relax lezárás:
+- minimális idő letelt
+ÉS opcionálisan
+- abs(dVdt_uV_s) <= limit
+
+Példa:
+limit = 4 uV/s
+
+
+10. OCV-SOC LÉPCSŐS TESZT MŰSZERPARANCSAI
+=========================================
+
+10.1 Alapelv
+------------
+A program adott Ah mennyiséget merít ki, majd pihentet, majd DMM-mel OCV-t mér.
+
+Egy lépés:
+
+1. load CC áram beállítása
+2. input ON
+3. Ah integrálása
+4. ha removed_Ah >= step_Ah -> input OFF
+5. relax
+6. DMM OCV mérés NPLC 10/100
+7. következő lépés
+
+
+10.2 Ah cél alapú kisütés
+-------------------------
+Ah integrálás:
+
+delta_Ah = load_current_A * dt_s / 3600
+
+Lépés vége:
+
+if step_removed_Ah >= step_Ah:
+    load.input_off()
+
+Példa:
+- mért kapacitás = 7 Ah
+- 5% lépés = 0,35 Ah
+- C/10 = 0,7 A
+- lépés ideje kb. 0,5 h
+
+
+11. TERHELÉSES IMPEDANCIA-JELLEGŰ TESZT
+=======================================
+
+11.1 Folyamat
+-------------
+Minden kiválasztott SOC ponton:
+
+1. Relaxált akku.
+2. DMM OCV mérés, NPLC 10 vagy 100.
+3. DMM gyorsabb módra állítás, NPLC 0.02...1.
+4. Load CC beállítás C/5 vagy C/3.
+5. Load input ON.
+6. Mérd:
+   - V_before
+   - V_1s
+   - V_10s
+   - V_30s
+   - I_1s
+   - I_10s
+   - I_30s
+7. Load input OFF.
+8. Számítás:
+   R_1s_mOhm  = (V_before - V_1s)  / I_1s  * 1000
+   R_10s_mOhm = (V_before - V_10s) / I_10s * 1000
+   R_30s_mOhm = (V_before - V_30s) / I_30s * 1000
+
+
+12. BIZTONSÁGI ÁLLAPOTGÉP
+=========================
+
+12.1 Minden ciklusban ellenőrizendő
+-----------------------------------
+- DMM voltage valid?
+- voltage <= max_allowed_voltage?
+- voltage >= min_allowed_voltage?
+- PSU current <= max_charge_current?
+- Load current <= max_discharge_current?
+- Load power <= max_load_power?
+- temperature <= max_temperature?
+- kommunikáció él?
+- nincs egyszerre PSU ON és LOAD ON, kivéve ha kifejezetten engedélyezett speciális teszt
+- relax alatt PSU OFF és LOAD OFF
+
+12.2 Tiltott állapot
+--------------------
+Alap akkutesztben tiltott:
+
+PSU output ON ÉS LOAD input ON egyszerre.
+
+Ez csak speciális szabályozott tesztnél lehetne engedélyezett, de akkumulátor
+töltés/kisütés folyamatban nem kell.
+
+12.3 Vészleállítás
+------------------
+emergency_stop(reason):
+
+    try:
+        load.input_off()
+    except:
+        log error
+
+    try:
+        psu.output_off("CH1")
+        psu.all_outputs_off()
+    except:
+        log error
+
+    try:
+        relays.safe_open()
+    except:
+        log error
+
+    log EMERGENCY_STOP reason
+    raise TestAborted
+
+
+13. JAVASOLT KONFIGURÁCIÓS FÁJL
+===============================
+
+Példa YAML/JSON tartalom:
+
+instruments:
+  psu:
+    type: Keithley2220
+    resource: USB0::0x0699::0x0397::SERIAL::INSTR
+    channel: CH1
+    timeout_ms: 5000
+
+  load:
+    type: Keithley2380
+    resource: USB0::VID::PID::SERIAL::INSTR
+    timeout_ms: 5000
+    max_power_W: 250
+
+  dmm:
+    type: Keysight34465A
+    resource: TCPIP0::192.168.2.120::inst0::INSTR
+    timeout_ms: 10000
+    voltage_range_V: 100
+
+battery:
+  name: AGM_12V_7Ah
+  cell_count: 6
+  nominal_capacity_Ah: 7.0
+  charge_voltage_per_cell_V: 2.40
+  terminate_voltage_per_cell_V: 1.80
+  max_temperature_C: 35
+
+test_defaults:
+  charge_current_C: 0.1
+  learning_discharge_C: 0.2
+  capacity_discharge_C: 0.05
+  ocv_step_percent: 5
+  ocv_step_discharge_C: 0.1
+  relax_after_charge_h: 2
+  relax_after_discharge_h: 5
+  sample_interval_s: 5
+
+
+14. DRIVER FEJLESZTÉSI TESZTTERV
+================================
+
+14.1 2220 PSU driver teszt
+--------------------------
+1. connect
+2. *IDN?
+3. *CLS
+4. output OFF
+5. CH1 select
+6. voltage set 1.000 V
+7. current set 0.100 A
+8. query set values
+9. output ON rövid ideig terhelés nélkül
+10. output OFF
+11. error queue ellenőrzés
+
+Ne csatlakoztass akkut az első driver teszthez.
+
+
+14.2 2380 load driver teszt
+---------------------------
+1. connect
+2. *IDN?
+3. *CLS
+4. INPUT OFF
+5. CC mód
+6. current set 0.100 A
+7. query set current
+8. INPUT ON csak biztonságos próbaforráson
+9. MEAS:VOLT?
+10. MEAS:CURR?
+11. MEAS:POW?
+12. INPUT OFF
+13. error queue
+
+
+14.3 34465A driver teszt
+------------------------
+1. connect LAN
+2. *IDN?
+3. *CLS
+4. configure DCV 100 V range, NPLC 1
+5. READ?
+6. NPLC 10
+7. READ?
+8. error queue
+
+Teljes TEST:ALL? csak leválasztott bemenetekkel fusson.
+
+
+15. PROGRAMOZÁSI MEGJEGYZÉSEK
+=============================
+
+15.1 Timeoutok
+--------------
+Hosszú NPLC esetén a DMM READ? lassú lehet.
+100 NPLC 50 Hz-en kb. 2 s integráció, plusz overhead.
+Timeout legyen legalább 10 s, ha NPLC 100-at használsz.
+
+15.2 SCPI kompatibilitás
+------------------------
+A Keithley 2380 és 2220 parancsai SCPI-szerűek, de érdemes minden kritikus parancsot
+külön driver-szinten validálni.
+
+Induláskor legyen command self-check:
+- set mode
+- query mode
+- set current
+- query current
+- output/input off
+
+15.3 Mérési hitelesség
+----------------------
+A DMM legyen a feszültség fő forrása.
+A PSU és load readback legyen ellenőrző és log-adat.
+
+Ha nagyáramú mérés kell pontosan:
+- használj külön shuntöt,
+- a 34465A-val mérd a shunt feszültségét,
+- vagy használj megfelelő árammérőt.
+
+
+16. MINIMÁLIS IMPLEMENTÁCIÓ
+===========================
+
+Első működő verzióban legyen:
+
+1. Műszerek csatlakoztatása.
+2. IDN ellenőrzés.
+3. Safe OFF.
+4. DMM feszültségolvasás.
+5. PSU CC/CV töltés taper leállítással.
+6. Load CC kisütés terminate voltage leállítással.
+7. Relax logolás.
+8. CSV log.
+9. Emergency stop.
+10. Teszt végi összefoglaló.
+
+Későbbi bővítés:
+1. OCV-SOC lépcsőzés.
+2. Terheléses impedancia teszt.
+3. dV/dt relax döntés.
+4. HTML/PDF riport.
+5. Műszerparancs automata validáció.
+6. Kalibrációs korrekciók.
+
+
+17. RÖVID PARANCSÖSSZEFOGLALÓ
+=============================
+
+17.1 Keithley 2220-30-1 PSU
+---------------------------
+*IDN?
+*CLS
+SYST:REM
+SYST:LOC
+INST:SEL CH1
+INST:SEL?
+INST:COMB:OFF
+SOUR:VOLT <V>
+SOUR:VOLT?
+SOUR:CURR <A>
+SOUR:CURR?
+OUTP ON
+OUTP OFF
+MEAS:VOLT? CH1
+MEAS:CURR? CH1
+MEAS:POW? CH1
+MEAS:VOLT? ALL
+MEAS:CURR? ALL
+*OPC?
+*TST?
+
+17.2 Keithley 2380-120-60 Load
+------------------------------
+*IDN?
+*CLS
+SYST:REM
+SYST:LOC
+SOUR:FUNC CURR
+SOUR:FUNC?
+SOUR:CURR <A>
+SOUR:CURR?
+INPUT ON
+INPUT OFF
+MEAS:VOLT?
+MEAS:CURR?
+MEAS:POW?
+MEAS:CAP?
+MEAS:TIME?
+CURR:PROT:STAT ON|OFF
+CURR:PROT:LEV <A>
+CURR:PROT:DEL <s>
+CURR:SLOW:STAT ON|OFF
+CURR:SLEW:POS <value>|MAX
+CURR:SLEW:NEG <value>|MAX
+*OPC?
+*RST
+
+17.3 Keysight 34465A DMM
+------------------------
+*IDN?
+*CLS
+SYST:PRES
+CONF:VOLT:DC 100,0.00001
+VOLT:DC:RANG 100
+VOLT:DC:RANG:AUTO OFF
+VOLT:DC:NPLC 1
+VOLT:DC:NPLC 10
+VOLT:DC:NPLC 100
+VOLT:DC:IMP:AUTO ON
+VOLT:DC:IMP:AUTO OFF
+TRIG:SOUR IMM
+SAMP:COUN 1
+READ?
+INIT
+FETC?
+ABOR
+ROUT:TERM?
+SYST:ERR?
+TEST:ALL?
+
+
+18. ZÁRÓ MEGJEGYZÉS
+===================
+
+A program biztonsági filozófiája:
+- minden induláskor kimenetek OFF,
+- minden beállítás kimenet OFF állapotban,
+- töltés és kisütés soha ne fusson egyszerre,
+- DMM a fő feszültségmérő,
+- PSU/load readback ellenőrző adat,
+- minden teszt végén safe_off,
+- hiba esetén először LOAD OFF, majd PSU OFF.
+
+Ez a dokumentum elegendő alapot ad a laborfolyamatokat automatizáló szoftver
+műszervezérlési rétegének megírásához.

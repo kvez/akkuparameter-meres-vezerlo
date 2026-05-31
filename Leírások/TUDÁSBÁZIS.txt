@@ -1,0 +1,593 @@
+﻿TUDÁSBÁZIS - Akku labor automatizálás
+Utolsó frissítés: 2026-05-31
+================================================================================
+
+Ez a fájl INDEX a Leírások/ mappában tárolt műszerleírások és adatlapok felett.
+A tényleges tartalom a megjelölt TXT fájlokban van.
+
+HASZNÁLAT:
+- Keresd itt a releváns témát / eszközt / paramétert
+- A talált szekció megmutatja, melyik forrás TXT-ben van a részlet
+- NE töltsd be a teljes TUDÁSBÁZIS.txt-t automatikusan; célzottan keress
+
+
+================================================================================
+=== FORRÁSFÁJLOK LISTÁJA ===
+================================================================================
+
+MŰSZER MANUALOK:
+
+1. Keithley 2220-30-1 tápegység
+   Mappa: Leírások/műszer_manualok/2220-30-1/
+   - users.txt        (83 KB)  -- felhasználói kézikönyv, alapfunkciók
+   - spec.txt        (117 KB)  -- specifikációk, pontossági adatok
+   - prog.txt        (160 KB)  -- SCPI programozási referencia (teljes parancslista)
+   - service.txt      (26 KB)  -- szerviz és kalibrálás
+   - decl.txt         (22 KB)  -- declassification
+   - 2200S-901-01C.txt (328 KB) -- teljes referencia manual
+
+2. Keithley 2380-120-60 elektronikus terhelés
+   Mappa: Leírások/műszer_manualok/2380-120-60/
+   - 2380-120-60-900-01_A_Nov_2015.txt    (255 KB) -- fő műszer manual (SCPI + funkcióleírás)
+   - 2380-120-60-903-01B_Mar_2019_Quick_Start_Guide_web.txt (30 KB) -- gyors referencia
+   - 2200S-901-01C_Reference.txt          (253 KB) -- 2200-as sorozat referencia
+   - 2230-900-01B_April_2022_User.txt     (163 KB) -- 2230 user manual
+   - 077124000_2380_Driver_Readme.txt     (0.5 KB) -- USB driver readme
+
+3. Keysight 34465A DMM
+   Mappa: Leírások/műszer_manualok/34465A/
+   - 34460-70-Manual.txt  (765 KB) -- teljes Operating & Service Guide
+     Fejezetek: DC/AC Voltage, Resistance, Temperature, SCPI reference,
+                SENSe, CONFigure, MEASure, TRIGger, SAMPle, STATus subsystem,
+                NPLC/range táblák, hibakódok, kalibráció
+
+AKKUMULÁTOR ADATLAPOK:
+
+4. FIAMM FGH / FGHL sorozat (AGM, high-rate)
+   Mappa: Leírások/akku_adatlapok/
+   - FGH-FGHL_FOLDER_EN.txt  (3 KB)  -- termékcsalád leírás (képes katalógus, kevés szöveg)
+   - FGH-FGHL_FOLDER_EN.pdf          -- eredeti PDF
+
+5. FIAMM FG sorozat (általános célú AGM)
+   - FG_FOLDER_EN.txt  (3 KB)  -- termékcsalád leírás (képes katalógus, kevés szöveg)
+   - FG_FOLDER_EN.pdf          -- eredeti PDF
+
+6. FIAMM VRLA általános termékismertető
+   - VRLA_Non-spillable_EN.txt  (16 KB) -- biztonsági adatlap, szállítási előírások,
+                                           anyagösszetétel, kezelési útmutató
+   - VRLA_Non-spillable_EN.pdf          -- eredeti PDF
+
+7. FIAMM Engineering Manual - AGM Technology (VRLA részletes műszaki kézikönyv)
+   Mappa: Leírások/akku_adatlapok/
+   - Engineering_Manual_AGM_EN.txt  (46 KB, ~1900 sor) -- teljes szöveges tartalom:
+       töltési paraméterek (float/boost feszültség, hőm. kompenzáció),
+       kapacitáskorrekciós képletek, OCV-SOC összefüggés,
+       tárolási feltételek, karbantartás, szellőzés, biztonsági előírások,
+       EN 60896-21/22 kapacitásteszt eljárás
+   - Engineering_Manual_AGM_EN.pdf          -- eredeti PDF (Edition 02/2026 Rev.15)
+
+MEGJEGYZÉS az akku adatlapokhoz:
+  Az FGH és FG PDF-ek főleg képes katalógusok; szövegkinyerésük korlátozott.
+  A konkrét kapacitás/feszültség adatokhoz az eredeti PDF-et nézd.
+  A VRLA_Non-spillable biztonsági adatlap gazdag szöveges tartalommal bír.
+  Az Engineering_Manual_AGM_EN.txt teljes szöveges tartalmú — grep-elhető, közvetlenül olvasható.
+
+TI BQ dokumentáció:
+   Mappa: Leírások/TI_BQ/
+   - jelenleg üres; BQ34Z110/BQ34Z100 dokumentáció ide kerül
+
+
+================================================================================
+=== TERVFÁJLOK (Folyamatok/tervek/) ===
+================================================================================
+
+Az alábbi specifikációk a kódolás kiindulópontjai. Implementáció előtt olvasd el a releváns fájlt.
+
+1. muszerevezerles_2220_2380_34465A_spec.txt
+   Téma: Műszervezérlési réteg — inicializálás, SCPI kommunikáció, biztonsági állapotgép,
+         mérési és logolási eljárások PSU + load + DMM hármashoz.
+   Kapcsolódó manualok: prog.txt (2220), 2380-manual.txt, 34460-70-Manual.txt
+
+2. dmm_alapu_dioda_kompenzalt_akkutoltes_szoftver_spec.txt
+   Téma: DMM-alapú diódaesés-kompenzált CC/CV töltésvezérlés.
+         Soros dióda esetén PSU set-voltage lassú korrekciója DMM-visszajelzés alapján.
+         Tartalmazza: deadband, max lépés, DMM timeout fail-safe, OVP fail-safe, headroom-limit.
+   Kapcsolódó: CLAUDE.md Safety szekció, prog.txt (2220), 34460-70-Manual.txt
+
+3. akku_golden_image_labor_metodus_bq_nelkul.txt
+   Téma: BQ34Z110/BQ34Z100 golden image előkészítő laborfolyamat BQ-kommunikáció nélkül.
+         Teljes töltés → relax → C/5 kisütés → relax ciklusok. OCV-SOC görbe, kapacitásmérés,
+         terheléses impedancia-jellegű mérés. Manuális BQ checkpoint a folyamat végén.
+   Kapcsolódó: Engineering_Manual_AGM_EN.txt (float/boost értékek, C/5 képlet)
+
+4. fiamm_agm_alapu_bq_parameter_frissites.txt
+   Téma: FIAMM AGM Engineering Manual alapján javasolt BQ34Z110 paraméterfrissítések.
+         Meghatározza, hogy a gyártói adatokból (float V, boost V, λ, OCV-SOC) milyen
+         BQ Data Flash mezők frissíthetők. Nem BQ-kommunikációs spec.
+   Kapcsolódó: Engineering_Manual_AGM_EN.txt
+
+5. gui_tervezet_akku_laborhoz.txt
+   Téma: Asztali GUI tervezet a laborfolyamat-vezérlőhöz.
+         Állapotjelzők, paraméter-megjelenítés, folyamatos adatmentés, hiba/megszakítás kezelés.
+   Kapcsolódó: muszerevezerles spec, dmm-kompenzáció spec
+
+
+================================================================================
+=== KEITHLEY 2220-30-1 TÁPEGYSÉG - KULCSPARAMÉTEREK ===
+================================================================================
+
+Forrás: spec.txt, users.txt, prog.txt
+
+MODEL: 2220-30-1 (dual channel), 2230-30-1 (triple channel)
+Interfész: USB 2.0 Full Speed (USBTMC), opcionálisan GPIB (G verzió)
+
+KIMENETI TARTOMÁNYOK:
+  CH1, CH2: 0-30 V / 0-1.5 A (mindkét csatorna független és izolált)
+  CH3 (csak 2230): 0-6 V / 0-5 A
+  Soros kombináció (CH1+CH2): 0-60 V
+  Párhuzamos kombináció (CH1+CH2): 0-3 A
+
+PONTOSSÁG (25°C ±5°C):
+  Feszültség (load regulation): ±(0.01% + 3 mV)
+  Feszültség (remote sense): ±(0.03% + 10 mV)
+  Áram: ±(0.1% + 5 mA)
+  Feszültség felbontás: 1 mV
+  Áram felbontás: 1 mA
+
+ZAJ ÉS RIPPLE:
+  Tipikus (7 MHz): <1.5 mVRMS, <12 mVp-p
+  Max (20 MHz): <3 mVRMS, <20 mVp-p
+
+REMOTE SENSE:
+  Max eltérés sense és output között: 1 V (különben károsodhat)
+  Sense shorting clip szükséges, ha nincs remote sense használva
+
+VÉDELMI FUNKCIÓK:
+  OVP: beépített, szoftveres feszültséghatár (MAX VOLT)
+  Output timer: 0.01 - 60000 s
+  Channel izolácó: max 240 V DC kimenet-kimenet vagy kimenet-föld között
+  Termikus védelem: Over Temperature → kimenet OFF
+
+INTERFÉSZ:
+  USB: USBTMC, NI-VISA szükséges, ~400 ms parancs feldolgozási idő
+  GPIB: IEEE-488.2 (csak G verzió)
+  Command terminator: LF (GPIB), EOM bit + LF (USB)
+
+
+================================================================================
+=== KEITHLEY 2220-30-1 - SCPI PARANCSOK ===
+================================================================================
+
+Forrás: prog.txt (teljes lista)
+
+IEEE 488.2 COMMON:
+  *IDN?                    -- azonosítás (gyártó, modell, szériaszám, firmware)
+  *RST                     -- gyári alapállapot
+  *CLS                     -- event regiszterek törlése
+  *OPC / *OPC?             -- operation complete
+  *SAV <1-30>              -- beállítás mentése
+  *RCL <1-30>              -- beállítás visszaállítása
+  *TST?                    -- self-test
+
+CSATORNA KIVÁLASZTÁS:
+  INSTrument:SELect {CH1|CH2|CH3}
+
+FESZÜLTSÉG / ÁRAM BEÁLLÍTÁS:
+  [SOURce:]VOLTage[:LEVel][:IMMediate][:AMPLitude] {<V>|MIN|MAX}
+  [SOURce:]CURRent[:LEVel][:IMMediate][:AMPLitude] {<A>|MIN|MAX}
+  [SOURce:]VOLTage:LIMit[:LEVel] {<V>|MIN|MAX}   -- szoftveres max feszültség
+
+KIMENET:
+  [SOURce:]OUTPut[:STATe][:ALL] {0|1|ON|OFF}     -- összes csatorna ON/OFF
+  [SOURce:]OUTPut:TIMer[:STATe] {0|1|ON|OFF}
+  [SOURce:]OUTPut:TIMer:DELay {<s>|MIN|MAX|DEF}
+
+MÉRÉS (readback):
+  MEASure[:SCALar][:VOLTage][:DC]? [CH1|CH2|CH3|ALL]  -- új mérés indul
+  MEASure[:SCALar]:CURRent[:DC]? [CH1|CH2|CH3|ALL]
+  MEASure[:SCALar]:POWer[:DC]? [CH1|CH2|CH3|ALL]
+  FETCh[:SCALar]:VOLTage[:DC]? [CH1|CH2|CH3|ALL]      -- utolsó mérés, nem indul új
+  FETCh[:SCALar]:CURRent[:DC]? [CH1|CH2|CH3|ALL]
+
+KOMBINÁCIÓ:
+  INSTrument:COMbine:SERies    -- CH1+CH2 soros (max 60 V)
+  INSTrument:COMbine:PARAllel  -- CH1+CH2 párhuzamos (max 3 A)
+  INSTrument:COMbine:TRACk     -- követéses mód (arány megőrzése)
+  INSTrument:COMbine:OFF
+
+STATUS:
+  STATus:QUEStionable[:EVENt]?
+  STATus:OPERation[:EVENt]?
+
+DISPLAY / SYSTEM:
+  DISPlay[:WINDow][:STATe] {0|1|ON|OFF}
+  SYSTem:REMote / SYSTem:LOCal / SYSTem:RWLock
+
+
+================================================================================
+=== KEITHLEY 2380-120-60 ELEKTRONIKUS TERHELÉS - KULCSPARAMÉTEREK ===
+================================================================================
+
+Forrás: 2380-120-60-900-01_A_Nov_2015.txt (fő manual)
+
+MODEL: 2380-120-60
+Interfész: GPIB (IEEE-488), RS-232, USB-TMC
+
+BEMENETI HATÁRÉRTÉKEK:
+  Max feszültség: 120 V
+  Max áram: 60 A
+  Max teljesítmény: 250 W
+  Feszültség felbontás: 0.1 mV
+  Áram felbontás: 0.01 mA (10 µA)
+
+TARTOMÁNYOK:
+  Feszültség - Low range:  0-18 V
+  Feszültség - High range: 0-120 V
+  Áram - Low range:  0-6 A
+  Áram - High range: 0-60 A
+
+MŰKÖDÉSI MÓDOK:
+  CC  (Constant Current)   -- akkumulátor kisütési alap mód
+  CV  (Constant Voltage)   -- konstans feszültség üzemmód
+  CR  (Constant Resistance)-- konstans ellenállás
+  CP  (Constant Power)     -- konstans teljesítmény
+  Transient (Dynamic)      -- dinamikus terhelés teszt: CONT / PULS / TOGG
+  Battery Test             -- akkumulátor kapacitás teszt (Ah mérés)
+  CR-LED                   -- LED terhelés szimulálás
+  List mode                -- programozható lépéssorozat (max 100 csoport)
+  OCP/OPP test             -- védelmek automatikus tesztelése
+
+VÉDELMI FUNKCIÓK:
+  OVP  -- Over Voltage Protection
+  OCP  -- Over Current Protection (szoftveres, és hardveres)
+  OPP  -- Over Power Protection
+  OTP  -- Over Temperature Protection
+  RVS  -- Reverse Polarity Protection
+
+SPECIÁLIS CSATLAKOZÓK (hátpanel):
+  Remote sense (Kelvin): pontosabb feszültségmérés
+  External trigger (TTL/0-10V)
+  Analog control input (0-10V → terhelés vezérlés)
+  Current monitoring output (0-10V arányos az áramhoz)
+  Protective earth terminal
+
+SEBESSÉGEK:
+  Mérési sebesség: max 50 kHz
+  Dinamikus kapcsolás: max 25 kHz
+  Slew rate: 0.0001 - 2.5 A/µs (állítható)
+
+
+================================================================================
+=== KEITHLEY 2380-120-60 - SCPI PARANCSOK ===
+================================================================================
+
+Forrás: 2380-120-60-900-01_A_Nov_2015.txt
+
+IEEE 488.2 COMMON:
+  *IDN?  *RST  *CLS  *OPC  *OPC?  *SAV <1-30>  *RCL <1-30>
+  *TST?  *TRG  *WAI  *PSC {0|1}  *SRE  *STB?  *ESR?  *ESE
+
+BEMENET ON/OFF:
+  [SOURce:]INPut {0|1|ON|OFF}      -- terhelés BE/KI
+  [SOURce:]INPut:SHORT {0|1}       -- rövidzárlat szimuláció
+
+ÜZEMMÓD:
+  [SOURce:]FUNCtion:MODE {CC|CV|CR|CP}
+
+ÁRAM (CC mód):
+  [SOURce:]CURRent <A>
+  [SOURce:]CURRent:RANGe {LOW|HIGH|AUTO}
+  [SOURce:]CURRent:SLEW <A/µs>          -- slew rate
+  [SOURce:]CURRent:SLEW:POSitive <A/µs>
+  [SOURce:]CURRent:SLEW:NEGative <A/µs>
+  [SOURce:]CURRent:PROTection:STATe {0|1}
+  [SOURce:]CURRent:PROTection:LEVel <A>
+  [SOURce:]CURRent:PROTection:DELay <s>
+  [SOURce:]CURRent:HIGH <A>             -- max áram limit
+  [SOURce:]CURRent:LOW <A>              -- min áram limit
+
+FESZÜLTSÉG (CV mód, és VON):
+  [SOURce:]VOLTage <V>
+  [SOURce:]VOLTage:RANGe {LOW|HIGH|AUTO}
+  [SOURce:]VOLTage:ON <V>               -- VON: bemeneti feszültség limit az induláshoz
+  [SOURce:]VOLTage:HIGH <V>
+  [SOURce:]VOLTage:LOW <V>
+
+ELLENÁLLÁS (CR mód):
+  [SOURce:]RESistance <Ohm>
+  [SOURce:]RESistance:RANGe {LOW|HIGH|AUTO}
+
+TELJESÍTMÉNY (CP mód):
+  [SOURce:]POWer <W>
+  [SOURce:]POWer:PROTection <W>         -- OPP szint
+  [SOURce:]POWer:PROTection:DELay <s>
+
+TRANSIENT MÓD:
+  [SOURce:]VOLTage:TRANsient:MODE {CONT|PULS|TOGG}
+  [SOURce:]VOLTage:TRANsient:ALEVel <V>
+  [SOURce:]VOLTage:TRANsient:BLEVel <V>
+  [SOURce:]VOLTage:TRANsient:AWIDth <ms>
+  [SOURce:]VOLTage:TRANsient:BWIDth <ms>
+
+MÉRÉS (readback):
+  MEASure:VOLTage[:DC]?         -- feszültség (új mérés)
+  MEASure:CURRent[:DC]?         -- áram
+  MEASure:POWer[:DC]?           -- teljesítmény
+  MEASure:VOLTage:MAX? / MIN?
+  MEASure:CURRent:MAX? / MIN?
+  FETCh:VOLTage[:DC]?           -- utolsó mérés (nem indul új)
+  FETCh:CURRent[:DC]?
+  FETCh:POWer[:DC]?
+
+TRIGGER:
+  TRIGger:SOURce {BUS|MAN|TIMER|EXT}
+  TRIGger:TIMer <s>
+  FORCe:TRIGger
+
+LIST MÓD:
+  [SOURce:]LIST:COUNt <N>
+  [SOURce:]LIST:LEVel <val1>[,<val2>...]
+  [SOURce:]LIST:SLEW <val1>[,<val2>...]
+  [SOURce:]LIST:WIDth <val1>[,<val2>...]
+  [SOURce:]LIST:SAV [<1-100>]
+  [SOURce:]LIST:RCL [<1-100>]
+
+TRACE (adatrögzítés):
+  TRACe:CLEar
+  TRACe:POINts <N>
+  TRACe:FEED {NEVER|ALWays}
+  TRACe:DATA? <start>,<count>
+
+SYSTEM:
+  SYSTem:REMote / SYSTem:LOCal / SYSTem:RWLock
+  SYSTem:ERRor?
+  STATus:QUEStionable[:EVENt]?
+  STATus:OPERation[:EVENt]?
+
+
+================================================================================
+=== KEYSIGHT 34465A DMM - KULCSPARAMÉTEREK ===
+================================================================================
+
+Forrás: 34460-70-Manual.txt (Keysight Truevolt Series Operating and Service Guide)
+Figyelem: a manual a 34460A, 34461A, 34465A és 34470A modelleket fedi le.
+
+MODEL: 34465A (és 34470A)
+Interfész: LAN (elsődleges, projekten belül), USB, opcionálisan GPIB
+
+MÉRÉSI FUNKCIÓK:
+  DC Voltage, AC Voltage
+  DC Current, AC Current
+  2-wire és 4-wire Resistance
+  Temperature (RTD, thermistor - csak 34465A/34470A)
+  Capacitance
+  Continuity, Diode
+  Frequency, Period
+  DC Ratio mérés
+  Secondary measurements (peak-to-peak, stb.)
+
+DCV MÉRÉSI TARTOMÁNYOK (34465A):
+  100 mV, 1 V, 10 V, 100 V, 1000 V (auto és fix range)
+
+INTEGRÁCIÓ (NPLC):
+  0.001, 0.002, 0.006, 0.02, 0.06, 0.2, 1, 2, 10, 100 PLC
+  Default: 1 PLC
+  Projekt: fix range, magasabb NPLC = lassabb de pontosabb (pl. 10 PLC akkufeszültséghez)
+
+INTERFÉSZ:
+  LAN: SCPI over TCP/IP, port 5025 (tipikus SCPI socket)
+  Web Interface: IP-n keresztül böngészőből is konfigurálható
+  LAN konfiguráció: kézi IP vagy DHCP (Utility → I/O Configuration)
+
+SPECIÁLIS MÓDOK (34465A/34470A):
+  Data Log Mode: időzített mérési sorozat
+  Digitize Mode: gyors mintavételezés
+  Level Triggering: küszöbérték alapú trigger
+  Autocalibration (34465A/34470A)
+
+VÉDELMI KORLÁTOK:
+  Max DCV: 1000 V (bemeneti terminál)
+  Max ACV: 750 Vrms
+  Max DC/AC áram: 3 A (front), 10 A (rear)
+
+
+================================================================================
+=== KEYSIGHT 34465A DMM - SCPI PARANCSOK ===
+================================================================================
+
+Forrás: 34460-70-Manual.txt, SCPI Programming Reference fejezet (6-7. oldaltól)
+
+IEEE 488.2 COMMON:
+  *IDN?  *RST  *CLS  *OPC  *OPC?  *TST?  *WAI
+
+MÉRÉS - LEGFONTOSABB PARANCSOK (akkutöltés vezérléshez):
+
+  CONFigure:VOLTage:DC [{<range>|MIN|MAX|DEF}[,{<resolution>|MIN|MAX|DEF}]]
+    -- mérés konfigurálása (nem indul mérés)
+    -- Példa: CONF:VOLT:DC 10,0.001   (10V range, 1mV felbontás)
+
+  MEASure:VOLTage:DC? [{<range>|MIN|MAX|DEF}[,{<resolution>|MIN|MAX|DEF}]]
+    -- konfigurál + mér + visszaad (egyszerű, egylépéses)
+    -- Példa: MEAS:VOLT:DC? 10
+
+  INITiate[:IMMediate]
+    -- mérési ciklus indítása (CONF után)
+
+  FETCh?
+    -- utolsó mérés eredményének lekérése (nem indul új mérés)
+
+  READ?
+    -- INITiate + FETCh? kombinációja (mér és visszaad)
+
+SENSE SUBSYSTEM (finom konfiguráció):
+  [SENSe:]VOLTage:DC:RANGe {<V>|MIN|MAX|DEF}
+  [SENSe:]VOLTage:DC:RANGe:AUTO {ON|OFF|ONCE}
+  [SENSe:]VOLTage:DC:NPLCycles {0.001|0.002|0.006|0.02|0.06|0.2|1|2|10|100|MIN|MAX|DEF}
+    -- integráció ideje (PLC-ben)
+    -- Projekt ajánlás: 10 PLC (lassú, pontos, akkuméréshez megfelelő)
+  [SENSe:]VOLTage:DC:APERture <seconds>
+    -- integráció másodpercben (NPLC alternatíva)
+  [SENSe:]VOLTage:DC:NULL[:STATe] {ON|OFF}
+  [SENSe:]VOLTage:DC:NULL:VALue {<value>|MIN|MAX|DEF}
+  [SENSe:]ZERO:AUTO {ON|OFF|ONCE}
+    -- autozero: ON = pontosabb, de lassabb
+
+TRIGGER:
+  TRIGger:SOURce {IMMediate|EXTernal|BUS|INTernal}
+  TRIGger:COUNt {<N>|MIN|MAX|INF}
+  TRIGger:DELay {<s>|MIN|MAX|DEF}
+  TRIGger:DELay:AUTO {ON|OFF}
+  SAMPle:COUNt {<N>|MIN|MAX}
+
+STATUS:
+  STATus:QUEStionable[:EVENt]?
+  STATus:QUEStionable:ENABle <mask>
+  STATus:OPERation[:EVENt]?
+
+SYSTEM:
+  SYSTem:PRESet         -- instrument preset (nem teljes *RST)
+  SYSTem:ERRor?
+  SYSTem:LOCal / SYSTem:REMote
+
+
+================================================================================
+=== FIAMM AGM / VRLA AKKUMULÁTOROK - KULCSTÉMÁK ===
+================================================================================
+
+Forrás: VRLA_Non-spillable_EN.txt, FGH-FGHL_FOLDER_EN.txt, FG_FOLDER_EN.txt
+        (Az FGH és FG katalógusok képesek, részletes adatokhoz a PDF-et olvasd.)
+
+TERMÉKCSALÁDOK:
+  FG  -- általános célú AGM, 6V és 12V modellek, 5 éves tervezési élettartam
+  FGH -- high-rate teljesítmény AGM (adatközpont alkalmazás)
+  FGHL-- high-rate, lángálló ház (flame retardant), hosszú élettartam
+
+VRLA (Valve Regulated Lead Acid) ÁLTALÁNOS JELLEMZŐK:
+  Kémiai összetétel (VRLA_Non-spillable alapján):
+    - Lead grid (ólomrács): ~32% tömeg
+    - Active Mass (PbO2 + ólomvegyületek): ~32% tömeg
+    - Electrolyte (hígított H2SO4): ~29% tömeg
+    - Plastic container: ~7% tömeg
+    - Elektrolit sűrűség: 1.2-1.35 kg/l (töltöttség függvényében változik)
+    - Nem tartalmaz Cd és Hg összetevőket
+
+BIZTONSÁGI TUDNIVALÓK:
+  - Töltés közben H2 és O2 fejlődhet → robbanásveszély zárt térben
+  - Elektrolit: hígított kénsav → égető hatás, szemvédelem szükséges
+  - Rövidzárlat: nagy energiájú kisülés, égési és villamos veszély
+  - Tűzoltás: CO2 vagy száraz por (víz kerülendő 120V felett)
+  - Tárolás: tetőn, hűvösen, feltöltött állapotban; fagy ellen védett
+
+RÉSZLETES AKKU SPECIFIKÁCIÓKHOZ:
+  Az FGH/FG katalógus PDF-ek főleg képes anyagok.
+  Konkrét kapacitás (Ah), töltőfeszültség, C/5-C/20 adatok az adatlapból szükségesek.
+  Ajánlott forrás: gyártó website vagy a PDF közvetlen megnyitása.
+  Tipikus VRLA-AGM töltőfeszültség: ~14.4-14.7 V (12V cellánként), float: ~13.5-13.8 V
+
+
+================================================================================
+=== FIAMM AGM ENGINEERING MANUAL - KULCSPARAMÉTEREK ===
+================================================================================
+
+Forrás: Engineering_Manual_AGM_EN.txt  (FIAMM Energy Technology, Edition 02/2026 Rev.15)
+
+FLOAT TÖLTÉSI FESZÜLTSÉG:
+  Alap (20°C): 2,27 V/cella
+  Hőmérsékleti kompenzáció: -2,5 mV/cella/°C
+  Táblázat (V/cella):
+    -20°C → 2,35   -10°C → 2,33    0°C → 2,31   10°C → 2,29
+     20°C → 2,27    30°C → 2,25   40°C → 2,23   50°C → 2,21   60°C → 2,19
+  Float áram (teljesen töltött, 2,27 VPC / 20°C): ~0,3 mA/Ah (tipikus)
+
+BOOST (KIEGYENLÍTŐ) TÖLTÉS:
+  Feszültség: 2,40 V/cella (20°C-on)
+  Maximális áram: 0,25 × C10
+  Leállítási feltételek (amelyik hamarabb teljesül):
+    - Áram < 0,03 × C10
+    - Akkuhőmérséklet > ambient + 10°C
+  Ajánlott periodicitás: 12 havonta (szulfatáció ellen)
+  Tárolási frissítő töltés: 2,40 V/cella (ha OCV ≤ 2,09 V/cella)
+
+OCV – STATE OF CHARGE (kb. összefüggés, 24h pihentetés után):
+  ~1,95 V/cella →   0% SOC
+  ~2,00 V/cella →  20% SOC
+  ~2,02 V/cella →  40% SOC
+  ~2,05 V/cella →  60% SOC
+  ~2,07 V/cella →  80% SOC
+  ~2,10 V/cella → 100% SOC
+  FIGYELEM: OCV méréshez min. 24h lekapcsolt állapot szükséges!
+  Tárolási refresh küszöb: OCV ≤ 2,09 V/cella
+
+KAPACITÁS HŐMÉRSÉKLETI KORREKCIÓ (EN 60896-21/22):
+  C20°C = C_mért / (1 + lambda × (theta - 20))
+    theta = pilot cell hőmérséklete °C-ban
+    lambda = 0,006  (ha kisütési idő > 1 óra)
+    lambda = 0,010  (ha kisütési idő ≤ 1 óra)
+  Kapacitás képlet: C = I_kisütés × t_kisütés [Ah, t órában]
+
+TÁROLÁS:
+  Optimális tárolási hőmérséklet: -10°C … +30°C
+  Eltarthatóság 20°C-on: 9 hónap (töltés nélkül)
+  Magasabb hőmérséklet → rövidebb eltarthatóság (önkisülés nő)
+  Frissítő töltés szükséges, ha OCV ≤ 2,09 V/cella (vagy elérte max. tárolási időt)
+  Tárolási feltöltés: 2,40 V/cella (boost paraméterekkel)
+
+SZELLŐZÉS (IEC 62485-2 alapján):
+  AGM technológia: alacsony gázkibocsátás, de boost/abnormális töltésnél H2 fejlődhet
+  Részletek: Engineering_Manual_AGM_EN.txt, 11. fejezet (11. oldal)
+
+12V-OS AKKUMULÁTORRA ÁTSZÁMÍTÁS (6 cella):
+  Float: 6 × 2,27 = 13,62 V  (20°C-on)
+  Boost: 6 × 2,40 = 14,40 V
+  OCV refresh küszöb: 6 × 2,09 = 12,54 V
+
+
+================================================================================
+=== PROJEKT-SPECIFIKUS KERESZTREFERENCIÁK ===
+================================================================================
+
+DMM-ALAPÚ DIÓDAESÉS-KOMPENZÁCIÓ:
+  - PSU set voltage: prog.txt (2220-30-1 SCPI)
+  - DMM readback: 34460-70-Manual.txt (MEAS:VOLT:DC?, FETCh?, NPLC)
+  - Soros dióda esés = PSU readback - DMM akkufeszültség
+  - Referencia: CLAUDE.md, Safety szekció
+
+TÖLTÉSI FOLYAMAT (CC/CV):
+  - PSU vezérlés: 2220-30-1 prog.txt (VOLT, CURR, OUTP)
+  - DMM monitoring: 34460-70-Manual.txt (CONFigure:VOLT:DC, READ?)
+  - Taper current: PSU áramkorlát és CC/CV átváltás figyelése
+
+KISÜTÉSI FOLYAMAT:
+  - Load vezérlés: 2380 manual (INPut ON/OFF, CURRent beállítás)
+  - Battery mode: 2380-120-60-900-01_A_Nov_2015.txt (Battery Test funkció)
+  - Ah integrálás: FETCh:CURRent? időzített lekérdezéssel, dt × I összegzés
+
+RELAX FÁZIS:
+  - PSU output OFF: OUTPut OFF parancs (2220-30-1)
+  - Load input OFF: INPut OFF (2380)
+  - DMM OCV mérés: READ? vagy MEAS:VOLT:DC? alacsony áramterhelés nélkül
+
+C-RÁTA SZÁMÍTÁS:
+  C/20: névleges kapacitás (Ah) / 20
+  C/5:  névleges kapacitás (Ah) / 5
+  Pl. 12 Ah akkuhoz: C/20 = 0.6 A, C/5 = 2.4 A
+
+BQ34Z110/BQ34Z100 GOLDEN IMAGE ELŐKÉSZÍTÉS:
+  - Forrás: Leírások/TI_BQ/ (jelenleg üres, dokumentáció ide kerül)
+  - A laborprogram BQ-kommunikáció NÉLKÜL fut
+  - Fizikai ciklusok: teljes töltés → relax → C/5 kisütés → relax → ismétlés
+  - Kézi BQ checkpoint: UpdateStatus, Qmax, Ra table, golden image export
+
+
+================================================================================
+=== FEJEZET KULCSSZAVAK (grep célokra) ===
+================================================================================
+
+Keithley 2220-30-1 | PSU | tápegység | power supply | VOLT | CURR | OUTP
+Keithley 2380-120-60 | elektronikus terhelés | electronic load | INPut | CC | CV
+Keysight 34465A | DMM | multimeter | MEAS | NPLC | FETCh | READ | CONFigure
+VRLA | AGM | lead acid | ólom-sav | FIAMM | FG | FGH | FGHL | Engineering Manual | float | boost | OCV | SOC | C10 | lambda | capacity correction
+töltés | charge | kisütés | discharge | relax | OCV | SOC
+diódaesés | diode drop | kompenzáció | headroom
+BQ34Z110 | BQ34Z100 | golden image | Impedance Track | learning ciklus
+safety | fail-safe | OVP | OCP | OPP | OTP | emergency stop

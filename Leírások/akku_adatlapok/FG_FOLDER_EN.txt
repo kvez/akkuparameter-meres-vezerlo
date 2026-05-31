@@ -1,0 +1,252 @@
+--- 1. oldal ---
+General purpose 
+AGM battery
+Security
+FG 
+AGM 
+technology
+
+--- 2. oldal ---
+FG
+Wide small lead acid range with 6V and 12V models, maintenance-free with a design life of 5 years
+Headquarters: FIAMM Energy Technology S.p.A. - Viale Europa, 75 - 36075 - Montecchio Maggiore (VI) - Italy - tel. +39 0444 709311 - fax +39 0444 709878 - www.fiamm.com
+The FG battery range has been designed to cover a wide range of 
+applications. The footprint of batteries is also ideal for critical installations. 
+Connection is simple on smaller model sizes thanks to the easy ‘fast-
+on’ terminals. Our FG batteries are designed with unsurpassed proven 
+reliability and are compliant with the highest recognised international 
+standards and is designed to meet medium to long discharge rates and 
+with a design life of 5 years.
+The FG is designed around AGM VRLA technology, fully recyclable, non-
+spillable and maintenance-free. and is available in 6V or 12V versions with 
+a capacity range from 1.2Ah to 42Ah. The FG range is non-hazardous for 
+air/sea/rail/ road transportation and is 100% recyclable. Batteries can be 
+installed in upright and horizontal planes.
+* VDS available upon request
+Standards
+IEC 60896 Part 21 - VRLA methods of testing
+IEC 60896 Part 22 - VRLA requirements
+Eurobat “3-5 years standard commercial” 
+UL Recognized
+Rev. 11.2025
+Battery type
+Nominal
+voltage
+(V)
+Nominal capacity
+(Ah)
+Nominal capacity
+(Ah)
+Nominal dimension
+(mm)
+Typical weight
+(kg)
+Terminal 
+type
+10H 1.80VPC 25°C
+20H 1.75VPC 25°C
+Length
+Width
+Height
+Terminal 
+Height
+FG10121
+6
+1,09
+1.2
+97
+24
+51
+58
+0.28
+Faston 4.8
+FG10301
+6
+2,72
+3.0
+134
+33
+60
+66
+0.60
+Faston 4.8
+FG10381
+6
+3,5
+3.8
+66
+33
+119
+125
+0.61
+Faston 4.8
+FG10451
+6
+4,1
+4.5
+70
+47
+101
+106
+0.72
+Faston 4.8
+FG10721
+6
+6,7
+7.2
+150
+34
+94
+100
+1.2
+Faston 4.8
+FG11201
+6
+10,9
+12
+151
+50
+93
+99
+1.8
+Faston 4.8
+FG11202
+6
+10,9
+12
+151
+50
+93
+99
+1.8
+Faston 6.3
+FG20121
+12
+1,09
+1.2
+97
+48
+51
+57
+0.54
+Faston 4.8
+FG20121A
+12
+1,09
+1.2
+97
+43
+51
+58
+0.52
+Faston 4.8
+FG20201
+12
+1,81
+2.0
+178
+35
+60
+65
+0.80
+Faston 4.8
+FG20271
+12
+2,47
+2.7
+79
+56
+99
+105
+1.1
+Faston 4.8
+FG20341
+12
+3,09
+3.4
+134
+65
+60
+66
+1.3
+Faston 4.8
+FG20451
+12
+4,1
+4.5
+90
+70
+101
+107
+1.5
+Faston 4.8
+FG20721*
+12
+6,7
+7.2
+151
+65
+95
+100
+2.3
+Faston 4.8
+FG20722*
+12
+6,7
+7.2
+151
+65
+95
+100
+2.3
+Faston 6.3
+FG21201*
+12
+10,8
+12
+151
+98
+93
+98
+3.7
+Faston 4.8
+FG21202*
+12
+10,8
+12
+151
+98
+93
+98
+3.7
+Faston 6.3
+FG21803*
+12
+17
+18
+181
+76
+167
+163
+5.6
+Flag Ø5.5
+FG22703*
+12
+25
+27
+166
+175
+125
+123
+8.2
+Flag Ø5.5
+FG24204*
+12
+39
+42
+197
+165
+170
+168
+13.5
+Flag Ø6.5

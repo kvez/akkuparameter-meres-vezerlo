@@ -1,0 +1,252 @@
+--- 1. oldal ---
+Keithley Instruments 
+28775 Aurora Road 
+Cleveland, Ohio 44139 
+1-800-833-9200 
+tek.com/keithley 
+Model 2380 Programmable DC Electronic Load 
+Declassification and Security Instructions 
+ 
+ 
+ 
+077176700  December 2021      *P077176700* 
+1 
+ 
+Letter of volatility 
+If you have data security concerns, this document tells you how to clear or sanitize the Model 2380 memory 
+devices. It also explains how to declassify an instrument that is not functioning. 
+The procedures in this document are written to meet the requirements specified in: 
+ 
+NISPOM, DoD 5220.22-M, chapter 8 
+ 
+ISFO Process Manual for Certification and Accreditation of Classified Systems under NISPOM 
+ 
+Contact information 
+If you have any questions after you review the information in this documentation, please contact your local 
+Keithley Instruments office, sales partner, or distributor. You can also call the Tektronix corporate headquarters 
+(toll-free inside the U.S. and Canada only) at 1-800-833-9200. For worldwide contact numbers, visit 
+tek.com/contact-us. 
+ 
+Products 
+This document contains procedures for the following models: 
+ 
+Model 2380-120-60 
+ 
+Model 2380-500-15 
+ 
+Model 2380-500-30 
+ 
+
+--- 2. oldal ---
+Model 2380 Programmable DC Electronic Load Declassification and Security Instructions 
+ 
+2 
+077176700  December 2021 
+ 
+Terminology 
+The following terms may be used in this document: 
+ 
+Clear: Removes data on media or in memory before reusing it in a secured area. Clears all reusable 
+memory to deny access to previously unsecured information. 
+ 
+Demo setups: Demonstration applications that come loaded on the instrument; you cannot modify them. 
+ 
+Direct method of modification: You can modify data directly. 
+ 
+Erase: Equivalent to clear (see above). 
+ 
+Indirect method of modification: The instrument system resources modify the data; you cannot modify 
+the data directly. 
+ 
+Instrument declassification: Procedures that must be completed before an instrument can be removed 
+from a secure environment. Declassification procedures include memory sanitization and memory 
+removal. 
+ 
+Media storage and data export device: Devices that can be used to store or export data from the 
+instrument, such as a USB port. 
+ 
+Nonvolatile memory: Data is retained when the instrument power is turned off. 
+ 
+Protected user data area: Contains data that is protected by a password. 
+ 
+Remove: Clears instrument data by physically removing the memory device from the instrument. 
+ 
+Sanitize: Eradicates instrument data from media and memory so it cannot be recovered by other means 
+or technology. This is typically used when the device will be moved (temporarily or permanently) from a 
+secured area to a nonsecured area. 
+ 
+Scrub: Directly retrieve and clear the contents of the memory device. 
+ 
+User accessible: You can directly retrieve the contents of the memory device. 
+ 
+User data: Measurement data that represents signals that you connect to the instrument. 
+ 
+User modifiable: You can write to the memory device during normal instrument operation using the 
+front-panel interface or remote control. 
+ 
+User settings: Instrument settings that you can change. 
+ 
+Volatile memory: Temporary memory; data is lost when the instrument is turned off. 
+ 
+
+--- 3. oldal ---
+ 
+Model 2380 Programmable DC Electronic Load Declassification and Security Instructions 
+ 
+ 
+077176700  December 2021 
+3 
+ 
+Clear and sanitize procedures 
+Memory devices 
+The following tables list the volatile and nonvolatile memory devices in the standard instrument and listed 
+options. Detailed procedures to sanitize or clear these devices are shown in "Clearing data". 
+ 
+Nonvolatile memory devices 
+The following table lists nonvolatile memory devices and relevant memory-related information for models listed 
+in Products. If the table indicates that a device can be cleared by the user, see the detailed instructions in 
+"Clearing data." 
+Type 
+Memory 
+size 
+Function 
+Battery 
+backup 
+User 
+modifiable 
+Data input 
+method 
+Location To 
+clear 
+To 
+sanitize 
+24LC512 
+EEPROM 
+64 k x 
+8 bit 
+Current setup, 
+saved setups, 
+calibration 
+constants 
+No 
+Yes 
+Firmware 
+operations 
+and user 
+input 
+Main 
+board 
+ 
+See 
+"Clearin
+g data" 
+AT91SAM 
+Flash 
+2 k x 8 bit List Data, 
+OCP Data, 
+OPP Data 
+Program Data 
+No 
+Yes 
+Firmware 
+operations 
+and user 
+input 
+CPU 
+board 
+ 
+See 
+"Clearin
+g data" 
+AT91SAM 
+Flash 
+256 k 
+ 
+No 
+No 
+Firmware 
+update 
+CPU 
+board 
+ 
+ 
+STM32F103C8 
+Flash 
+64 k x 
+128 bit 
+ 
+No 
+No 
+Firmware 
+update 
+Main 
+board 
+ 
+ 
+ 
+ 
+
+--- 4. oldal ---
+Model 2380 Programmable DC Electronic Load Declassification and Security Instructions 
+ 
+4 
+077176700  December 2021 
+ 
+Volatile memory devices 
+The following table lists volatile memory devices and relevant memory-related information for models listed 
+"Products." 
+Type 
+Memory 
+size 
+Function Battery 
+backup 
+User 
+modifiable 
+Data input 
+method 
+Location To clear 
+To 
+sanitize 
+AT91SAM7 
+SRAM 
+64 k 
+ 
+No 
+No 
+Firmware 
+operations 
+CPU 
+board 
+See 
+"Clearing 
+data" 
+ 
+STM32F103C8 
+SRAM 
+ 
+20 k 
+ 
+No 
+No 
+Firmware 
+operations 
+Main 
+board 
+See 
+"Clearing 
+data" 
+ 
+ 
+ 
+Clearing data 
+To clear flash and EEPROM 
+1. Select Power to turn on the instrument. 
+2. Select Shift. 
+3. Select the period key (.). 
+4. Select the number two (2) key. 
+To clear AT91SAM and STM32F103 
+1. Select Power to turn the instrument off. 
+2. Wait at least 15 seconds. 
+3. Select Power to turn the instrument on. 
+ 
+ 

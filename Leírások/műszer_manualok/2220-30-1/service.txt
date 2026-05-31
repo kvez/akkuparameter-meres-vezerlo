@@ -1,0 +1,486 @@
+                       Series  2200  Multichannel  Power  Supplies  
+              Quick  Start  Front  Panel  and  Programming  Operation  Guide  
+
+Introduction  
+
+This  operating  guide  describes  front  panel  operation  and  corresponding  SCPI  command  code  to  perform  
+essential  functions  of  the  model  2230--30--1  Triple  Channel  Power  Supply  and  the  model  2220--30--1  Dual  
+Channel  Power  Supply.    References  to  the  third  channel  specifically  apply  to  the  model  2230--30--1  triple  
+channel  power  supply.  
+
+Single  Channel  Operation  
+
+The  series  2200  multichannel  power  supplies  have  all  channels  enabled  in  their  default  state.    However,  
+any   channel   can   be   disabled   and   enabled   independently.      The   following   example   demonstrates   the  
+steps  to  enable  and  output  a  voltage  on  channel  2.  
+
+Front  Panel  Operation  
+
+STEP  1  Enabling  Channel  2  
+     1. Press  Menu.
+     2. Use  the  arrow  keys  or  the  navigation  wheel  to  select  Enable  Channels.
+     3. Press  Enter  to  enter  the  submenu.
+     4. Use  the  arrow  keys  or  the  navigation  wheel  to  select  Enable/Disable  CH2.
+     5. Press  Enter  to  enter  the  submenu.
+     6. Use  the  arrow  keys  or  the  navigation  wheel  to  select  Enable  CH2  (default).
+     7. Press  Enter  to  enable  channel  2.
+     8. Press  Esc  a  couple  of  times  to  return  to  the  main  display.
+
+STEP  2  Setting  the  Output  Voltage  on  Channel  2  
+     9. Press  CH2.
+     10. Press  V--Set.
+     11. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  the  desired  voltage
+          output  value.  If  using  the  arrow  keys  or  the  navigation  wheel,  use  the  left  arrow  key  to  highlight
+          the  digit  that  represents  the  resolution  for  adjustments.
+     12. Press  Enter  to  set  the  voltage.
+
+STEP  3  Setting  the  Current  Limit  on  Channel  2  
+     13. Press  I--Set.
+     14. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  the  current  limit.  If  using
+          the  arrow  keys  or  the  navigation  wheel,  use  the  left  arrow  key  to  highlight  the  digit  that
+          represents  the  resolution  for  adjustments.
+     15. Press  Enter  to  set  the  current.
+
+                                                                1  
+STEP  4  Turning  on  the  Output  
+     16. Press  Output  On/Off  to  turn  on  the  output.
+
+Remote  Operation  
+
+The  following  SCPI  command  example  enables  channel  2,  sets  the  voltage  output  to  2.22V,  the  current  
+limit  to  1.5A  and  turns  the  output  on.  
+
+          INST:SEL  CH2  
+          SOURCE:OUTP:ENAB  ON  
+          SOURCE:VOLT  2.22V  
+          SOURCE:CURR  1.5A  
+          SOURCE:OUTP  ON  
+
+Combining  Channels  1  and  2  in  Series  to  Output  More  than  30V  
+
+The  series  2200  multichannel  power  supplies  have  all  channels  isolated  in  their  default  state.    However,  
+channel  1  and  channel  2  can  be  combined  in  series  to  output  a  higher  total  voltage.    The  following  
+example  demonstrates  the  steps  to  enable  and  output  a  combined  voltage  from  channel  1  and  2.  
+
+Front  Panel  Operation  
+
+STEP  1  Configure  the  Instrument  to  Series  Combination  
+     1. Press  Menu.
+     2. Use  the  arrow  keys  or  the  navigation  wheel  to  select  Combine  CH1+CH2.
+     3. Press  Enter  to  enter  the  submenu.
+     4. Use  the  arrow  keys  or  the  navigation  wheel  to  select  V1+V2  Series.
+     5. Press  Enter  to  set  to  series  combination.      See  an  example  of  a  series  combination  front  panel
+          display  below.
+
+STEP  2  Setting  the  Voltage  Output  and  the  Current  Limit  
+     6. Press  CH1.
+     7. Press  V--Set.
+     8. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  the  voltage  output.
+     9. Press  Enter  to  set  the  voltage  of  the  combined  channels.
+     10. Press  I--Set.
+     11. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  the  current  limit.
+     12. Press  Enter  to  set  the  current  of  the  combined  channel.
+
+STEP  3  Turning  on  the  Output  
+     13. Press  Output  On/Off  to  turn  on  the  output.
+
+                                                                2  
+Remote  Operation  
+
+The  following  SCPI  command  example  configures  the  power  supply  for  the  series  combination  mode,  
+sets  the  voltage  output  to  36V,  the  current  limit  to  1.5A  and  turns  the  output  on.  
+
+      *RST
+      INST:COM:SER
+      SOURCE:VOLT  36V
+      SOURCE:CURR  1.5A
+      SOURCE:OUTP  ON
+
+Wiring  Channels  1  and  2  in  Series  to  the  DUT  
+
+Connect  two  wires  from  either  the  front  panel  binding  posts  or  the  rear  panel  terminals,  as  shown  in  
+Figure  1  below,  to  your  device  under  test  (DUT).    The  SENSE  lines  are  optional  (rear  panel  only)  and  are  
+used  in  a  remote  sense  connection.  
+
+                                                                      CHANNEL 1              CHANNEL 2              CHANNEL 3
+
+                                                                      SS                     S                      SS
+
+                                                                      ee                     eS                     ee
+
+                                                                   On nO                  On eO            On nO
+
+                                                                   ussu                   usnu             u        s  s  u
+
+                                                                   t  e  e       t        t  ee         t  t        ee         t
+
+                          0-30V     0-30V  0-6V                    ++    -       -        ++    -       -  ++          -       -
+
+          IDUT
++
+
+                    H
+
+VDUT  DUT                                                                                                              SOURCE HIGH
+-       L                                                                                                              SOURCE LOW
+                                                                                                                       SENSE HIGH
+                                                                                 H        L                            SENSE LOW
+
+                                                                                    DUT
+
+                                                                            +       VDUT  -
+
+                       FRONT PANEL                                                  IDUT                REAR PANEL
+
+      Figure  1  Connecting  a  Device  in  Series  Combination  on  the  Front  Panel  and  the  Rear  Panel  
+
+Combining  Channels  1  and  2  in  Parallel  to  Output  More  than  1.5A  
+
+The  series  2200  multichannel  power  supplies  have  all  channels  isolated  in  their  default  state.    However,  
+channel  1  and  channel  2  can  be  combined  in  parallel  to  output  a  higher  total  current.    The  following  
+example  demonstrates  the  steps  to  enable  and  output  a  combined  current  from  channel  1  and  2.  
+
+Front  Panel  Operation  
+
+STEP  1  Configure  the  Instrument  to  Parallel  Combination  
+     1. Press  Menu.
+     2. Use  the  arrow  keys  or  the  navigation  wheel  to  select  Combine  CH1+CH2.
+     3. Press  Enter  to  enter  the  submenu.
+     4. Use  the  arrow  keys  or  the  navigation  wheel  to  select  I1+I2  Parallel.
+
+                                                                3  
+     5. Press  Enter  to  set  to  parallel  combination.      See  an  example  of  a  parallel  combination  front  panel
+          display  below.
+
+STEP  2  Setting  the  Voltage  Output  and  the  Current  Limit  
+     6. Press  CH1.
+     7. Press  V--Set.
+     8. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  the  voltage  output.
+     9. Press  Enter  to  set  the  voltage  of  the  combined  channel.
+     10. Press  I--Set.
+     11. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  the  current  limit.
+     12. Press  Enter  to  set  the  current  of  the  combined  channel.
+
+STEP  3  Turning  on  the  Output  
+     13. Press  Output  On/Off.
+
+Remote  Operation  
+
+The  following  SCPI  command  example  configures  the  power  supply  for  the  parallel  combination  mode,  
+sets  the  voltage  output  to  30V,  the  current  limit  to  2.9A  and  turns  the  output  on.  
+
+          *RST
+          INST:COM:PARA
+          SOURCE:VOLT  30V
+          SOURCE:CURR  2.9A
+          SOURCE:OUTP  ON
+
+Wiring  Channels  1  and  2  in  Parallel  to  the  DUT  
+
+Connect  two  wires  from  either  the  front  panel  binding  posts  or  the  rear  panel  terminals,  as  shown  in  
+Figure  2  below,  to  your  DUT.    The  SENSE  lines  are  optional  (rear  panel  only)  and  are  used  in  a  remote  
+sense  connection.  
+
+                                                                4  
+                                                          CHANNEL 1              CHANNEL 2                 CHANNEL 3
+
+                                                          SS                     SS                        SS
+
+                                                          ee                     ee                        ee
+
+                                                       On nO                  On nO            On nO
+
+                                                       ussu                   ussu             ussu
+
+                                                       t  e  e       t        t  e  e       t  t           e  e       t
+
+                                                       ++    -       -        ++    -       -  ++             -       -
+
+                       0-30V        0-30V  0-6V
+
+          IDUT
++
+
+                    H
+
+VDUT  DUT                                                                                                  SOURCE HIGH
+-       L                                                                                                  SOURCE LOW
+                                                                                                           SENSE HIGH
+                                                                     H        L                            SENSE LOW
+
+                                                                        DUT
+
+                                                                +       VDUT  -
+
+                       FRONT PANEL                                      IDUT                   REAR PANEL
+
+      Figure  2  Connecting  a  Device  in  Parallel  Combination  on  the  Front  Panel  and  the  Rear  Panel  
+
+Track  Mode  ­  Changing  the  Channel  1  and  2  Voltages  at  the  Same  Time  
+
+The  series  2200  multichannel  power  supplies  offer  a  track  mode  feature  that  allows  channel  1  and  2  
+voltages  to  maintain  a  desired  ratio  whenever  channel  1  or  channel  2  voltages  are  modified.    The  
+following  example  demonstrates  the  steps  to  enable  track  mode  operation.  
+
+Front  Panel  Operation  
+
+STEP  1  Configure  CH1  and  CH2  voltages  to  the  desired  ratio  
+     1. Press  CH1.
+     2. Press  V--Set.
+     3. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  a  voltage  output  (e.g.
+          10V).
+     4. Press  Enter  to  set  the  voltage  of  the  combined  channel.
+     5. Press  I--Set.
+     6. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  a  current  limit  (e.g.  1.5A).
+     7. Press  Enter  to  set  the  current  of  the  combined  channel.
+     8. Press  CH2.
+     9. Press  V--Set.
+     10. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  a  voltage  output  based  on
+          a  ratio  for  the  desired  change  between  the  channels.  Set  channel  1  and  2  voltages  to  the  same
+          value  so  that  both  channel  voltages  change  by  the  same  amount  (e.g.  set  channel  2  to  10V).  To
+          have  channel  2  change  by  ½  of  the  voltage  change  of  channel  1,  set  the  channel  2  voltage  to  ½
+          the  voltage  of  channel  1  (e.g.  5V).
+     11. Press  Enter  to  set  the  voltage  of  the  channel  2.
+     12. Press  I--Set.
+     13. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  a  current  limit  (e.g.  1.5A).
+     14. Press  Enter  to  set  the  current  of  channel  2.
+
+                                                 5  
+STEP  2  Configure  the  Instrument  Track  Mode  
+     15. Press  Menu.
+     16. Use  the  arrow  keys  or  the  navigation  wheel  to  select  Track  CH1/CH2.
+     17. Press  Enter  to  enter  the  submenu.
+     18. Use  the  arrow  keys  or  the  navigation  wheel  to  select  Track  On.
+     19. Press  Enter  to  activate  the  track  mode.      See  an  example  of  track  mode  front  display  below.
+
+STEP  3  Turning  on  the  Output  
+     20. Press  Output  On/Off  to  turn  on  the  output.    Now  varying  the  voltage  on  channel  1  or  the
+          channel  2  voltage  will  change  the  other  channel  by  the  desired  ratio.
+
+Remote  Operation  
+
+The  following  SCPI  command  example  sets  CH1  voltage  output  to  10V,  the  current  limit  to  1.5A,    CH2  
+voltage  output  to  track  half  of  CH1's  value,  or  5V,  the  current  limit  to  1.5A,  enables  the  track  mode  and  
+turns  the  output  on.    
+
+          *RST
+          INST:SEL  CH1
+          SOURCE:VOLT  10V
+          SOURCE:CURR  1.5A
+          INST:SEL  CH2
+          SOURCE:VOLT  5V
+          SOURCE:CURR  1.5A
+          INST:COM:TRAC
+          SOURCE:OUTP  ON
+          ...
+          <the  following  example  steps  CH1  voltages  from
+          2V  to  10V  at  2V  increment.    Observe  CH2
+          voltage  varying  from  1V  to  5Vat  1V  increment
+          on  the  front  panel>
+          INST:SEL  CH1
+          SOURCE:VOLT  2V
+          ..<delay>
+          SOURCE:VOLT  4V
+          ..<delay>
+          SOURCE:VOLT  6V
+          ..<delay>
+          SOURCE:VOLT  8V
+          ..<delay>
+
+                                                                6  
+SOURCE:VOLT  10V  
+..<delay>  
+
+Connecting  a  Device  in  Track  Mode  to  Create  a  Bipolar  Supply  
+
+Connect  two  wires  from  either  the  front  panel  binding  posts  or  the  rear  panel  terminals,  as  shown  in  
+Figure  3  below,  to  your  DUT.    The  SENSE  lines  are  optional  (rear  panel  only)  and  are  used  in  a  remote  
+sense  connection.  
+
+                                                      CHANNEL 1                            CHANNEL 2        CHANNEL 3
+
+                                                      SS                                   SS               SS
+
+                                                      ee                                   ee               ee
+
+                                          On nO                                      On nO               On nO
+
+                                          u           s  s  u                        u     s  s  u       ussu
+
+                      0-30V  0-30V  0-6V  t           ee         t                   t     e  e       t  t  e        e        t
+
+IDUT                                      ++             -       -                   ++       -       -  ++          -        -
+      +VDD
+     DUT COM
+       -VDD
+
+                                                                                                               SOURCE HIGH
+                                                                                                               SOURCE LOW
+                                                                                                               SENSE HIGH
+                                                                                                               SENSE LOW
+
+                                                            H COM L
+
+                                                            +VDD                     VDD-
+
+              FRONT PANEL                                           DUT
+
+                                                                                                         REAR PANEL
+
+Figure  3  Connecting  a  Device  in  Track  Mode  on  the  Front  Panel  and  the  Rear  Panel  
+
+Turning  On  Multiple  Channels  Sequentially  
+
+The  Series  2200  multichannel  power  supplies  have  all  channels  enabled  in  its  default  state.    The  
+following  example  demonstrates  the  steps  to  output  a  voltage  on  each  channel  sequentially,  CH1  (3V)   -->  
+CH2  (9V)   -->  CH3  (5V) ,  and  to  turn  off  each  output  sequentially,  CH3-->CH2-->CH1.      This  example  assumes  
+that  all  channels  are  disabled  on  a  2230--30--1.  
+
+                                                            CH2
+
+                                    CH3
+
+              CH1
+
+Front  Panel  Operation  
+
+STEP  1  Configuring  the  Output  Voltages  and  Current  Limit  on  each  channel  
+     1. Press  CH1.
+     2. Press  V--Set.
+     3. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  the  desired  voltage
+          output  value,  or  3V  in  this  example.
+     4. Press  Enter  to  set  the  voltage.
+     5. Press  I--Set.
+     6. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  a  current  limit.
+
+                                                                7  
+     7. Press  Enter  to  set  the  current.
+     8. Press  CH2.
+     9. Press  V--Set.
+     10. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  the  desired  voltage
+
+          output  value,  or  9V  in  this  example.
+     11. Press  Enter  to  set  the  voltage.
+     12. Press  I--Set.
+     13. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  a  current  limit.
+     14. Press  Enter  to  set  the  current.
+     15. Press  CH3.
+     16. Press  V--Set.
+     17. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  the  desired  voltage
+
+          output  value,  or  5V  in  this  example.
+     18. Press  Enter  to  set  the  voltage.
+     19. Press  I--Set.
+     20. Use  the  arrow  keys,  numeric  keypad,  or  the  navigation  wheel  to  enter  a  current  limit.
+     21. Press  Enter  to  set  the  current.
+
+STEP  2  Enabling  Channel  1  
+     22. Press  Menu.
+     23. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Enable  Channels.
+     24. Press  Enter  to  enter  the  submenu.
+     25. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Enable/Disable  CH1.
+     26. Press  Enter  to  enter  the  submenu.
+     27. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Enable  CH1  (default).
+     28. Press  Enter  to  enable  channel  1.
+     29. Press  Esc  a  couple  of  times  to  return  to  the  main  display.
+
+STEP  3  Turning  on  the  Output  
+     30. Press  Output  On/Off.
+
+STEP  4  Enabling  Channel  2  
+     31. Press  Menu.
+     32. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Enable  Channels.
+     33. Press  Enter  to  enter  the  submenu.
+     34. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Enable/Disable  CH2.
+     35. Press  Enter  to  enter  the  submenu.
+     36. Use  the  arrow  keys  or  the  navigation  wheel  to  select  Enable  CH2  (default).
+     37. Press  Enter  to  enable  channel  2  and  output  channel  2's  configured  voltage.
+     38. Press  Esc  a  couple  of  times  to  return  to  the  main  display.
+
+STEP  5  Enabling  Channel  3  
+     39. Press  Menu.
+     40. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Enable  Channels.
+     41. Press  Enter  to  enter  the  submenu.
+     42. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Enable/Disable  CH3.
+     43. Press  Enter  to  enter  the  submenu.
+     44. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Enable  CH3  (default).
+
+                                                                8  
+     45. Press  Enter  to  enable  channel  3  and  output  channel  3's  configured  voltage.
+     46. Press  Esc  a  couple  of  times  to  return  to  the  main  display.
+
+STEP  6  Disabling  Channel  3  
+     47. Press  Menu.
+     48. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Enable  Channels.
+     49. Press  Enter  to  enter  the  submenu.
+     50. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Enable/Disable  CH3.
+     51. Press  Enter  to  enter  the  submenu.
+     52. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Disable  CH3.
+     53. Press  Enter  to  disable  channel  3  and  turn  off  channel  3's  output  voltage.
+     54. Press  Esc  a  couple  of  times  to  return  to  the  main  display.
+
+STEP  7  Disabling  Channel  2  
+     55. Press  Menu.
+     56. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Enable  Channels.
+     57. Press  Enter  to  enter  the  submenu.
+     58. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Enable/Disable  CH2.
+     59. Press  Enter  to  enter  the  submenu.
+     60. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Disable  CH2.
+     61. Press  Enter  to  disable  channel  2  and  turn  off  channel  2's  output  voltage.
+     62. Press  Esc  a  couple  of  times  to  return  to  the  main  display.
+
+STEP  8  Disabling  Channel  1  
+     63. Press  Menu.
+     64. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Enable  Channels.
+     65. Press  Enter  to  enter  the  submenu.
+     66. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Enable/Disable  CH1.
+     67. Press  Enter  to  enter  the  submenu.
+     68. Use  the  arrow  keys,  or  the  navigation  wheel  to  select  Disable  CH1.
+     69. Press  Enter  to  disable  channel  1  and  turn  off  channel  1's  output  voltage.
+     70. Press  Esc  a  couple  of  times  to  return  to  the  main  display.
+
+Remote  Operation  
+
+The  following  SCPI  command  example  assumes  that  all  channels  are  disabled.    The  command  sequence  
+sets  the  voltage  output  to  3V,  9V  and  5V  on  CH1,  CH2  and  CH3,  respectively,  sets  all  the  current  limits  to  
+1.5A,  turns  the  output  on  sequentially  from  CH1  to  CH2  to  CH3  and  turns  off  each  output  from  CH3  to  
+CH2  to  CH1.  
+
+          INST:SEL  CH1  
+          SOURCE:VOLT  3V  
+          SOURCE:CURR  1.5A  
+          INST:SEL  CH2  
+          SOURCE:VOLT  9V  
+          SOURCE:CURR  1.5A  
+
+                                                                9  
+INST:SEL  CH3  
+SOURCE:VOLT  5V  
+SOURCE:CURR  1.5A  
+INST:SEL  CH1  
+SOURCE:OUTP:ENAB  ON  
+SOURCE:OUTP  ON  
+..<insert  desired  amount  of  delay  between  channel  1  turn  on  and  channel  2  turn  on  using  
+the  appropriate  command  syntax  of  the  programming  environment>...  
+INST:SEL  CH2  
+SOURCE:OUTP:ENAB  ON  
+..<insert  desired  amount  of  delay  between  channel  2  turn  on  and  channel  3  turn  on  using  
+the  appropriate  command  syntax  of  the  programming  environment>...  
+INST:SEL  CH3  
+SOURCE:OUTP:ENAB  ON  
+...  
+<perform  tests  on  the  load>  
+...  
+INST:SEL  CH3  
+SOURCE:OUTP:ENAB  OFF  
+..<insert  desired  amount  of  delay  between  channel  3  turn  off  and  channel  2  turn  off  
+using  the  appropriate  command  syntax  of  the  programming  environment>...  
+INST:SEL  CH2  
+SOURCE:OUTP:ENAB  OFF  
+..<insert  desired  amount  of  delay  between  channel  2  turn  off  and  channel  1  turn  off  
+using  the  appropriate  command  syntax  of  the  programming  environment>...  
+INST:SEL  CH1  
+SOURCE:OUTP:ENAB  OFF  
+
+                                                     10  
+

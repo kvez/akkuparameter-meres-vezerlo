@@ -1,0 +1,23 @@
+--- 1. oldal ---
+Series 2380 Instruments 
+Software Driver Information 
+ 
+ 
+ 
+077124000 / January 2016                             *PPA077124000* 
+Page 1 of 1 
+Keithley Instruments 
+28775 Aurora Road 
+Cleveland, Ohio 44139 
+1-800-935-5595 
+www.tek.com/keithley  
+ 
+ 
+ 
+In order to use the Model 2380-500-30, Model 2380-500-15, or Model 2380-120-60, you need to 
+download the following two drivers: 
+• 
+IVI Instrument Driver 
+• 
+National Instruments LabVIEW™ driver 
+Go to www.tek.com/keithley to find the drivers. 

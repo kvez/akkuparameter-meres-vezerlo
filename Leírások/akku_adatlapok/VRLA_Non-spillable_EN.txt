@@ -1,0 +1,681 @@
+--- 1. oldal ---
+ 
+ 
+PRODUCT INFORMATION SHEET 
+ 
+N° 
+ 
+ 
+DXK43E01en 
+ 
+Industrial  Batteries  
+Non regulated 
+Page 
+1 / 7 
+Title : 
+VRLA - LEAD ACID STATIONARY BATTERIES 
+ 
+ 
+Data Prima Emissione: 
+First Issue Date 
+01/01/2011 
+Indice di Revisione: 
+Revision Index 
+12 
+Data Ultima Revisione: 
+Last Revision Date 
+10/10/2023 
+E’ vietata la riproduzione non autorizzata da FIAMM Energy Technology SpA 
+ Unauthorized reproduction is prohibited. 
+ 
+ 
+GENERAL REMARK  
+ 
+This leaflet was prepared in cooperation with the Committee of Environmental Affairs of EUROBAT (May 
+2003), reviewed by EUROBAT TC members (September 2003) and CEM (October – November 2003). 
+Last revision: October 2016.  
+ 
+Batteries are “articles”  according to Regulation (EC) No 1907/2006 EC, they are  not "substances" nor 
+"mixtures", therefore there is no obligation to supply a safety data sheet (SDS) according to Regulation 
+(EC) 1907/2006, and Regulation CLP (EC) 1272/2008. 
+ 
+Information on safe handling is provided as a service to our customers.  
+ 
+This product information sheet contains valuable information critical to the safe handling and proper use of 
+the product. The details presented are in accordance with our present knowledge and experiences, they 
+cannot advise all possible situation.  
+ 
+ 
+ 
+1. PRODUCT AND COMPANY IDENTIFICATION  
+ 
+Product Name & Use:  FIAMM Valve Regulated Lead Acid  Battery for stationary application 
+ 
+Company Identification FIAMM  Energy Tecnology S.p.A. 
+Viale Europa, 75 I - 36075 Montecchio Maggiore (Vicenza) 
+ 
+ 
+ 
+ 
+Telephone +390444709311; Fax +390444699237 
+ 
+ 
+E-mail:  sdp@fiamm.com 
+ 
+Emergency CONTACT (24-Hour-Number):GBK GmbH +49 (0)6132-84463 
+ 
+ 
+2. 
+HAZARDS IDENTIFICATION  
+ 
+No hazards occur during the normal operation of a Lead Acid Battery as it is described in the instructions for 
+use that are provided with the Battery. Lead acid Batteries have three significant characteristics:  
+• They contain an electrolyte which contains diluted sulphuric acid. Sulphuric acid may cause severe 
+chemical burns.  
+• During the charging process or during operation they might develop hydrogen gas and oxygen, which 
+under certain circumstances may result in an explosive mixture.  
+• They can contain a considerable amount of energy, which may be a source of high electrical current 
+and a severe electrical shock in the event of a short circuit.  
+ 
+The correct handling and use of acid batteries do not pose a risk as long as precautionary measures are 
+taken, are carried out in appropriate rooms and are carried out by personnel who have received adequate 
+training. 
+ 
+The Batteries have to be marked with the symbols listed under item 15.  
+ 
+ 
+ 
+
+--- 2. oldal ---
+ 
+ 
+PRODUCT INFORMATION SHEET 
+ 
+N° 
+ 
+ 
+DXK43E01en 
+ 
+Industrial  Batteries  
+Non regulated 
+Page 
+2 / 7 
+Title : 
+VRLA - LEAD ACID STATIONARY BATTERIES 
+ 
+ 
+Data Prima Emissione: 
+First Issue Date 
+01/01/2011 
+Indice di Revisione: 
+Revision Index 
+12 
+Data Ultima Revisione: 
+Last Revision Date 
+10/10/2023 
+E’ vietata la riproduzione non autorizzata da FIAMM Energy Technology SpA 
+ Unauthorized reproduction is prohibited. 
+ 
+ 
+3. 
+COMPOSITION / INFORMATION ON INGREDIENTS  
+ 
+CAS no. 
+Index 
+Numbers 
+Description  
+Content 1) 
+[% of weight] 
+Hazards Category and 
+Statement Code 
+7439-92-1 
+082-014-00-7 Lead Grid 
+(massive lead, lead alloys)  
+~ 32 
+Repr. 1A - H360FD 
+Lact– H362 
+STOT RE 1 – H372 
+7439-92-1 
+082-001-00-6  
+ 
+Active Mass  
+(Lead dioxide, inorganic lead 
+compounds, with possible traces of 
+additives) 
+~ 32 
+Repr. 1A - H360Df  
+Acute Tox. 4  - H332 
+Acute Tox. 4 - H302 
+STOT RE 1 - H372 
+Aquatic Acute 1 - H400 
+Aquatic Chronic 1  H410 
+7664-93-9 
+016-020-00- 8 
+ 
+Electrolyte 2) 
+(diluted sulphuric acid with additives) 
+~ 29 
+SkinCorr.1A  - H 314 
+ 
+ 
+Plastic Container / Plastic Parts 3) 
+~ 7 
+ 
+1) 
+Contents may vary due to performance data and/or application of the Battery 
+2) 
+Density of the electrolyte varies in accordance to the state of charge 
+3) 
+Composition of the plastic may vary due to different customer requirements 
+ 
+Note:  
+Batteries do not contain Cadmium (Cd) and Mercury (Hg) 
+Lead metal (CAS 7439-92-1) is classified as a substance of very high concern under REACH 
+ 
+4. 
+FIRST AID MEASURES 
+ 
+This information is of relevance only if the Battery is broken and this results in a direct contact with the 
+ingredients.  
+4.1 General  
+ 
+Electrolyte (diluted sulphuric 
+acid):  
+ 
+Lead compounds: 
+sulphuric acid acts corrosively and damages skin  
+ 
+ 
+lead compounds are classified as toxic for 
+reproduction (if swallowed)  
+4.2  Electrolyte 
+(Sulphuric acid)  
+ 
+after skin contact: 
+ 
+after inhalation of acid mist:  
+ 
+after contact with the eyes:  
+ 
+ 
+after swallowing:  
+ 
+rinse with water, remove and wash wetted 
+clothing  
+ 
+inhale fresh air, seek advice of a medical doctor  
+ 
+rinse under running water for several minutes, 
+seek advice of a medical doctor  
+ 
+drink lot of water immediately, swallow activated 
+carbon, do not induce vomiting, seek advice of a 
+medical doctor  
+4.3  Lead 
+compounds  
+ 
+after skin contact: 
+ 
+after inhalation: 
+ 
+after contact with the eyes:  
+ 
+ 
+after swallowing:  
+ 
+clean with water and soap 
+ 
+inhale fresh air, seek advice of a medical doctor  
+ 
+rinse under running water for several minutes, 
+seek advice of a medical doctor  
+ 
+wash mouth with water, seek advice of a medical 
+doctor  
+ 
+ 
+ 
+
+--- 3. oldal ---
+ 
+ 
+PRODUCT INFORMATION SHEET 
+ 
+N° 
+ 
+ 
+DXK43E01en 
+ 
+Industrial  Batteries  
+Non regulated 
+Page 
+3 / 7 
+Title : 
+VRLA - LEAD ACID STATIONARY BATTERIES 
+ 
+ 
+Data Prima Emissione: 
+First Issue Date 
+01/01/2011 
+Indice di Revisione: 
+Revision Index 
+12 
+Data Ultima Revisione: 
+Last Revision Date 
+10/10/2023 
+E’ vietata la riproduzione non autorizzata da FIAMM Energy Technology SpA 
+ Unauthorized reproduction is prohibited. 
+ 
+ 
+5.  FIRE FIGHTING MEASURES 
+ 
+Suitable fire extinguishing agents:  
+ CO2 or dry powder extinguishing agents  
+ 
+Unsuitable fire extinguishing agents:  
+ Water, if the battery voltage is above 120 V  
+ 
+Special protective equipment:  
+Protective goggles, respiratory protective equipment, acid protective equipment, acid-proof clothing in case of 
+larger stationary battery plants or where larger quantities are stored.  
+ 
+ 
+6.  ACCIDENTAL RELEASE MEASURES 
+ 
+This information is of relevance only if the battery is broken and the ingredients are released.  
+ 
+In the case of spillage, use a bonding agent, such as sand, to absorb spilt acid; use lime / sodium bicarbonate 
+for neutralisation; dispose of with due regard to the official local regulations; do not allow penetration into the 
+sewage system, into earth or water bodies.  
+ 
+ 
+7.  HANDLING AND STORAGE 
+ 
+Store under roof in cool ambiance  charged lead acid batteries do not freeze up to 50°C; prevent short circuits. 
+Seek agreement with local water authorities in case of larger quantities of batteries to be stored. If batteries 
+have to be stored, it is imperative that the instructions for use are observed.  
+ 
+ 
+8. EXPOSURE CONTROLS / PERSONAL PROTECTION 
+ 
+8.1 Lead and Lead compounds  
+No exposure to lead and lead containing battery paste during normal conditions of use.  
+ 
+8.2 Electrolyte (Sulphuric Acid diluted solution)  
+Exposure to sulphuric acid and acid mist might occur during filling and charging.  
+ 
+Threshold value in 
+workplace:  
+ 
+occupational exposure limits for sulphuric acid mist are regulated on a 
+national basis.  
+ 
+Hazard symbol: 
+corrosive  
+ 
+Personal protective 
+equipment: 
+protective goggles, rubber or PVC gloves, acid resistant clothing, safety 
+boots.  
+ 
+CAS No:  
+7664-93-9 
+Hazard statements: 
+H314  
+Causes severe burns and eye damage. 
+Precautionary 
+Statements: 
+P102 
+Keep out of reach of children. 
+P210 
+Keep away from heat, hot surfaces, sparks, open flames 
+and other ignition sources. No smoking 
+ 
+P305+P351+315 
+IF in eyes. Rinse cautiously with water for several 
+minutes. Get immediate medical advice/attention. 
+ 
+P309+315 
+IF exposed or if you feel unwell. Get immediate medical 
+advice/attention. 
+ 
+ 
+
+--- 4. oldal ---
+ 
+ 
+PRODUCT INFORMATION SHEET 
+ 
+N° 
+ 
+ 
+DXK43E01en 
+ 
+Industrial  Batteries  
+Non regulated 
+Page 
+4 / 7 
+Title : 
+VRLA - LEAD ACID STATIONARY BATTERIES 
+ 
+ 
+Data Prima Emissione: 
+First Issue Date 
+01/01/2011 
+Indice di Revisione: 
+Revision Index 
+12 
+Data Ultima Revisione: 
+Last Revision Date 
+10/10/2023 
+E’ vietata la riproduzione non autorizzata da FIAMM Energy Technology SpA 
+ Unauthorized reproduction is prohibited. 
+ 
+ 
+ 
+9. PHYSICAL AND CHEMICAL PROPERTIES 
+ 
+ 
+Lead and Lead compounds 
+Electrolyte (diluted sulphuric acid solution) 
+Appearance  
+form :  
+colour :  
+odour :  
+ 
+ 
+solid 
+grey  
+odourless 
+ 
+ 
+liquid  
+colourless  
+odourless 
+ 
+Safety related data  
+solidification point :  
+boiling point :  
+solubility in water :  
+density (20°C) :  
+vapour pressure (20°C) :  
+ 
+ 
+327 °C 
+1740 °C 
+very low (0.15 mg/l)  
+11.35 g/cm3  
+N.A. 
+ 
+ 
+approx -35 to -60 °C  
+approx. 108 to 114 °C  
+complete 
+1.2 to 1.35 kg/l 
+N.A. 
+ 
+ 
+Lead and Lead compounds used in Lead Acid batteries are poorly soluble in water, Lead can be dissolved in 
+an acidic or alkaline environment only.  
+ 
+ 
+10.  STABILITY AND REACTIVITY  (referred to diluted sulphuric acid, density 1.2 ÷ 1.35 kg/l) 
+• 
+Corrosive, non flammable liquid 
+• 
+Thermal decomposition at 338° C. 
+• 
+Destroys organic materials such as cardboard, wood, textiles. 
+• 
+Reacts with metals, producing hydrogen 
+• 
+Vigorous reactions on contact with sodium hydroxide and alkalis.  
+ 
+ 
+11.  TOXICOLOGICAL INFORMATION 
+ 
+This information does not apply to the finished product “lead acid battery”. This information only applies to its 
+compounds in case of a broken product. Different exposure limits exist on a national level.  
+ 
+11.1 Electrolyte (diluted sulphuric acid):  
+Sulphuric Acid is intensely corrosive to skin and mucous membranes; the inhalation of mists may cause 
+damage to the respiratory tract.  
+Acute toxicity data: 
+ 
+• 
+LD50 (oral, rat) =  2.140 mg/kg  
+• 
+LC50 (inhalation, rat) = 510 mg/m3/2h  
+ 
+11.2 Lead and Lead compounds  
+Lead and its compounds used in a Lead Acid Battery may cause damage to the blood, nerves and kidneys 
+when ingested. The lead contained in the active material is classified as toxic for reproduction.  
+ 
+ 
+
+--- 5. oldal ---
+ 
+ 
+PRODUCT INFORMATION SHEET 
+ 
+N° 
+ 
+ 
+DXK43E01en 
+ 
+Industrial  Batteries  
+Non regulated 
+Page 
+5 / 7 
+Title : 
+VRLA - LEAD ACID STATIONARY BATTERIES 
+ 
+ 
+Data Prima Emissione: 
+First Issue Date 
+01/01/2011 
+Indice di Revisione: 
+Revision Index 
+12 
+Data Ultima Revisione: 
+Last Revision Date 
+10/10/2023 
+E’ vietata la riproduzione non autorizzata da FIAMM Energy Technology SpA 
+ Unauthorized reproduction is prohibited. 
+ 
+ 
+12.  ECOLOGICAL INFORMATION 
+ 
+This information is of relevance if the battery is broken and the ingredients are released to the environment.  
+ 
+12.1 Electrolyte (diluted sulphuric acid)  
+ 
+In order to avoid damage to the sewage system, the acid has to be neutralised by means of lime or sodium 
+carbonate before disposal. Ecological damage is possible by change of pH. The electrolyte solution reacts with 
+water and organic substances, causing damage to flora and fauna. The electrolyte may also contain soluble 
+components of lead that can be toxic to aquatic environments  
+ 
+12.2 Lead and Lead compounds  
+ 
+Chemical and physical treatment is required for the elimination from water. Waste water containing lead must 
+not be disposed of in an untreated condition. 
+ 
+Lead metal grids are not classified as eco-toxic. 
+ 
+ 
+ 
+13.  DISPOSAL CONSIDERATIONS 
+ 
+Spent lead acid batteries (EWC 160601*) are subject to regulation of the EU Battery Directive and its adoptions 
+into national legislation on the composition and end of life management of batteries.  
+ 
+Spent Lead Acid batteries are recycled in lead refineries (secondary lead smelters). The components of a spent 
+Lead Acid battery are recycled or reprocessed.  
+ 
+To simplify the collection and recycling or reprocessing process, spent Lead Acid batteries must not be mixed 
+with other batteries.  
+ 
+By no means may the electrolyte (diluted sulphuric acid) be emptied in an inexpert manner. This process is to 
+be carried out by the processing companies only.  
+ 
+*200133 EWC may be used for municipal collected batteries. 
+ 
+
+--- 6. oldal ---
+ 
+ 
+PRODUCT INFORMATION SHEET 
+ 
+N° 
+ 
+ 
+DXK43E01en 
+ 
+Industrial  Batteries  
+Non regulated 
+Page 
+6 / 7 
+Title : 
+VRLA - LEAD ACID STATIONARY BATTERIES 
+ 
+ 
+Data Prima Emissione: 
+First Issue Date 
+01/01/2011 
+Indice di Revisione: 
+Revision Index 
+12 
+Data Ultima Revisione: 
+Last Revision Date 
+10/10/2023 
+E’ vietata la riproduzione non autorizzata da FIAMM Energy Technology SpA 
+ Unauthorized reproduction is prohibited. 
+ 
+ 
+14. TRANSPORT INFORMATION 
+ 
+ 
+"Non Regulated" Batteries 
+ 
+They are excepted from all regulations applicable to dangerous goods transportation, provided 
+that the battery terminals are protected against short circuits and don't have an assigned UN 
+number, since they comply with the following provisions: 
+ 
+International  
+IMDG Code (International Maritime Dangerous Goods) 
+• 
+special provision  238.1 
+• 
+special provision  238.2 
+ 
+IATA (International Air Transport Association) Dangerous Goods  
+ 
+ 
+   Regulation  
+• 
+packing instruction 872 
+• 
+special provision  A67 
+Europe 
+ADR (Agreement for the transportation of Dangerous Goods by Road) 
+• 
+special provision 238 a) 
+• 
+special provision 238 b) 
+USA 
+U.S. Department of Transportation  (DOT) hazardous materials regulations 
+• § 49 CFR 173.159a(d) 
+ 
+ 
+ 
+ 
+15. REGULATORY INFORMATION  
+ 
+The following legislation do not apply to lead-acid batteries: 
+• 
+RoHS directive 2002/95/EC, updated by directive 2011/65/UE 
+• 
+Low Voltage directive 73/23/EEC, updated by directive 2006/95/EC, if the voltage is < 75 V 
+• 
+ELV  directive 2000/53/EC 
+• 
+EMC directive 89/336/EEC, updated by directive 2004/108/EC 
+ 
+In accordance with EU Battery Directive and the respective national legislation, Lead Acid batteries have to 
+be marked by a crossed out dust bin with the chemical symbol for lead shown below, together with the ISO 
+return/recycling symbol.  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+               
+ 
+Labelling might vary due to application and dimension of the Battery. The manufacturer, respectively the 
+importer of the batteries shall be responsible for placing the symbols (a minimum size is specified). In 
+addition, consumer/user information on the significance of the symbols may be attached.  
+ 
+ 
+ 
+
+--- 7. oldal ---
+ 
+ 
+PRODUCT INFORMATION SHEET 
+ 
+N° 
+ 
+ 
+DXK43E01en 
+ 
+Industrial  Batteries  
+Non regulated 
+Page 
+7 / 7 
+Title : 
+VRLA - LEAD ACID STATIONARY BATTERIES 
+ 
+ 
+Data Prima Emissione: 
+First Issue Date 
+01/01/2011 
+Indice di Revisione: 
+Revision Index 
+12 
+Data Ultima Revisione: 
+Last Revision Date 
+10/10/2023 
+E’ vietata la riproduzione non autorizzata da FIAMM Energy Technology SpA 
+ Unauthorized reproduction is prohibited. 
+ 
+ 
+ 
+ 
+ 
+ 
+16. OTHER INFORMATION 
+ 
+ 
+The information given above is provided in good faith based on existing knowledge and does not constitute 
+an assurance of safety under all conditions. It is the user’s responsibility to observe all laws and regulations 
+applicable for storage, use, maintenance or disposal of the product. If there are any queries, the supplier 
+should be consulted. However, this shall not constitute a guarantee for any specific product features and 
+shall not establish a legally valid contractual relationship.  
+ 
+Electrical 
+Accumulators  
+No 
+smoking, 
+no open 
+flames 
+Dangerous  
+voltage  
+electrical risk 
+Wear 
+safety 
+googles 
+Observe 
+operating 
+instructions 
