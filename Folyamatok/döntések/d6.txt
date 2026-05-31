@@ -1,0 +1,340 @@
+Igen, az irány elfogadható, de egy fontos pontosítással:
+
+  A stop_requested csak lépések között legyen hatásos — ez CHARGE / DISCHARGE esetén
+  jó safety döntés.
+
+Viszont RELAX és MANUAL_CHECKPOINT esetén érdemes kivételt tenni:
+
+  - RELAX lépésnél a graceful stop megszakíthatja a relaxot, mert ott PSU és Load OFF.
+  - MANUAL_CHECKPOINT lépésnél a stop természetesen azonnal kezelhető.
+  - CHARGE / DISCHARGE lépés közben csak emergency_stop szakítson meg.
+
+Tehát a koncepció jó, de a „megkezdett lépés mindig természetes végéig fut” szabályt
+én csak energia-aktív lépésekre alkalmaznám:
+
+  CHARGE      → stop csak lépés után
+  DISCHARGE   → stop csak lépés után
+  RELAX       → graceful stop engedhető
+  MANUAL_CHECKPOINT → stop / done kezelhető
+
+
+JAVASOLT DÖNTÉS
+===============
+
+Elfogadható architektúra:
+
+  - TestRunner blokkoló run()
+  - nincs GUI
+  - nincs saját thread
+  - nincs asyncio
+  - stop_requested graceful jellegű
+  - emergency_stop_requested azonnali
+  - TestRunner vezérli a lépéseket
+  - _build_sample() a TestRunnerben van
+  - logger csak logol
+  - controller csak állapotgépet futtat
+
+
+RUN FLOW ÉRTÉKELÉS
+==================
+
+A javasolt flow jó:
+
+  run(test_plan):
+    for step in test_plan.steps:
+      1. emergency_stop_requested? → _emergency_stop()
+      2. stop_requested? → _graceful_stop()
+      3. _run_step(step)
+      4. ha step faulttal zárult → _emergency_stop()
+    return TestResult("DONE")
+
+A _run_step() belső ciklusa:
+
+  while not _is_finished(controller):
+      emergency_stop_requested? → _emergency_stop()
+      controller.advance(tick_s)
+      _build_sample() → logger.log_sample()
+      time.sleep(tick_s), ha valós hardver
+
+Ez rendben van.
+
+
+FONTOS MÓDOSÍTÁSI JAVASLAT
+==========================
+
+A _run_step() ciklusba érdemes betenni ezt:
+
+  if self.stop_requested and self._step_can_be_gracefully_interrupted(step):
+      return self._graceful_stop("USER_STOP_REQUESTED")
+
+Ahol:
+
+  def _step_can_be_gracefully_interrupted(self, step: TestStep) -> bool:
+      return step.kind in (
+          StepKind.RELAX,
+          StepKind.MANUAL_CHECKPOINT,
+      )
+
+Indok:
+
+  CHARGE közben nem jó félbehagyni normál stop-pal, mert nem biztos, hogy
+  rendezett állapotban zárulna.
+
+  DISCHARGE közben sem feltétlen jó normál stop-pal félbeszakítani, mert kapacitásteszt
+  szempontból érvénytelen részadatot adhat.
+
+  RELAX közben viszont nincs aktív energiaút, így biztonságosan megszakítható.
+
+  MANUAL_CHECKPOINT pedig eleve kezelői várakozási pont.
+
+
+EMERGENCY_STOP MINDIG AZONNALI MARAD
+====================================
+
+Ez fontos:
+
+  emergency_stop_requested minden lépésben, minden tick-ben azonnal hat.
+
+Tehát:
+
+  CHARGE közben is
+  DISCHARGE közben is
+  RELAX közben is
+  MANUAL_CHECKPOINT közben is
+
+Az emergency_stop ne várjon természetes lépésvégre.
+
+
+TIME.SLEEP KEZELÉS
+==================
+
+A „time.sleep(tick_s) valós hardvernél; mocknál nincs” jó gondolat.
+
+Ezt ne if mock_driver-rel oldd meg, hanem configgal:
+
+  TestRunnerConfig:
+      runner_tick_s: float = 2.0
+      sleep_enabled: bool = True
+
+Unit tesztben:
+
+  TestRunnerConfig(
+      runner_tick_s=2.0,
+      sleep_enabled=False,
+  )
+
+Valós mérésnél:
+
+  sleep_enabled=True
+
+Így a TestRunner nem tudja, hogy mock vagy valós hardver van mögötte.
+
+
+JAVASOLT TestRunnerConfig BŐVÍTÉS
+=================================
+
+Én ezt hozzáadnám:
+
+  @dataclass
+  class TestRunnerConfig:
+      runner_tick_s: float = 2.0
+      test_name: str = "unnamed"
+      sleep_enabled: bool = True
+
+Opcionálisan később:
+
+      stop_allowed_during_relax: bool = True
+
+
+_CONTROLLER KIVÁLASZTÁS
+=======================
+
+A _run_step(step) elején legyen egyértelmű mapping:
+
+  def _controller_for_step(self, step: TestStep):
+      if step.kind == StepKind.CHARGE:
+          return self.charge_controller
+      if step.kind == StepKind.DISCHARGE:
+          return self.discharge_controller
+      if step.kind == StepKind.RELAX:
+          return self.relax_controller
+      if step.kind == StepKind.MANUAL_CHECKPOINT:
+          return None
+      raise ValueError(...)
+
+MANUAL_CHECKPOINT esetén ne controller fusson, hanem külön ág:
+
+  if step.kind == StepKind.MANUAL_CHECKPOINT:
+      return self._run_manual_checkpoint(step)
+
+
+MANUAL_CHECKPOINT KEZELÉSE
+==========================
+
+BQ learning végén a MANUAL_CHECKPOINT ne legyen végtelen várakozás FÁZIS 5-ben.
+
+Javaslat FÁZIS 5-höz GUI nélkül:
+
+  _run_manual_checkpoint(step):
+      logger.log_event("MANUAL_BQ_CHECKPOINT", ...)
+      checkpoint mentés
+      return TestResult(status="DONE")
+
+Vagy ha tényleg kezelői megállást akarsz CLI nélkül:
+
+  return TestResult(status="STOPPED", reason="MANUAL_BQ_CHECKPOINT_REACHED")
+
+Én ezt javaslom:
+
+  MANUAL_CHECKPOINT esetén:
+    - log_event("MANUAL_BQ_CHECKPOINT_REACHED")
+    - checkpoint status = "MANUAL_CHECKPOINT"
+    - run() visszatér TestResult(status="STOPPED", reason="MANUAL_BQ_CHECKPOINT_REACHED")
+
+Ez jobb, mert a BQ kézi ellenőrzés tényleg kezelői pont, és nem automatikus DONE.
+
+
+FAULT KEZELÉS
+=============
+
+Azt írod:
+
+  ha controller FAULT-ban végzett → _emergency_stop()
+
+Ez jó, de pontosítanám:
+
+  Ha controller FAULT állapotba kerül:
+      _emergency_stop(controller.fault_reason)
+
+Viszont ha a controller már maga meghívta a PSU/load safe_off-ot, akkor
+instrument_manager.safe_all_off() legyen idempotens. Ez korábban már tervben volt,
+tehát rendben.
+
+Javaslat:
+
+  if result.status == "FAULT":
+      return self._emergency_stop(result.reason or "CONTROLLER_FAULT")
+
+
+_RUN_STEP RETURN
+================
+
+A _run_step(step) TestResult-et adjon vissza, ahogy írtad.
+
+Javasolt státuszok:
+
+  "STEP_DONE"
+  "FAULT"
+  "STOPPED"
+  "MANUAL_CHECKPOINT"
+
+A run() ezeket értelmezi:
+
+  STEP_DONE → megy tovább
+  FAULT → emergency stop + return
+  STOPPED → return
+  MANUAL_CHECKPOINT → return STOPPED vagy külön státusz
+
+Ha egyszerűen akarod:
+
+  _run_step() csak TestResult("DONE") / "FAULT" / "STOPPED"
+
+Ez is elég.
+
+
+JAVASOLT FINOMÍTOTT FLOW
+========================
+
+run(test_plan):
+
+  self.status = "RUNNING"
+
+  for step in test_plan.steps:
+
+      if self.emergency_stop_requested:
+          return self._emergency_stop(self.emergency_stop_reason)
+
+      if self.stop_requested:
+          return self._graceful_stop("USER_STOP_REQUESTED")
+
+      step_result = self._run_step(step)
+
+      if step_result.status == "FAULT":
+          return self._emergency_stop(step_result.reason or "STEP_FAULT")
+
+      if step_result.status == "STOPPED":
+          return step_result
+
+  return TestResult(
+      status="DONE",
+      total_charge_ah=self.total_charge_ah,
+      total_discharge_ah=self.total_discharge_ah,
+  )
+
+
+_run_step(step):
+
+  if step.kind == StepKind.MANUAL_CHECKPOINT:
+      return self._run_manual_checkpoint(step)
+
+  controller = self._controller_for_step(step)
+  self.current_step = step
+
+  while not self._is_finished(controller):
+
+      if self.emergency_stop_requested:
+          return self._emergency_stop(self.emergency_stop_reason)
+
+      if self.stop_requested and self._step_can_be_gracefully_interrupted(step):
+          return self._graceful_stop("USER_STOP_REQUESTED")
+
+      controller.advance(self.config.runner_tick_s)
+
+      sample = self._build_sample(step, controller)
+      self.logger.log_sample(sample)
+      self.logger.maybe_flush()
+      self.logger.maybe_checkpoint()
+
+      if self._controller_faulted(controller):
+          return TestResult(
+              status="FAULT",
+              reason=getattr(controller, "fault_reason", "CONTROLLER_FAULT"),
+          )
+
+      if self.config.sleep_enabled:
+          time.sleep(self.config.runner_tick_s)
+
+  return TestResult(status="DONE")
+
+
+AMI MÉG HIÁNYOZHAT AZ OSZTÁLYBÓL
+================================
+
+Érdemes hozzáadni:
+
+  def _controller_faulted(self, controller) -> bool
+  def _controller_for_step(self, step: TestStep)
+  def _step_can_be_gracefully_interrupted(self, step: TestStep) -> bool
+  def _run_manual_checkpoint(self, step: TestStep) -> TestResult
+
+Nem muszáj publikus API-ba tenni, de belső metódusként tisztábbá teszik.
+
+
+KONKLÚZIÓ
+=========
+
+Igen, elfogadható.
+
+A fő döntés jó:
+
+  - stop_requested csak lépések között hat
+  - emergency_stop_requested azonnali
+  - CHARGE/DISCHARGE nem szakad meg sima stopra
+  - TestRunner blokkoló, GUI-független osztály
+
+Egyetlen javasolt módosítás:
+
+  RELAX és MANUAL_CHECKPOINT alatt a graceful stop legyen megengedett, mert ott nincs
+  aktív energia-bevitel, és nem jelent akkuvédelmi kockázatot.
+
+A TestRunner osztály mehet erre az alapra.
