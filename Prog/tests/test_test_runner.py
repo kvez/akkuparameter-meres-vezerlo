@@ -371,3 +371,79 @@ class TestHelperPredicates:
         with pytest.raises(ValueError):
             runner._controller_for_step(step)
         logger.close()
+
+
+# ------------------------------------------------------------------ #
+# Task 5: _build_sample                                               #
+# ------------------------------------------------------------------ #
+
+class TestBuildSample:
+    def test_charge_step_fields(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner._start_time = datetime.now(timezone.utc)
+        stub = _StubChargeCtrl()
+        stub._state = ChargeState.CHARGE_CC
+        step = TestStep(StepKind.CHARGE, "charge")
+
+        sample = runner._build_sample(step, stub)
+
+        assert sample["test_name"] == "test"
+        assert sample["step_name"] == "charge"
+        assert sample["state"] == "CHARGE_CC"
+        assert sample["isolation_state"] == "PSU_OUTPUT_OFF_ONLY"
+        assert sample["psu_mode"] == "INDEPENDENT"
+        assert sample["discharge_current_A"] == 0.0
+        assert sample["charge_current_A"] is not None
+        assert sample["signed_current_A"] is not None
+        assert sample["accumulated_charge_Ah"] == stub.accumulated_charge_Ah
+        logger.close()
+
+    def test_discharge_step_fields(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner._start_time = datetime.now(timezone.utc)
+        stub = _StubDischargeCtrl()
+        stub._state = DischargeState.DISCHARGE_CC_RUN
+        step = TestStep(StepKind.DISCHARGE, "discharge")
+
+        sample = runner._build_sample(step, stub)
+
+        assert sample["step_name"] == "discharge"
+        assert sample["state"] == "DISCHARGE_CC_RUN"
+        assert sample["charge_current_A"] == 0.0
+        assert sample["isolation_state"] == "PSU_OUTPUT_OFF_ONLY"
+        logger.close()
+
+    def test_relax_step_fields(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner._start_time = datetime.now(timezone.utc)
+        stub = _StubRelaxCtrl()
+        stub._state = RelaxState.RELAXING
+        step = TestStep(StepKind.RELAX, "relax_after_charge")
+
+        sample = runner._build_sample(step, stub)
+
+        assert sample["step_name"] == "relax_after_charge"
+        assert sample["charge_current_A"] == 0.0
+        assert sample["discharge_current_A"] == 0.0
+        assert sample["signed_current_A"] == 0.0
+        logger.close()
+
+    def test_u_drop_computed(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner._start_time = datetime.now(timezone.utc)
+        # MockPSU: voltage_V=14.4, MockDMM: voltage_V=12.5 → u_drop = 14.4 - 12.5 = 1.9
+        stub = _StubChargeCtrl()
+        step = TestStep(StepKind.CHARGE, "charge")
+        sample = runner._build_sample(step, stub)
+        assert sample["u_drop_V"] == pytest.approx(14.4 - 12.5, abs=0.01)
+        logger.close()
+
+    def test_timestamp_present(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner._start_time = datetime.now(timezone.utc)
+        stub = _StubChargeCtrl()
+        step = TestStep(StepKind.CHARGE, "charge")
+        sample = runner._build_sample(step, stub)
+        assert sample["timestamp_iso"] is not None
+        assert sample["elapsed_s"] is not None
+        logger.close()

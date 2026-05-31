@@ -162,3 +162,61 @@ class TestRunner:
         if step.kind == StepKind.RELAX:
             return self._relax_ctrl
         raise ValueError(f"No controller for step kind: {step.kind}")
+
+    def _build_sample(self, step: TestStep, controller) -> dict:
+        now = datetime.now(timezone.utc)
+        readings = self._instruments.read_all()
+
+        sample: dict = {col: None for col in CSV_COLUMNS}
+
+        elapsed = (now - self._start_time).total_seconds() if self._start_time else 0.0
+        sample["timestamp_iso"] = now.isoformat()
+        sample["elapsed_s"] = round(elapsed, 3)
+        sample["test_name"] = self._config.test_name
+        sample["step_name"] = step.label
+        sample["state"] = controller.state.value if hasattr(controller, "state") else None
+
+        sample["battery_voltage_V"] = readings.get("battery_voltage_V")
+        sample["battery_temperature_C"] = readings.get("battery_temperature_C")
+        sample["psu_readback_voltage_V"] = readings.get("psu_readback_voltage_V")
+        sample["psu_readback_current_A"] = readings.get("psu_readback_current_A")
+        sample["load_readback_voltage_V"] = readings.get("load_readback_voltage_V")
+        sample["load_readback_current_A"] = readings.get("load_readback_current_A")
+        sample["psu_mode"] = self._safety.psu_mode.value
+        sample["isolation_state"] = "PSU_OUTPUT_OFF_ONLY"
+
+        u_batt = readings.get("battery_voltage_V")
+        u_psu = readings.get("psu_readback_voltage_V")
+        i_psu = readings.get("psu_readback_current_A")
+        i_load = readings.get("load_readback_current_A")
+
+        if u_batt is not None and u_psu is not None:
+            sample["u_drop_V"] = round(u_psu - u_batt, 4)
+            if i_psu is not None:
+                sample["diode_power_W"] = round(sample["u_drop_V"] * i_psu, 4)
+
+        sample["dmm_voltage_valid"] = u_batt is not None
+        sample["dmm_temperature_valid"] = readings.get("battery_temperature_C") is not None
+
+        if step.kind == StepKind.CHARGE:
+            sample["charge_current_A"] = i_psu
+            sample["discharge_current_A"] = 0.0
+            sample["signed_current_A"] = i_psu
+            sample["accumulated_charge_Ah"] = getattr(controller, "accumulated_charge_Ah", None)
+            sample["accumulated_discharge_Ah"] = self._total_discharge_ah
+            sample["integration_current_source"] = getattr(controller, "last_integration_source", None)
+        elif step.kind == StepKind.DISCHARGE:
+            sample["charge_current_A"] = 0.0
+            sample["discharge_current_A"] = i_load
+            sample["signed_current_A"] = -(i_load or 0.0)
+            sample["accumulated_charge_Ah"] = self._total_charge_ah
+            sample["accumulated_discharge_Ah"] = getattr(controller, "accumulated_discharge_Ah", None)
+            sample["integration_current_source"] = getattr(controller, "last_integration_source", None)
+        else:
+            sample["charge_current_A"] = 0.0
+            sample["discharge_current_A"] = 0.0
+            sample["signed_current_A"] = 0.0
+            sample["accumulated_charge_Ah"] = self._total_charge_ah
+            sample["accumulated_discharge_Ah"] = self._total_discharge_ah
+
+        return sample
