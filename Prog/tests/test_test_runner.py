@@ -614,3 +614,99 @@ class TestRunStep:
         runner._run_step(TestStep(StepKind.CHARGE, "charge_2"))
         assert cc.state == ChargeState.CHARGE_DONE
         logger.close()
+
+
+# ------------------------------------------------------------------ #
+# Task 8: run() integrációs tesztek                                  #
+# ------------------------------------------------------------------ #
+
+class TestRunIntegration:
+    def test_characterization_done(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        result = runner.run(TestPlan.characterization())
+        assert result.status == "DONE"
+        assert runner.status == "DONE"
+        logger.close()
+
+    def test_characterization_accumulates_ah(self, tmp_path):
+        cc = _StubChargeCtrl(steps_to_done=5)   # 5 × 0.01 = 0.05 Ah
+        dc = _StubDischargeCtrl(steps_to_done=4) # 4 × 0.01 = 0.04 Ah
+        runner, logger = _make_runner(tmp_path, cc=cc, dc=dc)
+        result = runner.run(TestPlan.characterization())
+        assert result.status == "DONE"
+        assert result.total_charge_ah == pytest.approx(0.05, abs=0.001)
+        assert result.total_discharge_ah == pytest.approx(0.04, abs=0.001)
+        logger.close()
+
+    def test_bq_learning_stops_at_manual_checkpoint(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        result = runner.run(TestPlan.bq_learning_physical())
+        assert result.status == "STOPPED"
+        assert result.reason == "MANUAL_BQ_CHECKPOINT_REACHED"
+        logger.close()
+
+    def test_bq_learning_accumulates_two_cycles(self, tmp_path):
+        cc = _StubChargeCtrl(steps_to_done=3)    # 3 × 0.01 × 2 = 0.06 Ah total
+        dc = _StubDischargeCtrl(steps_to_done=2) # 2 × 0.01 × 2 = 0.04 Ah total
+        runner, logger = _make_runner(tmp_path, cc=cc, dc=dc)
+        result = runner.run(TestPlan.bq_learning_physical())
+        assert result.total_charge_ah == pytest.approx(0.06, abs=0.001)
+        assert result.total_discharge_ah == pytest.approx(0.04, abs=0.001)
+        logger.close()
+
+    def test_emergency_stop_before_first_step(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner.emergency_stop_requested = True
+        runner.emergency_stop_reason = "PRE_TEST_FAULT"
+        result = runner.run(TestPlan.characterization())
+        assert result.status == "FAULT"
+        assert "PRE_TEST_FAULT" in result.reason
+        logger.close()
+
+    def test_graceful_stop_before_first_step(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner.stop_requested = True
+        result = runner.run(TestPlan.characterization())
+        assert result.status == "STOPPED"
+        logger.close()
+
+    def test_fault_in_charge_step_triggers_emergency(self, tmp_path):
+        cc = _StubChargeCtrl(fault_at_step=2)
+        runner, logger = _make_runner(tmp_path, cc=cc)
+        result = runner.run(TestPlan.characterization())
+        assert result.status == "FAULT"
+        logger.close()
+
+    def test_unhandled_exception_returns_fault(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        def _bad_run_step(step):
+            raise RuntimeError("simulated crash")
+        runner._run_step = _bad_run_step
+        result = runner.run(TestPlan.characterization())
+        assert result.status == "FAULT"
+        assert "UNHANDLED_EXCEPTION" in result.reason
+        logger.close()
+
+    def test_samples_written_to_csv(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner.run(TestPlan.characterization())
+        logger.close()
+        csv_path = tmp_path / "samples.csv"
+        assert csv_path.exists()
+        lines = csv_path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) > 2  # header + legalább 1 adat sor
+
+    def test_events_written_to_events_csv(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner.run(TestPlan.characterization())
+        logger.close()
+        events_path = tmp_path / "events.csv"
+        assert events_path.exists()
+
+    def test_checkpoint_json_written(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner.run(TestPlan.characterization())
+        logger.close()
+        import json
+        cp = json.loads((tmp_path / "checkpoint.json").read_text(encoding="utf-8"))
+        assert "status" in cp

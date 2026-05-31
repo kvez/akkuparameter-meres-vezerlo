@@ -131,7 +131,38 @@ class TestRunner:
         self.emergency_stop_reason = reason
 
     def run(self, test_plan: TestPlan) -> TestResult:
-        raise NotImplementedError
+        self._start_time = datetime.now(timezone.utc)
+        self.status = "RUNNING"
+        self._total_charge_ah = 0.0
+        self._total_discharge_ah = 0.0
+
+        try:
+            for step in test_plan.steps:
+                self.current_step = step
+
+                if self.emergency_stop_requested:
+                    return self._emergency_stop(self.emergency_stop_reason)
+
+                if self.stop_requested:
+                    return self._graceful_stop("USER_STOP_REQUESTED")
+
+                step_result = self._run_step(step)
+
+                if step_result.status == "FAULT":
+                    return self._emergency_stop(step_result.reason or "STEP_FAULT")
+
+                if step_result.status == "STOPPED":
+                    return step_result
+
+        except Exception as exc:
+            return self._emergency_stop(f"UNHANDLED_EXCEPTION: {exc}")
+
+        self.status = "DONE"
+        return TestResult(
+            status="DONE",
+            total_charge_ah=self._total_charge_ah,
+            total_discharge_ah=self._total_discharge_ah,
+        )
 
     def _run_step(self, step: TestStep) -> TestResult:
         if step.kind == StepKind.MANUAL_CHECKPOINT:
