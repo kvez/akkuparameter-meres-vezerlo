@@ -494,3 +494,113 @@ class TestStopMethods:
         assert result.total_charge_ah == pytest.approx(1.5)
         assert result.total_discharge_ah == pytest.approx(1.4)
         logger.close()
+
+
+# ------------------------------------------------------------------ #
+# Task 7: _run_step                                                   #
+# ------------------------------------------------------------------ #
+
+class TestRunStep:
+    def test_charge_step_completes_done(self, tmp_path):
+        runner, logger = _make_runner(tmp_path, cc=_StubChargeCtrl(steps_to_done=3))
+        runner._start_time = datetime.now(timezone.utc)
+        step = TestStep(StepKind.CHARGE, "charge")
+        result = runner._run_step(step)
+        assert result.status == "DONE"
+        logger.close()
+
+    def test_discharge_step_completes_done(self, tmp_path):
+        runner, logger = _make_runner(tmp_path, dc=_StubDischargeCtrl(steps_to_done=3))
+        runner._start_time = datetime.now(timezone.utc)
+        step = TestStep(StepKind.DISCHARGE, "discharge")
+        result = runner._run_step(step)
+        assert result.status == "DONE"
+        logger.close()
+
+    def test_relax_step_completes_done(self, tmp_path):
+        runner, logger = _make_runner(tmp_path, rc=_StubRelaxCtrl(steps_to_done=2))
+        runner._start_time = datetime.now(timezone.utc)
+        step = TestStep(StepKind.RELAX, "relax_after_charge")
+        result = runner._run_step(step)
+        assert result.status == "DONE"
+        logger.close()
+
+    def test_charge_step_fault_returns_fault(self, tmp_path):
+        runner, logger = _make_runner(tmp_path, cc=_StubChargeCtrl(fault_at_step=2))
+        runner._start_time = datetime.now(timezone.utc)
+        step = TestStep(StepKind.CHARGE, "charge")
+        result = runner._run_step(step)
+        assert result.status == "FAULT"
+        assert "FAULT" in result.reason
+        logger.close()
+
+    def test_emergency_stop_interrupts_charge(self, tmp_path):
+        runner, logger = _make_runner(tmp_path, cc=_StubChargeCtrl(steps_to_done=100))
+        runner._start_time = datetime.now(timezone.utc)
+        runner.emergency_stop_requested = True
+        runner.emergency_stop_reason = "USER_EMSTOP"
+        step = TestStep(StepKind.CHARGE, "charge")
+        result = runner._run_step(step)
+        assert result.status == "FAULT"
+        assert "USER_EMSTOP" in result.reason
+        logger.close()
+
+    def test_stop_request_does_not_interrupt_charge(self, tmp_path):
+        runner, logger = _make_runner(tmp_path, cc=_StubChargeCtrl(steps_to_done=3))
+        runner._start_time = datetime.now(timezone.utc)
+        runner.stop_requested = True
+        step = TestStep(StepKind.CHARGE, "charge")
+        result = runner._run_step(step)
+        # CHARGE nem szakítható meg graceful stop-pal — végigfut DONE-ig
+        assert result.status == "DONE"
+        logger.close()
+
+    def test_stop_request_interrupts_relax(self, tmp_path):
+        runner, logger = _make_runner(tmp_path, rc=_StubRelaxCtrl(steps_to_done=100))
+        runner._start_time = datetime.now(timezone.utc)
+        runner.stop_requested = True
+        step = TestStep(StepKind.RELAX, "relax_after_charge")
+        result = runner._run_step(step)
+        assert result.status == "STOPPED"
+        logger.close()
+
+    def test_manual_checkpoint_step(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner._start_time = datetime.now(timezone.utc)
+        step = TestStep(StepKind.MANUAL_CHECKPOINT, "manual_bq_checkpoint")
+        result = runner._run_step(step)
+        assert result.status == "STOPPED"
+        assert result.reason == "MANUAL_BQ_CHECKPOINT_REACHED"
+        logger.close()
+
+    def test_charge_accumulates_ah(self, tmp_path):
+        cc = _StubChargeCtrl(steps_to_done=5)
+        runner, logger = _make_runner(tmp_path, cc=cc)
+        runner._start_time = datetime.now(timezone.utc)
+        step = TestStep(StepKind.CHARGE, "charge")
+        runner._run_step(step)
+        # 5 advance() × 0.01 Ah = 0.05 Ah
+        assert runner._total_charge_ah == pytest.approx(0.05, abs=0.001)
+        logger.close()
+
+    def test_discharge_accumulates_ah(self, tmp_path):
+        dc = _StubDischargeCtrl(steps_to_done=4)
+        runner, logger = _make_runner(tmp_path, dc=dc)
+        runner._start_time = datetime.now(timezone.utc)
+        step = TestStep(StepKind.DISCHARGE, "discharge")
+        runner._run_step(step)
+        # 4 advance() × 0.01 Ah = 0.04 Ah
+        assert runner._total_discharge_ah == pytest.approx(0.04, abs=0.001)
+        logger.close()
+
+    def test_controller_reset_called_if_available(self, tmp_path):
+        cc = _StubChargeCtrl(steps_to_done=2)
+        runner, logger = _make_runner(tmp_path, cc=cc)
+        runner._start_time = datetime.now(timezone.utc)
+        # Első ciklus
+        runner._run_step(TestStep(StepKind.CHARGE, "charge_1"))
+        assert cc.state == ChargeState.CHARGE_DONE
+        # Második ciklus — reset() visszaállítja INIT-re
+        runner._run_step(TestStep(StepKind.CHARGE, "charge_2"))
+        assert cc.state == ChargeState.CHARGE_DONE
+        logger.close()

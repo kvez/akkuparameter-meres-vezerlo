@@ -133,6 +133,59 @@ class TestRunner:
     def run(self, test_plan: TestPlan) -> TestResult:
         raise NotImplementedError
 
+    def _run_step(self, step: TestStep) -> TestResult:
+        if step.kind == StepKind.MANUAL_CHECKPOINT:
+            return self._run_manual_checkpoint(step)
+
+        controller = self._controller_for_step(step)
+
+        reset_fn = getattr(controller, "reset", None)
+        if callable(reset_fn):
+            reset_fn()
+
+        charge_ah_before = getattr(controller, "accumulated_charge_Ah", 0.0)
+        discharge_ah_before = getattr(controller, "accumulated_discharge_Ah", 0.0)
+
+        while not self._is_finished(controller):
+            if self.emergency_stop_requested:
+                return self._emergency_stop(self.emergency_stop_reason)
+
+            if self.stop_requested and self._step_can_be_gracefully_interrupted(step):
+                return self._graceful_stop("USER_STOP_REQUESTED")
+
+            controller.advance(self._config.runner_tick_s)
+
+            sample = self._build_sample(step, controller)
+            self._logger.log_sample(sample)
+            self._logger.flush_all()
+            self._logger.write_checkpoint({
+                "status": "RUNNING",
+                "step": step.label,
+                "elapsed_s": sample.get("elapsed_s"),
+                "charge_ah": self._total_charge_ah,
+                "discharge_ah": self._total_discharge_ah,
+            })
+
+            if self._controller_faulted(controller):
+                return TestResult(
+                    status="FAULT",
+                    reason=getattr(controller, "fault_reason", "CONTROLLER_FAULT"),
+                )
+
+            if self._config.sleep_enabled:
+                time.sleep(self._config.runner_tick_s)
+
+        if step.kind == StepKind.CHARGE:
+            self._total_charge_ah += (
+                getattr(controller, "accumulated_charge_Ah", 0.0) - charge_ah_before
+            )
+        elif step.kind == StepKind.DISCHARGE:
+            self._total_discharge_ah += (
+                getattr(controller, "accumulated_discharge_Ah", 0.0) - discharge_ah_before
+            )
+
+        return TestResult(status="DONE")
+
     def _emergency_stop(self, reason: str) -> TestResult:
         """Vészleállítás — FAULT státusz, biztonságos leállítás."""
         self.status = "FAULT"
