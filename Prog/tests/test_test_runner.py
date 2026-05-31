@@ -555,6 +555,16 @@ class TestRunStep:
         assert result.status == "DONE"
         logger.close()
 
+    def test_stop_request_does_not_interrupt_discharge(self, tmp_path):
+        runner, logger = _make_runner(tmp_path, dc=_StubDischargeCtrl(steps_to_done=3))
+        runner._start_time = datetime.now(timezone.utc)
+        runner.stop_requested = True
+        step = TestStep(StepKind.DISCHARGE, "discharge")
+        result = runner._run_step(step)
+        # DISCHARGE nem szakítható meg graceful stop-pal — végigfut DONE-ig
+        assert result.status == "DONE"
+        logger.close()
+
     def test_stop_request_interrupts_relax(self, tmp_path):
         runner, logger = _make_runner(tmp_path, rc=_StubRelaxCtrl(steps_to_done=100))
         runner._start_time = datetime.now(timezone.utc)

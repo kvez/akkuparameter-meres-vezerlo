@@ -170,6 +170,8 @@ class TestRunner:
                 return TestResult(
                     status="FAULT",
                     reason=getattr(controller, "fault_reason", "CONTROLLER_FAULT"),
+                    total_charge_ah=self._total_charge_ah,
+                    total_discharge_ah=self._total_discharge_ah,
                 )
 
             if self._config.sleep_enabled:
