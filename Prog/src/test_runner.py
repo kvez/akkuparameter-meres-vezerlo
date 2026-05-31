@@ -6,12 +6,18 @@ GUI-független, blokkoló run(), stop flag alapú megállítás.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
+from typing import Optional
 
 from Prog.src.battery_profile import BatteryProfile
+from Prog.src.charge_controller import ChargeState
+from Prog.src.discharge_controller import DischargeState
 from Prog.src.instrument_manager import InstrumentManager
-from Prog.src.logger import Logger
+from Prog.src.logger import Logger, CSV_COLUMNS
+from Prog.src.relax_controller import RelaxState
 from Prog.src.safety import SafetyManager
 
 
@@ -84,7 +90,7 @@ class TestRunnerConfig:
 
 
 class TestRunner:
-    """Fő folyamatvezérlő — Task 3–4-ben kerül részletesen implementálásra."""
+    """Fő folyamatvezérlő — CHARACTERIZATION és BQ_LEARNING_PHYSICAL teszttípusok."""
 
     def __init__(
         self,
@@ -105,10 +111,54 @@ class TestRunner:
         self._charge_ctrl = charge_controller
         self._discharge_ctrl = discharge_controller
         self._relax_ctrl = relax_controller
-        self._stop_requested: bool = False
 
-    def run(self, plan: TestPlan) -> TestResult:
-        raise NotImplementedError
+        self.stop_requested: bool = False
+        self.emergency_stop_requested: bool = False
+        self.emergency_stop_reason: str = ""
+
+        self.status: str = "IDLE"
+        self.current_step = None
+
+        self._total_charge_ah: float = 0.0
+        self._total_discharge_ah: float = 0.0
+        self._start_time = None
 
     def request_stop(self) -> None:
-        self._stop_requested = True
+        self.stop_requested = True
+
+    def request_emergency_stop(self, reason: str = "USER_EMERGENCY_STOP") -> None:
+        self.emergency_stop_requested = True
+        self.emergency_stop_reason = reason
+
+    def run(self, test_plan: TestPlan) -> TestResult:
+        raise NotImplementedError
+
+    def _is_finished(self, controller) -> bool:
+        state = getattr(controller, "state", None)
+        if isinstance(state, ChargeState):
+            return state in (ChargeState.CHARGE_DONE, ChargeState.FAULT, ChargeState.SAFE_OFF)
+        if isinstance(state, DischargeState):
+            return state in (DischargeState.DISCHARGE_DONE, DischargeState.FAULT, DischargeState.SAFE_OFF)
+        if isinstance(state, RelaxState):
+            return state == RelaxState.RELAX_DONE
+        return True
+
+    def _controller_faulted(self, controller) -> bool:
+        state = getattr(controller, "state", None)
+        if isinstance(state, ChargeState):
+            return state in (ChargeState.FAULT, ChargeState.SAFE_OFF)
+        if isinstance(state, DischargeState):
+            return state in (DischargeState.FAULT, DischargeState.SAFE_OFF)
+        return False
+
+    def _step_can_be_gracefully_interrupted(self, step: TestStep) -> bool:
+        return step.kind in (StepKind.RELAX, StepKind.MANUAL_CHECKPOINT)
+
+    def _controller_for_step(self, step: TestStep):
+        if step.kind == StepKind.CHARGE:
+            return self._charge_ctrl
+        if step.kind == StepKind.DISCHARGE:
+            return self._discharge_ctrl
+        if step.kind == StepKind.RELAX:
+            return self._relax_ctrl
+        raise ValueError(f"No controller for step kind: {step.kind}")

@@ -228,3 +228,146 @@ class TestTestPlanFactories:
     def test_bq_learning_type(self):
         plan = TestPlan.bq_learning_physical()
         assert plan.test_type == TestType.BQ_LEARNING_PHYSICAL
+
+
+# ------------------------------------------------------------------ #
+# Task 3: TestRunner __init__ és stop API                            #
+# ------------------------------------------------------------------ #
+
+class TestTestRunnerInit:
+    def test_initial_status_is_idle(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        assert runner.status == "IDLE"
+        logger.close()
+
+    def test_initial_flags_false(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        assert runner.stop_requested is False
+        assert runner.emergency_stop_requested is False
+        logger.close()
+
+    def test_request_stop_sets_flag(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner.request_stop()
+        assert runner.stop_requested is True
+        logger.close()
+
+    def test_request_emergency_stop_sets_flag_and_reason(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner.request_emergency_stop("TEST_REASON")
+        assert runner.emergency_stop_requested is True
+        assert runner.emergency_stop_reason == "TEST_REASON"
+        logger.close()
+
+    def test_request_emergency_stop_default_reason(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner.request_emergency_stop()
+        assert runner.emergency_stop_reason == "USER_EMERGENCY_STOP"
+        logger.close()
+
+
+# ------------------------------------------------------------------ #
+# Task 4: Segédpredikátum metódusok                                  #
+# ------------------------------------------------------------------ #
+
+class TestHelperPredicates:
+    def test_is_finished_charge_done(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        stub = _StubChargeCtrl()
+        stub._state = ChargeState.CHARGE_DONE
+        assert runner._is_finished(stub) is True
+        logger.close()
+
+    def test_is_finished_charge_fault(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        stub = _StubChargeCtrl()
+        stub._state = ChargeState.FAULT
+        assert runner._is_finished(stub) is True
+        logger.close()
+
+    def test_is_finished_charge_running(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        stub = _StubChargeCtrl()
+        stub._state = ChargeState.CHARGE_CC
+        assert runner._is_finished(stub) is False
+        logger.close()
+
+    def test_is_finished_discharge_done(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        stub = _StubDischargeCtrl()
+        stub._state = DischargeState.DISCHARGE_DONE
+        assert runner._is_finished(stub) is True
+        logger.close()
+
+    def test_is_finished_relax_done(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        stub = _StubRelaxCtrl()
+        stub._state = RelaxState.RELAX_DONE
+        assert runner._is_finished(stub) is True
+        logger.close()
+
+    def test_is_finished_relax_relaxing(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        stub = _StubRelaxCtrl()
+        stub._state = RelaxState.RELAXING
+        assert runner._is_finished(stub) is False
+        logger.close()
+
+    def test_controller_faulted_charge_fault(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        stub = _StubChargeCtrl()
+        stub._state = ChargeState.FAULT
+        assert runner._controller_faulted(stub) is True
+        logger.close()
+
+    def test_controller_faulted_charge_done(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        stub = _StubChargeCtrl()
+        stub._state = ChargeState.CHARGE_DONE
+        assert runner._controller_faulted(stub) is False
+        logger.close()
+
+    def test_controller_faulted_relax(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        stub = _StubRelaxCtrl()
+        stub._state = RelaxState.RELAXING
+        assert runner._controller_faulted(stub) is False
+        logger.close()
+
+    def test_step_can_interrupt_relax(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        step = TestStep(StepKind.RELAX, "relax")
+        assert runner._step_can_be_gracefully_interrupted(step) is True
+        logger.close()
+
+    def test_step_can_interrupt_manual_checkpoint(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        step = TestStep(StepKind.MANUAL_CHECKPOINT, "manual_bq_checkpoint")
+        assert runner._step_can_be_gracefully_interrupted(step) is True
+        logger.close()
+
+    def test_step_cannot_interrupt_charge(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        step = TestStep(StepKind.CHARGE, "charge")
+        assert runner._step_can_be_gracefully_interrupted(step) is False
+        logger.close()
+
+    def test_step_cannot_interrupt_discharge(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        step = TestStep(StepKind.DISCHARGE, "discharge")
+        assert runner._step_can_be_gracefully_interrupted(step) is False
+        logger.close()
+
+    def test_controller_for_charge_step(self, tmp_path):
+        cc = _StubChargeCtrl()
+        runner, logger = _make_runner(tmp_path, cc=cc)
+        step = TestStep(StepKind.CHARGE, "charge")
+        assert runner._controller_for_step(step) is cc
+        logger.close()
+
+    def test_controller_for_unknown_step_raises(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        step = TestStep(StepKind.MANUAL_CHECKPOINT, "x")
+        with pytest.raises(ValueError):
+            runner._controller_for_step(step)
+        logger.close()
