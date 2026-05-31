@@ -1,0 +1,1162 @@
+IMPLEMENTÁCIÓS TERV
+AKKU LABOR AUTOMATIZÁLÁS — AGM/VRLA BQ34Z110 GOLDEN IMAGE ELŐKÉSZÍTŐ SZOFTVER
+Dátum: 2026-05-31
+Verzió: 1.1
+Státusz: KÜLSŐ REVIEW-RA KÉSZ
+
+Változások v1.0 → v1.1:
+  - 2x Keysight 34465A DMM: DMM1 = feszültségmérés, DMM2 = felületi hőmérséklet
+  - Nincs relé hardware → relay_matrix.py elhagyva (nem tervezett)
+  - Soros védelem: Schottky dióda (NEM ideális dióda modul)
+  - BatteryProfile: bármilyen Ah kapacitás, 12 V és 24 V pack egyaránt
+  - Nyitott kérdések lezárva (2, 3, 4. pont)
+
+================================================================================
+VEZETŐI ÖSSZEFOGLALÓ
+================================================================================
+
+A projekt célja egy Python alapú asztali laboralkalmazás létrehozása, amely Keithley
+2220-30-1 tápegységet, Keithley 2380-120-60 elektronikus terhelést és 2 db Keysight
+34465A DMM-et vezérel (DMM1: feszültség, DMM2: felületi hőmérséklet). A szoftver
+FIAMM AGM/VRLA akkumulátorok laborfolyamatait automatizálja (töltés CC/CV soros Schottky
+diódakompenzációval, CC kisütés, relaxáció, kapacitásteszt, OCV-SOC lépcsőzés). Relé
+hardware NINCS — a galvanikus leválasztás PSU output OFF szintű, nem mechanikus relé.
+BQ34Z110/BQ34Z100 golden image előkészítéshez szükséges fizikai ciklusokat végzi el
+BQ-kommunikáció nélkül. A szoftver PySide6 GUI-val, SQLite+CSV logolással és
+safety-first tervezéssel rendelkezik.
+
+Jelenlegi állapot: kód nincs — Prog/ mappa üres, csak .gitkeep fájlok vannak.
+Minden specifikáció elkészült és rendelkezésre áll.
+
+
+================================================================================
+1. CÉL ÉS HATÓKÖR
+================================================================================
+
+1.1 Laborfolyamatok, amelyeket a szoftver megvalósít
+-----------------------------------------------------
+A) Alapfolyamatok (MVP — első üzembe helyezési célpont):
+   1. CC/CV töltés soros diódaesés-kompenzációval (DMM-alapú lassú szabályozóhurok)
+   2. CC kisütés terminate feszültségig
+   3. Relaxáció töltés és kisütés után (dV/dt opcionális)
+   4. Ah/Wh integrálás numerikusan
+   5. CSV + SQLite logolás
+   6. Safety vészleállítás
+   7. Alap riport
+
+B) Karakterizáló folyamatok (2. fázis):
+   8. BQ learning fizikai ciklus (teljes töltés → 2h relax → C/5 kisütés → 5h relax × 2)
+   9. C/20 kapacitásteszt
+   10. C/5 kapacitásteszt
+   11. OCV-SOC lépcsős teszt (5% SOC lépések)
+   12. Terheléses impedancia-jellegű impulzusteszt
+
+C) Haladó funkciók (3. fázis):
+   13. Hőmérséklet-kompenzált töltési feszültség (FIAMM: -2,5 mV/cella/°C)
+   14. dV/dt alapú relax lezárás
+   15. PDF/HTML riport
+   16. Grafikon export
+   17. Recovery interrupted session esetén
+   18. Többciklus overlay összehasonlítás
+
+1.2 Érintett fő területek
+--------------------------
+- Töltés: igen (CC/CV, taper, DMM-kompenzáció)
+- Kisütés: igen (CC, terminate voltage)
+- Relaxáció: igen (dV/dt logolás)
+- DMM-kompenzáció: igen (soros dióda/ideális dióda)
+- Logolás: igen (sqlite, csv, eseménynapló, checkpoint)
+- GUI: igen (PySide6, pyqtgraph)
+- Riport: igen (összefoglaló, grafikonok)
+
+1.3 Mi NEM része a hatókörnek
+------------------------------
+- BQ34Z110 I2C kommunikáció
+- BQ regiszterek olvasása/írása
+- UpdateStatus, Qmax, Ra table automatikus ellenőrzése
+- Golden image file generálás (kézi lépés marad)
+
+
+================================================================================
+2. RELEVÁNS FÁJLOK
+================================================================================
+
+2.1 Olvasandó specifikációk (forrás)
+-------------------------------------
+Folyamatok/tervek/akku_golden_image_labor_metodus_bq_nelkul.txt
+  → fő folyamatleírás, állapotgép, BQ learning ciklus, riport struktúra
+
+Folyamatok/tervek/muszerevezerles_2220_2380_34465A_spec.txt
+  → SCPI parancsok, driver API, InstrumentManager, töltési/kisütési műszerparancsok
+
+Folyamatok/tervek/dmm_alapu_dioda_kompenzalt_akkutoltes_szoftver_spec.txt
+  → DMM-kompenzáló szabályozóhurok, safety feltételek, pszeudokód
+
+Folyamatok/tervek/gui_tervezet_akku_laborhoz.txt
+  → GUI struktúra, nézetek, adatmodell, logolási stratégia, recovery
+
+Folyamatok/tervek/fiamm_agm_alapu_bq_parameter_frissites.txt
+  → FIAMM-specifikus paraméterek (float 2,27 V/cella, boost 2,40 V/cella,
+    taper 0,03 C10, max áram 0,25 C10, hőkompenzáció -2,5 mV/cella/°C)
+
+2.2 Létrehozandó fájlok (implementáció)
+-----------------------------------------
+DRIVER RÉTEG — Prog/drivers/:
+  device_psu.py         — Keithley2220PSU osztály
+  device_load.py        — Keithley2380Load osztály
+  device_dmm.py         — Keysight34465ADMM osztály (DCV + TEMP mód egyaránt)
+
+  NINCS relay_matrix.py — relé hardware nem részei a rendszernek.
+  A "leválasztás" = PSU output OFF + tápegység saját belső kapcsolója.
+  FONTOS: Ez nem galvanikus leválasztás! Lásd 5.6 kockázat.
+
+ALKALMAZÁSRÉTEG — Prog/src/:
+  battery_profile.py    — BatteryProfile dataclass + C-ráta számítás
+  instrument_manager.py — InstrumentManager (connect_all, safe_all_off, read_all)
+  safety.py             — SafetyManager (limitek, vészleállítás)
+  charge_controller.py  — DMM-kompenzált CC/CV töltés állapotgép
+  discharge_controller.py — CC kisütés állapotgép
+  relax_controller.py   — Relaxáció, dV/dt számítás
+  test_runner.py        — Fő folyamatvezérlő (CHARACTERIZATION, BQ_LEARNING_PHYSICAL)
+  integrator.py         — Ah/Wh numerikus integráló (delta_Ah = I*dt/3600)
+  logger.py             — CSV + SQLite + eseménynapló + checkpoint
+  report_generator.py   — Összefoglaló riport
+
+GUI RÉTEG — Prog/src/gui/:
+  main_window.py        — főablak, navigáció
+  dashboard.py          — élő paraméterek, mini grafikonok, gyors gombok
+  instrument_panel.py   — Műszerek nézet
+  battery_profile_panel.py — Akkuprofil beállítás
+  test_plan_panel.py    — Tesztterv, lépéslista
+  running_test_panel.py — Futó teszt nézet
+  graphs_panel.py       — pyqtgraph grafikonok
+  log_panel.py          — eseménynapló nézet
+  results_panel.py      — riport nézet
+  settings_panel.py     — beállítások
+
+KONFIGURÁCIÓ — Prog/config/:
+  default_config.yaml           — alapértelmezett műszer és biztonsági paraméterek
+  battery_profiles/             — akkuprofilok (FIAMM_12V_7Ah.yaml, stb.)
+
+TESZTEK — Prog/tests/:
+  test_battery_profile.py       — BatteryProfile egységtesztek
+  test_safety.py                — SafetyManager tesztek
+  test_charge_controller.py     — töltés állapotgép tesztek
+  test_discharge_controller.py  — kisütés állapotgép tesztek
+  test_integrator.py            — Ah/Wh integrátor tesztek
+  test_logger.py                — logolás tesztek
+  mock_drivers/                 — mock PSU, load, DMM
+
+2.3 Konfigurációs fájlok
+--------------------------
+Prog/config/default_config.yaml:
+  - instruments.psu.resource
+  - instruments.load.resource
+  - instruments.dmm_voltage.resource    (DMM1 — feszültségmérő 34465A)
+  - instruments.dmm_temperature.resource (DMM2 — hőmérsékletmérő 34465A)
+  - instruments.dmm_voltage.timeout_ms, instruments.dmm_temperature.timeout_ms
+  - instruments.psu.timeout_ms, instruments.load.timeout_ms
+  - battery default paraméterek
+  - safety limitek
+  - test_defaults (charge_current_C, discharge_C_rate, stb.)
+
+Prog/config/battery_profiles/FIAMM_12V.yaml  (sablonprofil 12V-os pack):
+  cell_count: 6
+  nominal_voltage_V: 12.0
+  nominal_capacity_Ah: <KEZELŐ ADJA MEG>   ← kötelező mező
+  charge_voltage_per_cell_V: 2.40           (FIAMM boost @20°C)
+  float_voltage_per_cell_V: 2.27            (FIAMM float @20°C)
+  terminate_voltage_per_cell_V: 1.80        (FIAMM C10 végpont)
+  max_charge_current_A: null                (auto: 0.25 × C10)
+  taper_current_A: null                     (auto: 0.03 × C10)
+  temp_comp_mV_per_cell_per_degC: -2.5      (FIAMM hőkompenzáció)
+
+Prog/config/battery_profiles/FIAMM_24V.yaml  (sablonprofil 24V-os pack):
+  cell_count: 12
+  nominal_voltage_V: 24.0
+  nominal_capacity_Ah: <KEZELŐ ADJA MEG>   ← kötelező mező
+  charge_voltage_per_cell_V: 2.40
+  float_voltage_per_cell_V: 2.27
+  terminate_voltage_per_cell_V: 1.80
+  max_charge_current_A: null                (auto: 0.25 × C10)
+  taper_current_A: null                     (auto: 0.03 × C10)
+  temp_comp_mV_per_cell_per_degC: -2.5
+
+  MEGJEGYZÉS: Az Ah kapacitás konkrét akku-függ — sablonok adják a fix paramétereket,
+  a nominal_capacity_Ah-t a kezelő adja meg vagy GUI-ban vagy YAML-ban indítás előtt.
+
+2.4 Dokumentációs keresési pontok
+-----------------------------------
+Ha implementáció közben SCPI kérdés merül fel:
+  → Leírások/műszer_manualok/2220-30-1/prog.txt    (2220 SCPI referencia)
+  → Leírások/műszer_manualok/2380-120-60/2380-...-900-01_A_Nov_2015.txt
+  → Leírások/műszer_manualok/34465A/34460-70-Manual.txt
+
+Ha akku paraméter kérdés merül fel:
+  → Leírások/akku_adatlapok/Engineering_Manual_AGM_EN.txt
+
+
+================================================================================
+3. DOKUMENTÁCIÓS ELLENŐRZÉS
+================================================================================
+
+3.1 Elvégzett ellenőrzések (jelen terv alapján)
+------------------------------------------------
+[IGAZOLT] FIAMM boost feszültség: 2,40 V/cella @20 °C
+  Forrás: fiamm_agm_alapu_bq_parameter_frissites.txt → szekció 2.5
+  Felhasználás: charge_voltage_per_cell_V = 2.40
+
+[IGAZOLT] FIAMM taper áram: 0,03 × C10
+  Forrás: fiamm_agm_alapu_bq_parameter_frissites.txt → szekció 2.7
+  Felhasználás: taper_current_A = 0.03 × nominal_capacity_Ah
+
+[IGAZOLT] FIAMM max töltőáram: 0,25 × C10
+  Forrás: fiamm_agm_alapu_bq_parameter_frissites.txt → szekció 2.8
+  Felhasználás: max_charge_current_A = 0.25 × nominal_capacity_Ah
+
+[IGAZOLT] FIAMM terminate voltage: 1,80 V/cella
+  Forrás: fiamm_agm_alapu_bq_parameter_frissites.txt → szekció 2.4
+  Felhasználás: terminate_voltage_per_cell_V = 1.80
+
+[IGAZOLT] FIAMM hőkompenzáció: -2,5 mV/cella/°C
+  Forrás: fiamm_agm_alapu_bq_parameter_frissites.txt → szekció 2.9
+  Felhasználás: temp_comp_mV_per_cell_per_degC = -2.5
+
+[IGAZOLT] PSU output OFF leállítási sorrend: LOAD OFF → PSU OFF → relé
+  Forrás: muszerevezerles_2220_2380_34465A_spec.txt → szekció 1.5, 12.3
+
+[IGAZOLT] PSU-nál tiltott állapot: PSU output ON ÉS LOAD input ON egyszerre
+  Forrás: muszerevezerles_2220_2380_34465A_spec.txt → szekció 12.2
+
+[IGAZOLT] DMM timeout esetén töltés azonnali leállítás
+  Forrás: dmm_alapu_dioda_kompenzalt_akkutoltes_szoftver_spec.txt → szekció 8.1
+
+3.2 Nyitott dokumentációs kérdések (implementáció előtt szükséges)
+-------------------------------------------------------------------
+[ELLENŐRIZENDŐ] Keithley 2380-120-60: INPUT ON vs INP ON firmware-kompatibilitás
+  Forrás: muszerevezerles spec 3.2 jelzi, hogy rövidített forma is lehet
+  Megoldás: driverben próbálj sorrend: INPUT OFF → INP OFF → SOUR:FUNC CURR
+  Teszt: először műszer nélkül ne próbáld, csak fizikai kapcsolattal ellenőrizd
+
+[ELLENŐRIZENDŐ] Keithley 2220-30-1: OUTP OFF vs OUTP:ENAB OFF firmware különbség
+  Forrás: muszerevezerles spec 2.5: "A program induláskor tesztelje, melyik parancs működik"
+  Megoldás: command self-check az inicializálásban
+
+[ELLENŐRIZENDŐ] 34465A pontos VISA resource string (IP-cím ismeretlen)
+  Megoldás: Prog/config/default_config.yaml-ban placeholder; kezelő adja meg
+
+
+================================================================================
+4. TERVEZETT MEGOLDÁS
+================================================================================
+
+4.1 Szoftverrétegek és modulhatárok
+-------------------------------------
+
++-------------------------------+
+|         GUI réteg             |  PySide6 + pyqtgraph
+|  (main_window, dashboard,     |  QThread-en keresztül kommunikál
+|   panels...)                  |  a controller réteggel
++-------------------------------+
+          | Queue / signals
++-------------------------------+
+|   Application/Controller      |  test_runner.py, charge/discharge/
+|   réteg                       |  relax controller
+|   (állapotgépek, tesztlogika) |  safety.py, integrator.py
++-------------------------------+
+          | Python hívások
++-------------------------------+
+|   Device driver réteg         |  device_psu.py, device_load.py,
+|   (SCPI/VISA)                 |  device_dmm.py (×2 példány)
+|                               |  NINCS relay_matrix.py
++-------------------------------+
+          | pyvisa (USBTMC / LAN)
++-------------------------------+
+|   Fizikai műszerek            |  2220 (USB), 2380 (USB),
+|                               |  34465A #1 (LAN, voltage),
+|                               |  34465A #2 (LAN, temperature)
++-------------------------------+
+          | (párhuzamosan)
++-------------------------------+
+|   Data / Logging réteg        |  logger.py (sqlite + csv + checkpoint)
++-------------------------------+
+
+4.2 Állapotgép (töltés)
+-------------------------
+Az állapotok a dmm_alapu_dioda_kompenzalt_akkutoltes_szoftver_spec.txt alapján:
+
+  INIT
+  └─> PRECHECK
+      └─> PSU_PRESET
+          └─> CONNECT_RELAY
+              └─> CHARGE_RAMP
+                  └─> CHARGE_CC          (áramlimitben dolgozik)
+                      └─> CHARGE_CV_DMM_CONTROL  (DMM-kompenzált CV)
+                          └─> TAPER_HOLD  (taper feltétel tartása)
+                              └─> CHARGE_DONE
+                                  └─> RELAX / DONE
+  Bármely állapotból: → FAULT / SAFE_OFF (vészleállítás)
+
+  CHARGE_CV_DMM_CONTROL működési logikája (minden control_update_period_s-ban):
+    error = U_batt_target - U_batt_DMM
+    ha |error| <= deadband_V: nincs változtatás
+    ha error > deadband: step = min(error, max_step_V); U_psu_set += step
+    ha error < -deadband: step = min(|error|, max_step_V); U_psu_set -= step
+    U_psu_set = min(U_psu_set, U_psu_set_max)
+    U_psu_set = min(U_psu_set, U_batt_target + max_expected_series_drop)
+
+4.3 Állapotgép (kisütés)
+--------------------------
+  INIT
+  └─> PRECHECK (PSU OFF ellenőrzés)
+      └─> DISCHARGE_CC_SETUP
+          └─> DISCHARGE_CC_RUN
+              └─> DISCHARGE_DONE
+                  └─> RELAX_AFTER_DISCHARGE
+
+  Stop feltételek:
+    DMM voltage <= terminate_voltage_pack_V
+    elapsed_time >= max_discharge_time_h
+    safety hiba
+
+4.4 Állapotgép (BQ learning fizikai ciklus)
+--------------------------------------------
+  INIT → PRECHECK
+  Ciklus 1:
+    FULL_CHARGE_1 → RELAX_AFTER_CHARGE_1 (min 2h) → DISCHARGE_C5_1 → RELAX_AFTER_DISCHARGE_1 (min 5h)
+  Ciklus 2:
+    FULL_CHARGE_2 → RELAX_AFTER_CHARGE_2 (min 2h) → DISCHARGE_C5_2 → RELAX_AFTER_DISCHARGE_2 (min 5h)
+  → MANUAL_BQ_CHECKPOINT (szoftver megáll, kezelő kézi BQ ellenőrzést végez)
+  → DONE → riport
+
+4.5 Állapotgép (OCV-SOC lépcsős teszt)
+----------------------------------------
+  INIT → PRECHECK
+  Teljes töltés + 5h relax
+  SOC_index = 100%
+  OCV_mérés log
+  Ciklus amíg SOC > 0:
+    1. Load CC = C/10 (vagy C/20)
+    2. Ah integrálás → ha removed_Ah >= step_Ah → Load OFF
+    3. Relax step_relax_time_h (1-2h, kulcspontokon 5h)
+    4. DMM OCV mérés (NPLC 100)
+    5. Log: SOC_index, removed_Ah, OCV, dVdt, T
+    6. SOC_index -= step_percent (alap: 5%)
+    Ha feszültség eléri terminate_voltage: ACTUAL_EMPTY_REACHED
+
+4.6 Driver API (minden driver azonos alap)
+------------------------------------------
+connect(resource: str) -> None
+disconnect() -> None
+idn() -> str
+reset() -> None
+clear_status() -> None
+check_error() -> list[str]
+safe_off() -> None
+is_connected() -> bool
+
+Keithley2220PSU extra:
+  select_channel(ch: str)
+  set_voltage(ch: str, v: float)
+  set_current(ch: str, i: float)
+  output_on(ch: str)
+  output_off(ch: str)
+  all_outputs_off()
+  measure_voltage(ch: str) -> float
+  measure_current(ch: str) -> float
+
+  PSU kombinációs üzemmód (opcionális, kezelő választja):
+  set_mode_independent()           → INST:COMB:OFF   (CH1 és CH2 független, alapért.)
+  set_mode_series()                → INST:COMB:SER   (60V / 1,5A, CH1-en olvasható)
+  set_mode_parallel()              → INST:COMB:PAR   (30V / 3A, CH1-en olvasható)
+  query_combination_mode() -> str  → INST:COMB?  (visszaad: "Series", "Parallel", "NONE")
+
+  FONTOS — HARDWARE ELŐFELTÉTEL:
+    INST:COMB:SER és INST:COMB:PAR csak akkor biztonságos, ha a kimeneteket
+    ELŐZETESEN FIZIKAILAG ÁTKÖTI a kezelő az előírás szerint.
+    A szoftver ezt nem tudja automatikusan ellenőrizni — ezért:
+    - a mód váltás előtt KÖTELEZŐ megerősítő dialógus a GUI-ban,
+    - a hardware bekötési állapotot a konfigurációs fájl tárolja,
+    - a precheck fázisban mért feszültség összevetése a várható értékkel
+      részben ellenőrzi a helyes bekötést (pl. series módban 0 V readback gyanús).
+
+Keithley2380Load extra:
+  set_mode_cc()
+  set_current(i: float)
+  input_on()
+  input_off()
+  measure_voltage() -> float
+  measure_current() -> float
+  measure_power() -> float
+
+Keysight34465ADMM extra (DCV módban — DMM1, feszültségmérés):
+  configure_dcv(range_V: float, nplc: float)
+  read_voltage() -> float
+  set_nplc(nplc: float)
+  autorange_off()
+
+Keysight34465ADMM extra (TEMP módban — DMM2, hőmérsékletmérés 4-wire PT100):
+  configure_temp_4wire_pt100(nplc: float = 10.0)
+    SCPI (igazolt, 34460-70-Manual.txt sor 6988 és 10680 alapján):
+      CONF:TEMP FRTD,85
+        → FRTD = Four-wire RTD mód
+        → 85 = IEC 751 szabvány kód (alpha=0.00385 Ω/Ω/°C) — NEM R0 ohm érték!
+      SENS:TEMP:TRAN:FRTD:RES 100   (PT100: R0=100 Ω @ 0°C, DIN EN 60751)
+      SENS:TEMP:NPLC <nplc>
+      UNIT:TEMP C                   (kimenet Celsius-ban)
+  read_temperature() -> float       (°C-ban, READ? paranccsal)
+  Megjegyzés:
+    PT100: R0=100 Ohm @ 0°C. A 4 vezetékes bekötés kiküszöböli a vezékelésellenállás hibát.
+    A "85" típuskód az IEC 751 PTxx koefficienst jelzi, alapból R0=100 Ω (PT100 default).
+    IGAZOLT: 34460-70-Manual.txt sor 6988: "CONF:TEMP FRTD,85" és sor 8221: "MEAS:TEMP? FRTD,85"
+    Az InstrumentManager 2 különálló Keysight34465ADMM példányt kezel:
+      dmm_voltage     = Keysight34465ADMM(resource=config.dmm_voltage_resource)
+      dmm_temperature = Keysight34465ADMM(resource=config.dmm_temperature_resource)
+
+4.7 BatteryProfile dataclass
+------------------------------
+@dataclass
+class BatteryProfile:
+    battery_name: str
+    manufacturer: str
+    model: str
+    nominal_voltage_V: float
+    cell_count: int
+    nominal_capacity_Ah: float
+    chemistry: str = "AGM_VRLA"
+    charge_voltage_per_cell_V: float = 2.40
+    terminate_voltage_per_cell_V: float = 1.80
+    float_voltage_per_cell_V: float = 2.27
+    max_charge_current_A: float = None      # auto: 0.25 * C10
+    taper_current_A: float = None           # auto: 0.03 * C10
+    temp_comp_mV_per_cell_per_degC: float = -2.5
+    test_temperature_min_C: float = 15.0
+    test_temperature_max_C: float = 30.0
+
+    # Számított tulajdonságok (@property):
+    # charge_voltage_pack_V = charge_voltage_per_cell_V * cell_count
+    # terminate_voltage_pack_V = terminate_voltage_per_cell_V * cell_count
+    # C20_current_A = nominal_capacity_Ah / 20
+    # C10_current_A = nominal_capacity_Ah / 10
+    # C5_current_A  = nominal_capacity_Ah / 5
+    # effective_max_charge_A = max_charge_current_A ?? (0.25 * C10)
+    # effective_taper_A = taper_current_A ?? (0.03 * C10)
+
+4.8 Log formátum (CSV oszlopok)
+---------------------------------
+timestamp_iso, elapsed_s, test_name, step_name, state,
+battery_voltage_V, charge_current_A, discharge_current_A, signed_current_A,
+battery_temperature_C, ambient_temperature_C,
+psu_set_voltage_V, psu_set_current_A, psu_readback_voltage_V, psu_readback_current_A,
+psu_output_on,
+load_set_current_A, load_readback_voltage_V, load_readback_current_A, load_input_on,
+relay_state,
+accumulated_charge_Ah, accumulated_discharge_Ah,
+accumulated_charge_Wh, accumulated_discharge_Wh,
+u_drop_V, regulation_error_V, taper_timer_s,
+dmm_valid, fault_flags, warning_flags,
+event_code, event_message
+
+4.9 Safety manager limitekek
+------------------------------
+Minden mérési ciklusban ellenőriz:
+  battery_voltage_V > max_allowed_voltage_V       → BATTERY_OVERVOLTAGE
+  battery_voltage_V < min_allowed_voltage_V       → BATTERY_UNDERVOLTAGE
+  battery_temperature_C > max_temperature_C       → BATTERY_TEMPERATURE_HIGH
+  abs(charge_current_A) > max_charge_current * (1+tol) → CHARGE_CURRENT_TOO_HIGH
+  abs(discharge_current_A) > max_discharge_current * (1+tol) → DISCHARGE_CURRENT_TOO_HIGH
+  load_power_W > max_load_power_W                 → LOAD_POWER_LIMIT
+  U_drop > max_allowed_series_drop                → SERIES_DROP_TOO_HIGH
+  U_drop < min_allowed_series_drop                → NEGATIVE_SERIES_DROP
+  not dmm.valid                                   → DMM_FEEDBACK_LOST
+  PSU ON ÉS LOAD ON egyszerre (relax alatt)       → CONCURRENT_PSU_LOAD_ON
+  charged_Ah > nominal_Ah * max_charge_Ah_factor  → MAX_CHARGE_AH_REACHED
+  elapsed_charge_time > max_charge_time           → MAX_CHARGE_TIME_REACHED
+
+  Vészleállítás sorrendja (safety_first):
+    1. load.input_off()      → LOAD OFF
+    2. psu.all_outputs_off() → PSU OFF
+    3. relay.safe_open()     → relék bontása
+    4. log EMERGENCY_STOP + reason
+    5. checkpoint mentés
+    6. GUI fault screen
+
+4.10 GUI réteg
+---------------
+Technológia: PySide6 + pyqtgraph
+Kommunikáció: QThread a mérési motorhoz, Queue a mintaadatokhoz, Qt signals a GUI-nak
+
+Minimális 1. fázis GUI (MVP):
+  - Dashboard: élő U_batt, I, Ah, állapot, mini grafikon, Stop/EmStop gomb
+  - Műszerek nézet: IDN, connect, safe_off
+  - Akkuprofil: mezők, auto C-ráta számítás
+  - Tesztterv: tesztválasztás, indítás, validáció
+  - Futó teszt: folyamatcsík, élő paraméterek
+  - CSV log a Mérések/ mappában
+
+Session mentési stratégia (minden mintánál):
+  sqlite INSERT + COMMIT
+  csv APPEND + FLUSH
+  checkpoint.json frissítés 10 s-enként
+  kritikus esemény → azonnali FLUSH minden fájlban
+
+4.11 FIAMM-specifikus konfiguráció — sablonszámítás (Ah-tól független)
+-----------------------------------------------------------------------
+A BatteryProfile @property-jei automatikusan számítják a C-ráta értékeket:
+  Bármilyen Ah kapacitásra (pl. X Ah):
+
+  12V pack (cell_count=6):
+    charge_voltage_pack_V      = 6 × 2.40 = 14.40 V
+    terminate_voltage_pack_V   = 6 × 1.80 = 10.80 V
+    float_voltage_pack_V       = 6 × 2.27 = 13.62 V
+    max_charge_current_A       = 0.25 × X [A]
+    taper_current_A            = 0.03 × X [A]
+    C5_current_A               = X / 5  [A]
+    C10_current_A              = X / 10 [A]
+    C20_current_A              = X / 20 [A]
+    U_psu_set_max              = 14.40 + 0.90 = 15.30 V  (Schottky series drop max)
+
+  24V pack (cell_count=12):
+    charge_voltage_pack_V      = 12 × 2.40 = 28.80 V
+    terminate_voltage_pack_V   = 12 × 1.80 = 21.60 V
+    float_voltage_pack_V       = 12 × 2.27 = 27.24 V
+    max_charge_current_A       = 0.25 × X [A]
+    taper_current_A            = 0.03 × X [A]
+    U_psu_set_max              = 28.80 + 1.00 = 29.80 V  (Schottky — marginális headroom!)
+    FIGYELEM: 2220-30-1 max kimenet 30 V → 24V packhoz csak 2,40 V/cella cél ajánlott
+
+  Példa 12V / 7 Ah akkura (GUI-ban megadva):
+    nominal_capacity_Ah = 7.0
+    max_charge_current_A = 1.75 A
+    taper_current_A      = 0.21 A
+    C5 = 1.40 A, C10 = 0.70 A, C20 = 0.35 A
+
+  Példa 12V / 18 Ah akkura (GUI-ban megadva):
+    nominal_capacity_Ah = 18.0
+    max_charge_current_A = 4.50 A
+    taper_current_A      = 0.54 A
+    C5 = 3.60 A, C10 = 1.80 A, C20 = 0.90 A
+
+
+4.12 PSU kombinációs üzemmód — korlátok és kompatibilitás
+----------------------------------------------------------
+A 2220-30-1 két csatornája háromféle üzemmódban használható.
+FONTOS: Az üzemmód váltás FIZIKAI ÁTBEKÖTÉST igényel — a szoftver csak utána küldheti a parancsot.
+
+Üzemmódok összefoglalója (igazolva: prog.txt sor 803-808, 1042-1079):
+  INDEPENDENT: CH1 és CH2 független — INST:COMB:OFF
+    Max feszültség (csatornánként): 30 V
+    Max áram (csatornánként):       1,5 A
+    Elsődleges használat:           Akkutöltés CH1-gyel, CH2 nem kötött
+
+  PARALLEL:  CH1+CH2 párhuzamosan — INST:COMB:PAR
+    Max feszültség (összesített):   30 V
+    Max áram (összesített):          3 A
+    Mérés:                           MEAS:VOLT? és MEAS:CURR? CH1-en adja a kombinált értéket
+    Elsődleges használat:            Nagyobb áramú 12V pack töltés
+
+  SERIES:    CH1+CH2 sorosan — INST:COMB:SER
+    Max feszültség (összesített):   60 V
+    Max áram (összesített):          1,5 A
+    Mérés:                           MEAS:VOLT? CH1-en adja a kombinált (összesített) feszültséget
+    Elsődleges használat:            24V pack töltés (ahol 30V nem elegendő)
+
+Kompatibilitási táblázat (FIAMM AGM, 0.25×C10 max töltőárammal):
+
+  Pack   | Kapacitás | 0.25×C10 | PSU mód        | Megjegyzés
+  -------+-----------+----------+----------------+-------------------------------------------
+  12V    | ≤ 6 Ah    | ≤ 1,5 A  | INDEPENDENT    | CH1 egyedül elegendő
+  12V    | 7–12 Ah   | 1,75–3 A | PARALLEL       | 3A max → 12Ah-ig 0.25C teljesíthető
+  12V    | > 12 Ah   | > 3 A    | PARALLEL+csökkentett arány | 3A nem elég 0.25C-hez; max 3A/Ah ráta
+  24V    | bármely   | változó  | SERIES         | Feszültség miatt kötelező; max 1,5 A
+  24V    | > 6 Ah    | > 1,5 A  | SERIES+csökkentett arány   | 1,5A korlát → alacsonyabb C-ráta kell
+
+  Konkrét példák:
+    12V /  7 Ah: INDEPENDENT — 1,75 A (0.25×7) < 1,5 A FIGYELEM! → 0.21C = 1.47A maximum
+                              VAGY PARALLEL — 1,75 A biztonságosan
+    12V / 12 Ah: PARALLEL szükséges — 0.25×12 = 3 A, pontosan a maximum
+    12V / 18 Ah: PARALLEL + aránycsökkentés — 3A / 18Ah = 0.167C max
+    24V /  6 Ah: SERIES — 0.25×6 = 1,5 A, pontosan a maximum
+    24V / 18 Ah: SERIES + aránycsökkentés — 1,5A / 18Ah = 0.083C max
+
+  MEGJEGYZÉS 12V/7Ah külön esethez:
+    0.25 × 7 = 1.75 A, ami enyhe túllépi a single CH1 1.5A limitjét.
+    Opciók: (a) PARALLEL mód, vagy (b) max_charge_current_A = 1.40 A (0.2×C10) INDEPENDENT-ben.
+    Ajánlott: PARALLEL, hogy ne kelljen a FIAMM ajánlott limitet alul szorítani.
+
+PSU mód konfiguráció helye:
+  Prog/config/default_config.yaml:
+    psu:
+      combination_mode: INDEPENDENT   # INDEPENDENT | PARALLEL | SERIES
+      hardware_wiring_confirmed: false # kezelő manuálisan állítja true-ra a GUI-ban
+
+  GUI — Beállítások → PSU konfiguráció:
+    - PSU kombináció mód választó (dropdown)
+    - "Megerősítem, hogy a hardware átbekötés megtörtént" checkbox
+    - Ha nincs megerősítve: indítás TILTOTT, GUI error: PSU_WIRING_NOT_CONFIRMED
+
+PSU mód váltás biztonsági sorrend a szoftverben:
+  1. GUI dialógus: "Változtatta a PSU bekötést PARALLEL/SERIES módra?"
+  2. Kezelő megerősítése
+  3. PSU all_outputs_off()
+  4. INST:COMB:PAR vagy INST:COMB:SER parancs
+  5. INST:COMB? lekérdezés — ellenőrzés, hogy a tápegység elfogadta
+  6. Precheck: MEAS:VOLT? visszaadott érték ésszerű-e az adott módhoz
+  7. Konfiguráció mentése a session meta fájlba
+
+Kompatibilitási validáció (PRECHECK-ben):
+  required_charge_current_A = battery.max_charge_current_A
+  psu_mode_max_current_A = {INDEPENDENT: 1.5, PARALLEL: 3.0, SERIES: 1.5}[mode]
+
+  if required_charge_current_A > psu_mode_max_current_A:
+      WARNING: PSU_CURRENT_LIMIT_EXCEEDED
+      effective_charge_current_A = psu_mode_max_current_A
+      effective_charge_C_rate = psu_mode_max_current_A / battery.nominal_capacity_Ah
+      GUI megjelenik: "Figyelem: a töltőáram {effective_charge_current_A} A-re korlátozva
+                      ({effective_charge_C_rate:.3f}C). Tovább?"
+
+
+================================================================================
+5. KRITIKUS KOCKÁZATOK
+================================================================================
+
+5.1 DMM-feedback elvesztése
+-----------------------------
+KOCKÁZAT: Ha DMM LAN-kapcsolat megszakad vagy timeout, a szabályozóhurok vak.
+KÖVETKEZMÉNY: PSU folytatja a töltést ismeretlen akkufeszültségen → túltöltés.
+MITIGÁCIÓ:
+  - Minden DMM lekérdezésnél try/except + timeout figyelés
+  - Ha DMM reading érvénytelen (NaN, timeout, irreális ugrás >2V):
+    → azonnali emergency_stop("DMM_FEEDBACK_LOST")
+  - safety.py: dmm_valid flag minden ciklusban ellenőrzött
+  FELTÉTELEZÉS: LAN timeout-ot pyvisa timeout_ms paraméterrel kezeljük (10000 ms DMM-nél)
+
+5.2 Akkufeszültség túllépés
+-----------------------------
+KOCKÁZAT: Tápegység beállítási hiba, rosszul számított series drop, vagy hibás konfigurációból
+  az akku feszültsége meghaladja a max értéket.
+KÖVETKEZMÉNY: Akkumulátor gázolás, szivárgás, tűz (AGM/VRLA esetén kisebb kockázat, de valós).
+MITIGÁCIÓ:
+  - batt_absolute_max_V (pl. 14,55 V 12V/6 cellánál) folyamatosan ellenőrizve
+  - Ha U_batt_DMM > batt_absolute_max_V: emergency_stop("BATTERY_OVERVOLTAGE")
+  - PSU hardveres OVP nincs megbízva egyedüli védelemre → szoftveres limit KÖTELEZŐ
+
+5.3 Tápegység headroom-limit (Schottky dióda esetén)
+-----------------------------------------------------
+KOCKÁZAT: Schottky dióda esetén 0,4–0,8 V esés áramfüggően.
+  Kis áramnál (taper közelében) az esés kisebb (~0,2-0,3 V), nagy áramnál (~0,5-0,8 V).
+  24 V-os pack és 2,45 V/cella célnál: U_batt_target = 29,40 V + 0,6 V drop = 29,90 V —
+  ez nagyon közel van a 2220-30-1 max 30 V kimenetéhez.
+KÖVETKEZMÉNY: A töltési CV cél nem érhető el, az akku nem töltődik teljesen.
+  24 V-os pack esetén kisebb headroom miatt súlyosabb, mint 12 V-osnál.
+MITIGÁCIÓ:
+  - U_psu_set_max konfigurációban: 12V packnál 15,60 V; 24V packnál 30,00 V (kemény limit)
+  - max_expected_series_drop konfigurációban: Schottky = 0,900 V (12V); 1,000 V (24V)
+  - Ha U_psu_set eléri max-ot és U_batt_DMM > 100 mV-tal a cél alatt:
+    → WARNING: HEADROOM_LIMIT_REACHED (log + GUI figyelmeztetés)
+  - Ha tartósan (pl. 60 s) fennáll: → FAULT: PSU_HEADROOM_LIMIT (töltés leáll)
+  FIGYELEM 24V-osnál: Ha a célfeszültség 2,45 V/cella (= 29,40 V), akkor a PSU 30 V-os
+  limitje CSAK ~0,6 V headroom-ot hagy a diódaesésre — ez marginális. Javasolt 24V-osnál
+  2,40 V/cella célt használni (= 28,80 V + ~0,8 V drop = 29,60 V), ami 0,40 V headroom-mal
+  a 30 V-os határhoz képest még biztonságosabb.
+
+5.4 Soros dióda / ideális dióda feszültségesés
+------------------------------------------------
+KOCKÁZAT: U_drop áram- és hőmérsékletfüggő — nagy áramnál nagyobb esés.
+KÖVETKEZMÉNY: PSU_set értéke dinamikusan változik, ha az áramot más ok befolyásolja.
+MITIGÁCIÓ:
+  - U_drop = U_psu_readback - U_batt_DMM folyamatosan logolva
+  - Ha U_drop > max_allowed_series_drop: → FAULT: SERIES_DROP_TOO_HIGH
+  - Ha U_drop < -0,05 V: → WARNING: NEGATIVE_SERIES_DROP (bekötési hiba gyanú)
+  - CHARGE_CV_DMM_CONTROL szabályozás pontosan emiatt DMM-alapú, nem PSU-readback alapú
+
+5.5 Egyszerre aktív PSU és elektronikus terhelés
+--------------------------------------------------
+KOCKÁZAT: Programozási hiba vagy versenyfeltétel esetén PSU ON miközben Load is ON.
+KÖVETKEZMÉNY: PSU és akku egyszerre hajtja a terhelést → áramszabályozási bizonytalanság,
+  lehetséges PSU túlterhelés, Ah integrálás érvénytelen.
+MITIGÁCIÓ:
+  - Safety manager minden mintavételkor ellenőrzi a mutex feltételt:
+    NOT (psu_output_on AND load_input_on)
+  - test_runner.py-ban állapotgép garantálja a kizárást:
+    töltés előtt: load.input_off() kötelező
+    kisütés előtt: psu.all_outputs_off() kötelező
+  - Ha megszegik: → FAULT: CONCURRENT_PSU_LOAD_ON
+
+5.6 Nincs relé — galvanikus leválasztás hiánya
+-----------------------------------------------
+KOCKÁZAT: A rendszerben nincs mechanikus relé. A PSU output OFF a 2220-30-1 belső
+  kapcsolójával ér véget — ez NEM feltétlenül jelent teljes galvanikus leválasztást
+  a Schottky dióda miatt: a dióda fordított irányban elvben nagy impedanciájú, de
+  szivárgási áram előfordulhat, különösen melegebb diódánál.
+KÖVETKEZMÉNY: Relax alatt kis maradék töltőáram folyhat az akkuba a Schottky dióda
+  fordított szivárgásán keresztül. Valódi OCV mérés szükséges leválasztás után,
+  de a leválasztás nem teljesen galvanikus.
+MITIGÁCIÓ:
+  - PSU output OFF után DMM current readback ellenőrzés: ha I_psu > 5 mA → WARNING: PSU_LEAKAGE
+  - Relax alatt DMM feszültség trendje figyelt: ha U_batt emelkedik relaxban → WARNING
+  - Hosszú relaxnál (5 h) a kis szivárgás hatása OCV-re elhanyagolható
+  - Karakterizálási eredményekben JELÖLJÜK: "nincs mechanikus leválasztás"
+  DÖNTÉS: Relé hardware beépítése opcionálisan jövőbeli bővítés; a szoftver relay_matrix
+  stubban tartja az interfészt, ha később mégis szükségessé válik.
+  NEM IGAZOLHATÓ: A Schottky szivárgás konkrét értéke típus- és hőmérsékletfüggő.
+
+5.7 Mérési egységhibák (V/mV, A/mA, Ah/mAh, s/h)
+---------------------------------------------------
+KOCKÁZAT: SCPI értékek mindig SI egységben jönnek vissza (V, A, W).
+  A BatteryProfile Ah-ban tárol, de a BQ-dokumentáció mAh-ban számol.
+MITIGÁCIÓ:
+  - Minden driver float értéket adjon vissza SI egységben (V, A, W)
+  - BatteryProfile minden paramétere Ah-ban vagy V-ban — komment a dataclass-ban
+  - Riportban mindkét egység megjelenik: Ah + mAh
+  - Egységtesztek: C/5 számítás 7 Ah → 1,40 A (NEM 1400 mA belső számításban)
+
+5.8 Timeout és kommunikációs hiba
+-----------------------------------
+KOCKÁZAT: USB USBTMC vagy LAN kapcsolat megszakad mérés közben.
+KÖVETKEZMÉNY: Mérési ciklus blokkolódik, állapotgép megáll.
+MITIGÁCIÓ:
+  - Minden driver metódusban try/except + retry_count (pl. 3 retry)
+  - Timeout után InstrumentError kivétel → safety.py kapja
+  - Kritikus műszernél (DMM, PSU) 1 retry után emergency_stop
+  - Terhelésnél 1 retry után input_off próba + emergency_stop
+  - Timeout paraméterek: PSU=5000ms, Load=5000ms, DMM=10000ms (NPLC100-nál 30000ms)
+
+5.9 Hibás konfiguráció
+-----------------------
+KOCKÁZAT: Rosszul megadott akkuprofil (pl. tévesen nagy feszültség, negatív áram).
+KÖVETKEZMÉNY: Töltési vagy kisütési limit hibás → akku sérülhet.
+MITIGÁCIÓ:
+  - BatteryProfile validáció betöltéskor:
+    charge_voltage_per_cell_V: 2.00 ... 2.60 V (AGM tartomány)
+    terminate_voltage_per_cell_V: 1.60 ... 2.00 V
+    nominal_capacity_Ah: 0.1 ... 1000 Ah
+    cell_count: 1 ... 24
+  - PRECHECK állapotban: akku feszültség megmért értéke ésszerű (min/max check)
+  - GUI indítás előtti validáció: OK / WARNING / ERROR lista a kezelőnek
+
+5.10 Hőmérséklet-kompenzáció hiánya
+--------------------------------------
+KOCKÁZAT: 30 °C-on töltünk 14,40 V-ra (20 °C-os érték), de FIAMM szerint
+  a feszültségnek alacsonyabbnak kellene lennie (–2,5 mV/cella/°C × 10 °C × 6 = –0,15 V).
+KÖVETKEZMÉNY: Enyhe túltöltés magasabb hőmérsékleten.
+MITIGÁCIÓ (MVP-ban): Hőkompenzáció opcionálisan engedélyezhető, alapból KI
+  Ha engedélyezve: charge_voltage_pack_V(T) = cell_count × (V_cell_20 + (-0.0025) × (T - 20))
+  A kompenzált célfeszültség soha ne legyen kisebb, mint cell_count × 2.30 V
+  és soha ne legyen nagyobb, mint cell_count × 2.50 V (kemény határ)
+
+5.11 PSU kombinációs mód és hardware bekötés eltérése
+-------------------------------------------------------
+KOCKÁZAT: A szoftver INST:COMB:SER parancsot küld (soros mód), de a hardware
+  fizikailag párhuzamosan van kötve — vagy fordítva.
+KÖVETKEZMÉNY: Soros módban a PSU az összesített feszültséget szabályozza, de ha
+  a hardware párhuzamos, az akkumulátor dupla áramot kap → túltöltés, esetleg rövidzárás.
+  Párhuzamos módban soros hardware esetén az egyik csatorna fordított feszültséget kaphat.
+MITIGÁCIÓ:
+  - A PSU kombináció mód mindig explicit konfigurációs döntés (nem automatikus)
+  - GUI: kötelező "megerősítem a bekötést" checkbox indítás előtt
+  - hardware_wiring_confirmed = false alapértelmezés → indítás TILTOTT
+  - Precheck: MEAS:VOLT? visszaadott érték összehasonlítása a várt értékkel:
+      PARALLEL módban: ha readback > 30V → gyanús, valószínűleg soros bekötés
+      SERIES módban: ha readback < 5V (várt ~60V / 2 jár ha akku 12V nyilt) → gyanús
+  - A session_meta.json rögzíti a konfigurált PSU módot
+  NEM IGAZOLHATÓ: A hardware bekötés helyességét a szoftver csak részlegesen tudja
+  ellenőrizni — a megerősítés végső felelőssége a kezelőé.
+
+
+================================================================================
+6. TESZTELÉSI TERV
+================================================================================
+
+6.1 Mock driver teszt (műszer nélkül)
+---------------------------------------
+Fájl: Prog/tests/mock_drivers/__init__.py
+  MockPSU, MockLoad, MockDMM osztályok:
+    - minden metódus lognaplóz + paraméter validál
+    - MockDMM: szimulált akkufeszültség adhat DMM_FEEDBACK_LOST szimulációt
+    - MockPSU: szimulált áramlimit → szimulált CC→CV átmenet
+    - MockLoad: szimulált feszültsége csökkentő kisütéssel
+
+Teszt:
+  test_mock_charge_cc_cv():
+    MockDMM visszaadja a szimuált növekvő feszültséget
+    SafetyManager nem vált FAULT-ra
+    taper_timer eléri a taper_hold_time_s-t → CHARGE_DONE
+
+6.2 Műszer nélküli dry-run (importálás + konfigurációs fájl)
+--------------------------------------------------------------
+  python -m compileall Prog
+  python -c "from Prog.src.battery_profile import BatteryProfile; p = BatteryProfile(...); print(p.C5_current_A)"
+  python -c "import yaml; yaml.safe_load(open('Prog/config/default_config.yaml'))"
+  python -c "from Prog.src.safety import SafetyManager; sm = SafetyManager(...); print('OK')"
+
+6.3 PSU driver teszt (fizikai műszerrel, akku nélkül)
+------------------------------------------------------
+Tesztlépések (muszerevezerles_2220_2380_34465A_spec.txt 14.1 alapján):
+  1. connect() → sikeres
+  2. idn() → tartalmaz "KEITHLEY" ÉS "2220-30-1"
+  3. clear_status()
+  4. all_outputs_off()
+  5. select_channel("CH1")
+  6. set_voltage("CH1", 1.0)
+  7. set_current("CH1", 0.1)
+  8. get_set_voltage("CH1") → ≈ 1.0 V
+  9. output_on("CH1") → terhelés nélkül, rövid ideig
+  10. measure_voltage("CH1") → értéket ad vissza
+  11. output_off("CH1")
+  12. check_error() → üres lista
+  FIGYELEM: akkut ne csatlakoztass!
+
+  PSU kombinációs mód teszt (csak ha fizikailag INDEPENDENT bekötés van):
+  13. query_combination_mode() → "NONE" (független alap)
+  14. set_mode_parallel()      → INST:COMB:PAR
+  15. query_combination_mode() → "Parallel"
+  16. set_voltage("CH1", 1.0); set_current("CH1", 0.1) → CH1-en kombinált beállítás
+  17. set_mode_independent()   → INST:COMB:OFF
+  18. query_combination_mode() → "NONE"
+  19. set_mode_series()        → INST:COMB:SER
+  20. query_combination_mode() → "Series"
+  21. set_mode_independent()   → visszaállítás
+  22. check_error() → üres
+  FIGYELEM: A soros és párhuzamos parancsok csak AKKOR biztonságosak, ha a hardware
+  is az adott módon van bekötve. Tesztnél csak INDEPENDENT bekötéssel és alacsony
+  set voltage-dzsal (1V) próbáld a parancsokat — ne menj OUTPUT ON-ra!
+
+6.4 DMM driver teszt (fizikai műszerrel, akku nélkül)
+------------------------------------------------------
+  1. connect() via LAN
+  2. idn() → tartalmaz "34465A"
+  3. clear_status()
+  4. configure_dcv(100, 1)
+  5. read_voltage() → float értéket ad vissza (pl. 0.0 V nyílt bemeneten)
+  6. set_nplc(10) → sikeres
+  7. read_voltage() → értéket ad vissza
+  8. check_error() → üres
+  TEST:ALL? → csak leválasztott bemeneten futtasd
+
+6.5 Load driver teszt (fizikai műszerrel, biztonságos próbaterhelésen)
+----------------------------------------------------------------------
+  1. connect()
+  2. idn() → tartalmaz "2380"
+  3. input_off()
+  4. set_mode_cc()
+  5. set_current(0.1)
+  6. get_set_current() → ≈ 0.1 A
+  7. input_on() → csak biztonságos DC forrásra kötve
+  8. measure_voltage() → float
+  9. measure_current() → float
+  10. measure_power() → float
+  11. input_off()
+  12. check_error()
+
+6.6 Töltési állapotgép teszt (MockDMM, MockPSU)
+-------------------------------------------------
+  test_charge_precheck_fail_on_high_voltage():
+    MockDMM.voltage = 15.5 V → PRECHECK → FAULT: BATTERY_OVERVOLTAGE_OR_WRONG_PACK
+
+  test_charge_cc_to_cv_transition():
+    MockDMM szimulál növekvő feszültséget
+    MockPSU szimulál csökkenő áramot (CC→CV)
+    Ellenőrzés: state == CHARGE_CV_DMM_CONTROL amikor U_batt >= target - cv_entry_margin
+
+  test_taper_hold():
+    MockDMM: U_batt = target - 0.005 V
+    MockPSU current: <= taper_current
+    Ellenőrzés: taper_timer növekszik → CHARGE_DONE a taper_hold_time_s után
+
+  test_max_charge_time_stop():
+    charge_controller.elapsed_time = max_charge_time + 1
+    Ellenőrzés: state == FAULT, reason == MAX_CHARGE_TIME_REACHED
+
+6.7 Kisütési állapotgép teszt (MockLoad, MockDMM)
+--------------------------------------------------
+  test_discharge_terminates_at_voltage():
+    MockDMM szimulál csökkenő feszültséget 14.4 → 10.80 V
+    Ellenőrzés: DISCHARGE_DONE mikor U_batt <= terminate_voltage_pack_V
+    Ellenőrzés: discharged_Ah > 0
+
+  test_discharge_power_limit():
+    MockLoad.power = max_load_power_W + 1
+    Ellenőrzés: emergency_stop("LOAD_POWER_LIMIT")
+
+6.8 DMM-kompenzáció teszt
+--------------------------
+  test_regulation_up_step():
+    U_batt = target - 0.050 V (hiány > deadband)
+    Ellenőrzés: U_psu_set += min(0.050, max_step_V) a következő control_update után
+
+  test_regulation_within_deadband():
+    U_batt = target - 0.005 V (hiány <= deadband)
+    Ellenőrzés: U_psu_set változatlan
+
+  test_regulation_psu_set_max_clamp():
+    U_psu_set kiszámolt értéke > U_psu_set_max
+    Ellenőrzés: U_psu_set == U_psu_set_max (nem megy felé)
+
+  test_headroom_warning():
+    U_psu_set == U_psu_set_max
+    U_batt_DMM < target - 0.1 V, 60s folyamatosan
+    Ellenőrzés: WARNING: PSU_HEADROOM_LIMIT emittálva
+
+6.9 Hiba-injektálási tesztek
+------------------------------
+  test_dmm_feedback_lost():
+    Töltés közben MockDMM.valid = False
+    Ellenőrzés: emergency_stop("DMM_FEEDBACK_LOST") azonnal
+
+  test_battery_overvoltage():
+    Töltés közben MockDMM.voltage = batt_absolute_max_V + 0.1
+    Ellenőrzés: emergency_stop("BATTERY_OVERVOLTAGE")
+
+  test_series_drop_too_high():
+    U_psu_readback = 16.5 V, U_batt_DMM = 14.0 V → U_drop = 2.5 V
+    Ellenőrzés: emergency_stop("SERIES_DROP_TOO_HIGH")
+
+  test_concurrent_psu_load():
+    psu.output_on("CH1") && load.input_on() egyszerre → safety detektálja
+    Ellenőrzés: FAULT: CONCURRENT_PSU_LOAD_ON
+
+  test_instrument_timeout():
+    MockDMM.read_voltage() dob TimeoutError
+    Ellenőrzés: 3 retry után emergency_stop
+
+6.10 Power-cycle / megszakított mérés teszt
+--------------------------------------------
+  test_session_checkpoint_written():
+    Töltés közben logger.write_checkpoint() hívódik (10 s-enként)
+    Fájl: Mérések/<session>/checkpoint.json létezik és tartalmazza az aktuális state-et
+
+  test_session_recovery_on_restart():
+    session.status = "running" egy checkpoint.json-ban
+    Program újraindítás (GUI init) → recovery dialog megjelenik
+
+  test_emergency_stop_flushes_log():
+    Töltés közben emergency_stop("TEST")
+    Ellenőrzés: samples.csv és events.csv flush + close hívódik
+    Ellenőrzés: session.status = "fault" a session_meta.json-ban
+
+6.11 Log/riport ellenőrzés
+----------------------------
+  test_csv_log_format():
+    10 minta után CSV tartalmaz minden kötelező oszlopot
+    Minden sor 35 mezőt tartalmaz (fejléc alapján)
+
+  test_ah_wh_integration():
+    Ismert I=1.4 A, dt=10 s, 100 minta
+    expected_Ah = 1.4 * 10 * 100 / 3600 = 0.3889 Ah
+    Ellenőrzés: accumulated_discharge_Ah ≈ expected_Ah (±0.1%)
+
+  test_report_generation():
+    Teszt után report_generator.generate() lefut
+    JSON összefoglaló tartalmazza: capacity_C5_Ah, discharge_time_h, final_loaded_voltage_V
+
+  test_bq_learning_report_has_mandatory_fields():
+    BQ learning cycle után riport tartalmazza:
+    "manual_bq_checkpoint_reached: true"
+    "cycle_1_discharge_Ah": float
+    "cycle_2_discharge_Ah": float
+
+
+================================================================================
+7. ROLLBACK
+================================================================================
+
+7.1 Visszaállítási lehetőség
+------------------------------
+A Prog/ mappa teljesen üres (csak .gitkeep) → nincs elveszíthető meglévő kód.
+Az összes specifikáció és dokumentáció git-követett → azok visszaállíthatók.
+Minden implementációs munkát az első commit előtt is visszavonhat:
+  git checkout -- Prog/    (ha már staged)
+  git clean -fd Prog/      (ha új fájlok vannak, DE CSAK ENGEDÉLLYEL)
+
+7.2 Javasolt git stratégia
+----------------------------
+Lépés 1 — Driver réteg commit:
+  git add Prog/drivers/ Prog/tests/mock_drivers/
+  git commit -m "add: instrument driver réteg (PSU, Load, DMM) + mock driverek"
+  → Mentési pont: ha a driverek nem jók, csak ez a commit vonható vissza
+
+Lépés 2 — Core logic commit:
+  git add Prog/src/battery_profile.py Prog/src/safety.py Prog/src/integrator.py
+  git commit -m "add: BatteryProfile, SafetyManager, Ah/Wh integrátor"
+
+Lépés 3 — Állapotgépek commit:
+  git add Prog/src/charge_controller.py Prog/src/discharge_controller.py Prog/src/relax_controller.py
+  git commit -m "add: töltési/kisütési/relaxációs állapotgépek"
+
+Lépés 4 — Logger + riport commit:
+  git add Prog/src/logger.py Prog/src/report_generator.py
+  git commit -m "add: CSV+SQLite logger, checkpoint, report generator"
+
+Lépés 5 — Test runner commit:
+  git add Prog/src/test_runner.py Prog/src/instrument_manager.py
+  git commit -m "add: InstrumentManager és TestRunner fő vezérlő"
+
+Lépés 6 — GUI commit (első MVP):
+  git add Prog/src/gui/
+  git commit -m "add: PySide6 GUI alapvázat (dashboard, műszerek, akkuprofil)"
+
+7.3 Fájlok amelyekről mentés szükséges
+----------------------------------------
+Az összes jelenlegi spec fájl (Folyamatok/tervek/) már git-követett.
+Commitolás előtt ellenőrizd:
+  git status — nincs esetleges config fájlban jelszó / IP cím
+  Prog/config/default_config.yaml ne tartalmazzon konkrét IP-t / VISA serial-t ha
+  az érzékeny — vagy kerüljön .gitignore-ba és legyen default_config.yaml.template
+
+7.4 Tilos állapotban commitolni
+---------------------------------
+- Ha bármely safety teszt nem megy át
+- Ha a charge_controller vészleállítás teszt hibát jelez
+- Ha az Ah/Wh integrátor ±1%-nál nagyobb eltérést mutat
+- Ha DMM_FEEDBACK_LOST hiba-injektálás nem vált ki emergency_stop-ot
+- Ha a log flush teszt azt jelzi, hogy emergency stop után adatvesztés lenne
+
+
+================================================================================
+8. IMPLEMENTÁCIÓS FÁZISOK (JAVASOLT SORREND)
+================================================================================
+
+FÁZIS 1 — Driver alapréteg (becsült idő: 2-3 munkanap)
+  1. Prog/drivers/device_psu.py (Keithley2220PSU)
+  2. Prog/drivers/device_load.py (Keithley2380Load)
+  3. Prog/drivers/device_dmm.py (Keysight34465ADMM)
+  4. Prog/tests/mock_drivers/ (MockPSU, MockLoad, MockDMM)
+  5. Tesztek: 6.3, 6.4, 6.5 driver tesztek
+
+FÁZIS 2 — Core logic (becsült idő: 2-3 munkanap)
+  6. Prog/src/battery_profile.py
+  7. Prog/src/safety.py
+  8. Prog/src/integrator.py
+  9. Prog/config/default_config.yaml + FIAMM profil
+  10. Tesztek: 6.1, 6.2 dry-run
+
+FÁZIS 3 — Állapotgépek + vezérlő (becsült idő: 3-4 munkanap)
+  11. Prog/src/charge_controller.py (DMM-kompenzált CC/CV)
+  12. Prog/src/discharge_controller.py
+  13. Prog/src/relax_controller.py
+  14. Prog/src/instrument_manager.py
+  15. Tesztek: 6.6, 6.7, 6.8, 6.9 állapotgép + hiba-injektálás
+
+FÁZIS 4 — Logolás + riport (becsült idő: 1-2 munkanap)
+  16. Prog/src/logger.py (sqlite + csv + checkpoint + event log)
+  17. Prog/src/report_generator.py
+  18. Tesztek: 6.10, 6.11
+
+FÁZIS 5 — Test runner (BQ learning + karakterizálás) (becsült idő: 2 munkanap)
+  19. Prog/src/test_runner.py
+  20. Teljes folyamat integráció teszt MockDMM/MockPSU/MockLoad-dal
+
+FÁZIS 6 — GUI MVP (becsült idő: 3-5 munkanap)
+  21. Prog/src/gui/ alap nézetei
+  22. PySide6 + pyqtgraph
+  23. Futó teszt nézet + vészleállítás gomb
+
+FÁZIS 7 — OCV-SOC + impedancia + haladó funkciók
+  24. OCV-SOC lépcsős teszt logika
+  25. Terheléses impedancia impulzusteszt
+  26. dV/dt relax döntés
+  27. Hőmérséklet-kompenzáció
+
+
+================================================================================
+9. NYITOTT KÉRDÉSEK
+================================================================================
+
+1. Relé hardware:
+   LEZÁRVA: Nincs relé hardware. relay_matrix.py nem készül el, a leválasztás
+   PSU output OFF szintű. Szoftver relay stub-ot tarthat jövőbeli bővítésre.
+
+2. Hőmérsékletmérés:
+   LEZÁRVA: 2. Keysight 34465A DMM, 4 vezetékes PT100 szenzorral (R0=100Ω, DIN EN 60751).
+   Felületi hőmérséklet mérés. SCPI parancs IGAZOLVA: CONF:TEMP FRTD,85
+   (34460-70-Manual.txt sor 6988, 8221, 10680 alapján).
+
+3. FIAMM akkumulátor típus:
+   LEZÁRVA: FG / FGH sorozat FIAMM, 12V és 24V pack egyaránt, változó Ah.
+   A szoftver sablon profilokat ad (FIAMM_12V.yaml, FIAMM_24V.yaml), a nominal_capacity_Ah
+   kezelő által megadott mező.
+
+4. Soros dióda típusa:
+   LEZÁRVA: Schottky dióda. max_expected_series_drop = 0,9 V (12V), 1,0 V (24V).
+   24V pack esetén headroom szűk — 2,40 V/cella cél ajánlott 2,45 helyett.
+
+5. Keithley 2380 és 2220 VISA resource stringek:
+   NYITOTT: Fizikai csatlakoztatás után VISA Resource Manager listázza.
+   A konfigurációs YAML-ban placeholder marad; a kezelő adja meg első indítás előtt.
+
+6. ELLENŐRIZENDŐ (implementáció előtt):
+   - 34465A FRTD SCPI: IGAZOLT — CONF:TEMP FRTD,85 (34460-70-Manual.txt 6988. sor)
+   - 2380 INPUT ON vs INP ON: driverben command self-check szükséges fizikai műszeren.
+   - 2220 OUTP OFF vs OUTP:ENAB OFF: ugyanígy driverben tesztelendő.
+
+
+================================================================================
+10. DOKUMENTÁCIÓS BIZONYÍTÉK ÖSSZEFOGLALÓJA
+================================================================================
+
+Paraméter                      Érték                  Forrás
+------------------------------------------------------------------------------
+Boost charge feszültség        2,40 V/cella @20°C     FIAMM Engineering Manual
+Float charge feszültség        2,27 V/cella @20°C     FIAMM Engineering Manual
+Terminate voltage              1,80 V/cella           FIAMM Engineering Manual (C10)
+Max töltőáram                  0,25 × C10             FIAMM Engineering Manual
+Taper áram                     0,03 × C10             FIAMM Engineering Manual
+Hőkompenzáció                  -2,5 mV/cella/°C       FIAMM Engineering Manual
+Relax töltés után (BQ)         min. 2 h               akku_golden_image spec
+Relax kisütés után (BQ)        min. 5 h               akku_golden_image spec
+BQ learning kisütési ráta      C/5                    akku_golden_image spec (7.4)
+BQ learning ciklusok száma     2                      akku_golden_image spec (7.2)
+Vészleállítás sorrendja        LOAD OFF → PSU OFF     muszerevezerles spec (12.3)
+                               (relé nincs!)          [döntés: 2026-05-31]
+PSU+LOAD egyidejű tiltás       igen                   muszerevezerles spec (12.2)
+DMM timeout → töltés le        azonnali               dmm_kompenzalt spec (8.1)
+PSU headroom warning           U_psu_set_max-nál      dmm_kompenzalt spec (7.8)
+Schottky series drop (12V)     max 0,90 V             dmm_kompenzalt spec (8.3)
+Schottky series drop (24V)     max 1,00 V             dmm_kompenzalt spec (8.3)
+24V pack PSU_set_max           29,80 V                SZÁMÍTÁS (28,80+1,00)
+DMM1 (voltage) VISA            TCPIP0::IP1::inst0     muszerevezerles spec (1.3)
+DMM2 (temp) VISA               TCPIP0::IP2::inst0     muszerevezerles spec (1.3)
+DMM2 mérési mód                FRTD, PT100, 4-wire    34460-70-Manual.txt sor 6988
+DMM2 SCPI konfigurációs prcs   CONF:TEMP FRTD,85      34460-70-Manual.txt sor 6988, 8221
+PT100 névleges ellenállás       100 Ohm @ 0°C         DIN EN 60751
+FRTD type kód "85"              IEC 751 alfa=0,00385   34460-70-Manual.txt sor 6982
+DMM NPLC töltéshez             1 vagy 10              muszerevezerles spec (4.7)
+DMM NPLC relaxhoz              10 vagy 100            muszerevezerles spec (4.7)
+SQLite + CSV párhuzamos log    kötelező               gui_tervezet spec (13.1)
+Checkpoint időköz              10 s                   gui_tervezet spec (13.7)
+Session recovery induláskor    kötelező               gui_tervezet spec (13.8)
+Relé hardware                  NINCS                  [döntés: 2026-05-31]
+PSU INDEPENDENT max            30V / 1,5A / csatorna  prog.txt sor 208
+PSU PARALLEL max               30V / 3A összesített   prog.txt sor 1047-1048
+PSU SERIES max                 60V / 1,5A összesített prog.txt sor 1065-1067
+INST:COMB:SER parancs          igazolva               prog.txt sor 1060-1079
+INST:COMB:PAR parancs          igazolva               prog.txt sor 1042-1058
+INST:COMB:OFF parancs          igazolva               prog.txt sor 1026-1040
+INST:COMB? lekérdezés          "Series"/"Parallel"/"NONE"  prog.txt sor 1022-1024
+Hardware előfeltétel           FIZIKAI ÁTBEKÖTÉS KELL prog.txt sor 1044, 1062
+
+
+================================================================================
+JÓVÁHAGYÁSI PONT
+================================================================================
+
+Ez a dokumentum (v1.1) KÜLSŐ REVIEW-ra kész állapotban van.
+
+Lezárt konfigurációs döntések (2026-05-31):
+  [OK] FIAMM AGM, 12V és 24V, változó Ah — sablon profilok + kezelő által megadott Ah
+  [OK] 2 db Keysight 34465A: DMM1 = feszültség (DCV), DMM2 = hőmérséklet (4-wire PT100)
+  [OK] Schottky dióda — series drop max 0,9 V (12V) / 1,0 V (24V)
+  [OK] Nincs relé hardware — leválasztás PSU output OFF szinten
+  [OK] 2220-30-1 kombinációs mód: INDEPENDENT / PARALLEL / SERIES választható
+       Hardware fizikai átbekötés szükséges; szoftver megerősítő dialógussal véd
+  [OK] Implementáció NEM indul el — csak review célú terv
+
+Nyitott pontok (nem blokkolják a review-t):
+  - 2380 és 2220 konkrét VISA resource stringek (műszerhez csatlakozás után)
+  - 34465A FRTD SCPI parancs pontos szintaxisa (fizikai műszer tesztelés)
+  - 2380 INPUT ON vs INP ON firmware kompatibilitás (driver self-check oldja)
+
+Kéred, hogy a terv alapján implementáljam a módosításokat?
+
+================================================================================
