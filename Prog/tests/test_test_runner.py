@@ -447,3 +447,50 @@ class TestBuildSample:
         assert sample["timestamp_iso"] is not None
         assert sample["elapsed_s"] is not None
         logger.close()
+
+
+# ------------------------------------------------------------------ #
+# Task 6: Stop metódusok (_emergency_stop, _graceful_stop, _run_manual_checkpoint)  #
+# ------------------------------------------------------------------ #
+
+class TestStopMethods:
+    def test_emergency_stop_returns_fault(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner._start_time = datetime.now(timezone.utc)
+        result = runner._emergency_stop("TEST_REASON")
+        assert result.status == "FAULT"
+        assert result.reason == "TEST_REASON"
+        assert runner.status == "FAULT"
+        logger.close()
+
+    def test_emergency_stop_accumulates_ah(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner._start_time = datetime.now(timezone.utc)
+        runner._total_charge_ah = 1.5
+        runner._total_discharge_ah = 1.2
+        result = runner._emergency_stop("TEST")
+        assert result.total_charge_ah == pytest.approx(1.5)
+        assert result.total_discharge_ah == pytest.approx(1.2)
+        logger.close()
+
+    def test_graceful_stop_returns_stopped(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner._start_time = datetime.now(timezone.utc)
+        result = runner._graceful_stop("USER_STOP")
+        assert result.status == "STOPPED"
+        assert result.reason == "USER_STOP"
+        assert runner.status == "STOPPED"
+        logger.close()
+
+    def test_manual_checkpoint_returns_stopped(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner._start_time = datetime.now(timezone.utc)
+        runner._total_charge_ah = 1.5
+        runner._total_discharge_ah = 1.4
+        step = TestStep(StepKind.MANUAL_CHECKPOINT, "manual_bq_checkpoint")
+        result = runner._run_manual_checkpoint(step)
+        assert result.status == "STOPPED"
+        assert result.reason == "MANUAL_BQ_CHECKPOINT_REACHED"
+        assert result.total_charge_ah == pytest.approx(1.5)
+        assert result.total_discharge_ah == pytest.approx(1.4)
+        logger.close()

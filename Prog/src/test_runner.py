@@ -133,6 +133,51 @@ class TestRunner:
     def run(self, test_plan: TestPlan) -> TestResult:
         raise NotImplementedError
 
+    def _emergency_stop(self, reason: str) -> TestResult:
+        """Vészleállítás — FAULT státusz, biztonságos leállítás."""
+        self.status = "FAULT"
+        self._instruments.safe_all_off()
+        self._logger.log_event("EMERGENCY_STOP", reason, is_critical=True)
+        self._logger.write_checkpoint({"status": "FAULT", "reason": reason})
+        self._logger.flush_all()
+        return TestResult(
+            status="FAULT",
+            reason=reason,
+            total_charge_ah=self._total_charge_ah,
+            total_discharge_ah=self._total_discharge_ah,
+        )
+
+    def _graceful_stop(self, reason: str) -> TestResult:
+        """Kérésre történő leállítás — STOPPED státusz, biztonságos leállítás."""
+        self.status = "STOPPED"
+        self._instruments.safe_all_off()
+        self._logger.log_event("GRACEFUL_STOP", reason)
+        self._logger.write_checkpoint({"status": "STOPPED", "reason": reason})
+        self._logger.flush_all()
+        return TestResult(
+            status="STOPPED",
+            reason=reason,
+            total_charge_ah=self._total_charge_ah,
+            total_discharge_ah=self._total_discharge_ah,
+        )
+
+    def _run_manual_checkpoint(self, step: TestStep) -> TestResult:
+        """BQ kézi ellenőrzési pont — felhasználó által kiváltott, STOPPED státusz."""
+        self._logger.log_event("MANUAL_BQ_CHECKPOINT_REACHED", step.label)
+        self._logger.write_checkpoint({
+            "status": "MANUAL_CHECKPOINT",
+            "step": step.label,
+            "charge_ah": self._total_charge_ah,
+            "discharge_ah": self._total_discharge_ah,
+        })
+        self._logger.flush_all()
+        return TestResult(
+            status="STOPPED",
+            reason="MANUAL_BQ_CHECKPOINT_REACHED",
+            total_charge_ah=self._total_charge_ah,
+            total_discharge_ah=self._total_discharge_ah,
+        )
+
     def _is_finished(self, controller) -> bool:
         state = getattr(controller, "state", None)
         if isinstance(state, ChargeState):
