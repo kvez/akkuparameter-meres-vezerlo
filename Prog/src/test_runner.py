@@ -6,18 +6,12 @@ GUI-független, blokkoló run(), stop flag alapú megállítás.
 """
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
 
 from Prog.src.battery_profile import BatteryProfile
-from Prog.src.charge_controller import ChargeState
-from Prog.src.discharge_controller import DischargeState
 from Prog.src.instrument_manager import InstrumentManager
-from Prog.src.logger import Logger, CSV_COLUMNS
-from Prog.src.relax_controller import RelaxState
+from Prog.src.logger import Logger
 from Prog.src.safety import SafetyManager
 
 
@@ -42,25 +36,25 @@ class TestStep:
 @dataclass(frozen=True)
 class TestPlan:
     test_type: TestType
-    steps: list
+    steps: tuple[TestStep, ...]
 
     @staticmethod
     def characterization() -> "TestPlan":
         return TestPlan(
             test_type=TestType.CHARACTERIZATION,
-            steps=[
+            steps=(
                 TestStep(StepKind.CHARGE,     "charge"),
                 TestStep(StepKind.RELAX,      "relax_after_charge"),
                 TestStep(StepKind.DISCHARGE,  "discharge"),
                 TestStep(StepKind.RELAX,      "relax_after_discharge"),
-            ],
+            ),
         )
 
     @staticmethod
     def bq_learning_physical() -> "TestPlan":
         return TestPlan(
             test_type=TestType.BQ_LEARNING_PHYSICAL,
-            steps=[
+            steps=(
                 TestStep(StepKind.CHARGE,             "charge_1"),
                 TestStep(StepKind.RELAX,              "relax_after_charge_1"),
                 TestStep(StepKind.DISCHARGE,          "discharge_1"),
@@ -70,7 +64,7 @@ class TestPlan:
                 TestStep(StepKind.DISCHARGE,          "discharge_2"),
                 TestStep(StepKind.RELAX,              "relax_after_discharge_2"),
                 TestStep(StepKind.MANUAL_CHECKPOINT,  "manual_bq_checkpoint"),
-            ],
+            ),
         )
 
 

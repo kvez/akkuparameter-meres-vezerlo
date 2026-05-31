@@ -48,6 +48,7 @@ class _StubChargeCtrl:
     def reset(self) -> None:
         self._state = ChargeState.INIT
         self._tick = 0
+        self.accumulated_charge_Ah = 0.0
 
 
 class _StubDischargeCtrl:
@@ -78,6 +79,7 @@ class _StubDischargeCtrl:
     def reset(self) -> None:
         self._state = DischargeState.INIT
         self._tick = 0
+        self.accumulated_discharge_Ah = 0.0
 
 
 class _StubRelaxCtrl:
@@ -161,7 +163,7 @@ class TestDataStructures:
             step.kind = StepKind.DISCHARGE  # type: ignore[misc]
 
     def test_test_plan_frozen(self):
-        plan = TestPlan(test_type=TestType.CHARACTERIZATION, steps=[])
+        plan = TestPlan(test_type=TestType.CHARACTERIZATION, steps=())
         with pytest.raises(Exception):
             plan.test_type = TestType.BQ_LEARNING_PHYSICAL  # type: ignore[misc]
 
