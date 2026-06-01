@@ -485,14 +485,30 @@ class TestStopMethods:
     def test_manual_checkpoint_returns_stopped(self, tmp_path):
         runner, logger = _make_runner(tmp_path)
         runner._start_time = datetime.now(timezone.utc)
+        runner._active_plan = TestPlan.bq_learning_physical()
         runner._total_charge_ah = 1.5
         runner._total_discharge_ah = 1.4
         step = TestStep(StepKind.MANUAL_CHECKPOINT, "manual_bq_checkpoint")
         result = runner._run_manual_checkpoint(step)
-        assert result.status == "STOPPED"
+        assert result.status == "CHECKPOINT_STOPPED"
         assert result.reason == "MANUAL_BQ_CHECKPOINT_REACHED"
         assert result.total_charge_ah == pytest.approx(1.5)
         assert result.total_discharge_ah == pytest.approx(1.4)
+        logger.close()
+
+    def test_manual_checkpoint_calls_on_event(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner._start_time = datetime.now(timezone.utc)
+        runner._active_plan = TestPlan.bq_learning_physical()
+        events = []
+        runner.on_event = events.append
+        step = TestStep(StepKind.MANUAL_CHECKPOINT, "manual_bq_checkpoint")
+        runner._run_manual_checkpoint(step)
+        assert len(events) == 1
+        assert events[0]["event_code"] == "MANUAL_BQ_CHECKPOINT_REACHED"
+        assert events[0]["status"] == "CHECKPOINT_STOPPED"
+        assert events[0]["resume_possible"] is True
+        assert "next_step_index" in events[0]
         logger.close()
 
 
@@ -577,9 +593,10 @@ class TestRunStep:
     def test_manual_checkpoint_step(self, tmp_path):
         runner, logger = _make_runner(tmp_path)
         runner._start_time = datetime.now(timezone.utc)
+        runner._active_plan = TestPlan.bq_learning_physical()
         step = TestStep(StepKind.MANUAL_CHECKPOINT, "manual_bq_checkpoint")
         result = runner._run_step(step)
-        assert result.status == "STOPPED"
+        assert result.status == "CHECKPOINT_STOPPED"
         assert result.reason == "MANUAL_BQ_CHECKPOINT_REACHED"
         logger.close()
 
@@ -641,7 +658,7 @@ class TestRunIntegration:
     def test_bq_learning_stops_at_manual_checkpoint(self, tmp_path):
         runner, logger = _make_runner(tmp_path)
         result = runner.run(TestPlan.bq_learning_physical())
-        assert result.status == "STOPPED"
+        assert result.status == "CHECKPOINT_STOPPED"
         assert result.reason == "MANUAL_BQ_CHECKPOINT_REACHED"
         logger.close()
 

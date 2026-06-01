@@ -156,7 +156,7 @@ class TestRunner:
                 if step_result.status == "FAULT":
                     return self._emergency_stop(step_result.reason or "STEP_FAULT")
 
-                if step_result.status == "STOPPED":
+                if step_result.status in ("STOPPED", "CHECKPOINT_STOPPED"):
                     return step_result
 
         except Exception as exc:
@@ -269,17 +269,31 @@ class TestRunner:
         )
 
     def _run_manual_checkpoint(self, step: TestStep) -> TestResult:
-        """BQ kézi ellenőrzési pont — felhasználó által kiváltott, STOPPED státusz."""
+        """BQ kézi ellenőrzési pont — CHECKPOINT_STOPPED státusz, on_event hívással."""
+        steps = self._active_plan.steps
+        next_step_index = steps.index(step) + 1
+        event = {
+            "event_code": "MANUAL_BQ_CHECKPOINT_REACHED",
+            "event_message": "BQ learning fizikai ciklus kézi ellenőrzési pontja elérve.",
+            "step_name": step.label,
+            "status": "CHECKPOINT_STOPPED",
+            "resume_possible": True,
+            "next_step_index": next_step_index,
+            "total_charge_ah": self._total_charge_ah,
+            "total_discharge_ah": self._total_discharge_ah,
+        }
         self._logger.log_event("MANUAL_BQ_CHECKPOINT_REACHED", step.label)
         self._logger.write_checkpoint({
-            "status": "MANUAL_CHECKPOINT",
+            "status": "CHECKPOINT_STOPPED",
             "step": step.label,
             "charge_ah": self._total_charge_ah,
             "discharge_ah": self._total_discharge_ah,
         })
         self._logger.flush_all()
+        if self.on_event is not None:
+            self.on_event(event)
         return TestResult(
-            status="STOPPED",
+            status="CHECKPOINT_STOPPED",
             reason="MANUAL_BQ_CHECKPOINT_REACHED",
             total_charge_ah=self._total_charge_ah,
             total_discharge_ah=self._total_discharge_ah,
