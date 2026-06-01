@@ -778,7 +778,7 @@ class TestCallbacks:
 
 
 # ------------------------------------------------------------------ #
-# Task 7 (6B): on_step_changed callback                              #
+# Task 1 (6B): on_step_changed callback                              #
 # ------------------------------------------------------------------ #
 
 class TestStepChanged:

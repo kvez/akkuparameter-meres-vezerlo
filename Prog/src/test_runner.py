@@ -171,13 +171,13 @@ class TestRunner:
 
     def _run_step(self, step: TestStep) -> TestResult:
         if self.on_step_changed is not None and self._active_plan is not None:
-            steps_list = list(self._active_plan.steps)
+            steps = self._active_plan.steps
             self.on_step_changed({
                 "runner_status": "RUNNING",
                 "step_kind": step.kind.value,
                 "step_label": step.label,
-                "step_index": steps_list.index(step),
-                "step_count": len(steps_list),
+                "step_index": steps.index(step),
+                "step_count": len(steps),
             })
 
         if step.kind == StepKind.MANUAL_CHECKPOINT:
