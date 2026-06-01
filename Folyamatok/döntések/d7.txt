@@ -1,0 +1,1347 @@
+D) Mind a három — teljes labor műszerfal, real-time + konfig + log-olvasó
+
+Indok:
+
+A GUI hosszú távon ne csak egy Start/Stop felület legyen, hanem a teljes laborfolyamat
+kezelőfelülete:
+
+  1. Konfiguráció
+     - akkuprofil kiválasztás / Ah megadás
+     - PSU mód kiválasztás
+     - VISA resource-ok ellenőrzése
+     - hőkompenzáció mód
+     - tesztterv kiválasztása
+
+  2. Real-time monitoring + vezérlés
+     - Start
+     - Stop
+     - Emergency Stop
+     - élő U/I/T/Ah/Wh értékek
+     - állapotgép aktuális állapota
+     - élő grafikonok
+     - warning / fault kijelzés
+
+  3. Post-mortem elemzés
+     - korábbi session logok megnyitása
+     - CSV / SQLite alapú grafikonok
+     - Ah/Wh összesítés
+     - OCV-SOC görbe
+     - riport megtekintés
+     - hibák / warningok visszanézése
+
+Viszont implementációs sorrendben nem egyszerre kell mindent megcsinálni.
+
+Javasolt GUI MVP sorrend:
+
+  FÁZIS 6A:
+    Konfiguráció + Start/Stop + élő alap monitoring
+
+  FÁZIS 6B:
+    Élő grafikonok + warning/fault panel
+
+  FÁZIS 6C:
+    Session log visszaolvasás + post-mortem grafikonok
+
+  FÁZIS 6D:
+    Teljes labor műszerfal / összehasonlító nézetek
+
+Tehát a stratégiai válasz D, de az első implementációs cél egy szűkített D:
+
+  D, MVP-ben először:
+    konfiguráció + indítás + biztonságos vezérlés + élő logfigyelés.
+
+Választás: A) QThread
+
+A TestRunner.run() maradjon blokkoló, GUI-független üzleti logika.
+A GUI-ban ezt egy külön QThread-ben kell futtatni, PySide6 signal/slot kommunikációval.
+
+Ez illeszkedik a korábbi döntésekhez:
+
+  - TestRunner nem hoz létre saját threadet
+  - TestRunner nem importál PySide6-ot
+  - TestRunner run() blokkoló
+  - GUI worker threadből hívja
+  - GUI nem fagy be
+  - stop / emergency stop kívülről flaggelhető
+
+
+MIÉRT QThread?
+==============
+
+1. PySide6 natív megoldás
+-------------------------
+
+Mivel a GUI PySide6 lesz, a QThread a természetes választás.
+
+Előnyök:
+
+  - signal/slot natív
+  - GUI thread biztonságosan frissíthető signalokon keresztül
+  - nem kell asyncio integráció
+  - nem kell külön process IPC
+  - jól illik a Qt alkalmazás életciklusához
+
+
+2. A TestRunner tiszta marad
+----------------------------
+
+A TestRunner nem tud a GUI-ról.
+
+Tehát ez TILOS a TestRunnerben:
+
+  - PySide6 import
+  - QThread létrehozás
+  - QWidget hívás
+  - signal emit közvetlenül
+
+A GUI oldali Worker burkolja be:
+
+  runner.run(test_plan)
+
+A worker ad signalokat:
+
+  sample_ready(dict)
+  event_ready(dict)
+  finished(TestResult)
+  fault(str)
+
+
+3. Egyszerű stop modell
+-----------------------
+
+GUI gombok:
+
+  Stop:
+    worker.runner.request_stop()
+
+  Emergency Stop:
+    worker.runner.request_emergency_stop("USER_EMERGENCY_STOP")
+
+A TestRunner következő tickben feldolgozza.
+
+Emergency stop esetén:
+
+  - CHARGE/DISCHARGE közben is azonnal safe_off
+  - RELAX/OCV alatt is leáll
+  - GUI nem blokkol
+
+
+MIÉRT NEM asyncio?
+==================
+
+A B) asyncio + qasync most nem kell.
+
+Indok:
+
+  - PyVISA / műszerkommunikáció jellemzően blokkoló
+  - a TestRunner run() eleve blokkoló ciklus
+  - qasync plusz komplexitás
+  - több hibalehetőség
+  - FÁZIS 6-ban nem ad elég előnyt
+
+Asyncio akkor lenne érdekes, ha:
+
+  - sok hálózati async I/O lenne
+  - websocket / REST / több párhuzamos háttérfolyamat lenne
+  - eleve async driver stack készült volna
+
+Most nem ez a helyzet.
+
+
+MIÉRT NEM subprocess?
+=====================
+
+A C) subprocess túl nagy lépés most.
+
+Előnye lenne:
+
+  - teljes izoláció
+  - GUI crash és mérőmotor crash jobban szétválik
+  - később akár headless mérőszolgáltatás is lehetne
+
+Hátránya most:
+
+  - IPC kell
+  - parancsprotokoll kell
+  - log/signal átadás bonyolultabb
+  - instrument objektumok processhatáron nem vihetők át
+  - debug nehezebb
+
+Subprocess később jó lehet „labor daemon” irányba, de FÁZIS 6 MVP-hez nem kell.
+
+
+JAVASOLT ARCHITEKTÚRA
+=====================
+
+GUI thread:
+
+  - MainWindow
+  - gombok
+  - grafikonok
+  - táblák
+  - event log panel
+
+Worker thread:
+
+  - TestRunnerWorker QObject
+  - benne TestRunner példány
+  - run(test_plan) hívása
+
+TestRunner:
+
+  - GUI-független
+  - blokkoló run()
+  - _build_sample()
+  - logger.log_sample()
+  - stop_requested / emergency_stop_requested flag-ek
+
+
+JAVASOLT OSZTÁLY
+================
+
+class TestRunnerWorker(QObject):
+    sample_ready = Signal(dict)
+    event_ready = Signal(dict)
+    finished = Signal(object)
+    fault = Signal(str)
+
+    def __init__(self, runner: TestRunner, test_plan: TestPlan):
+        super().__init__()
+        self.runner = runner
+        self.test_plan = test_plan
+
+    @Slot()
+    def run(self):
+        try:
+            result = self.runner.run(self.test_plan)
+            self.finished.emit(result)
+        except Exception as exc:
+            self.runner.request_emergency_stop(f"WORKER_EXCEPTION: {exc}")
+            self.fault.emit(str(exc))
+
+    @Slot()
+    def request_stop(self):
+        self.runner.request_stop()
+
+    @Slot()
+    def request_emergency_stop(self):
+        self.runner.request_emergency_stop("USER_EMERGENCY_STOP")
+
+
+FONTOS:
+  A TestRunnerWorker lehet PySide6-os.
+  A TestRunner ne legyen PySide6-os.
+
+
+SAMPLE FRISSÍTÉS GUI FELÉ
+=========================
+
+Mivel a TestRunner építi a sample dict-et, két lehetőség van:
+
+A) Logger callback / observer
+-----------------------------
+
+TestRunner kap egy opcionális callbacket:
+
+  on_sample(sample: dict)
+
+GUI worker ezt köti signalra:
+
+  runner.on_sample = self.sample_ready.emit
+
+Ez egyszerű.
+
+B) Loggerből olvasás
+--------------------
+
+A GUI csak a logfájlt / SQLite-ot figyeli.
+Ez post-mortemre jó, de real-time GUI-hoz lassabb és nehezebb.
+
+Javaslat:
+
+  A) callback alapú sample/event jelzés
+
+De a callback legyen GUI-független:
+
+  Callable[[dict], None]
+
+Ne Qt signal legyen a TestRunnerben.
+
+
+JAVASOLT TestRunner BŐVÍTÉS
+===========================
+
+TestRunner __init__ opcionálisan:
+
+  on_sample: Callable[[dict], None] | None = None
+  on_event: Callable[[dict], None] | None = None
+
+A TestRunner tickben:
+
+  sample = self._build_sample(...)
+  self.logger.log_sample(sample)
+
+  if self.on_sample:
+      self.on_sample(sample)
+
+Event esetén:
+
+  event = {...}
+  self.logger.log_event(event)
+
+  if self.on_event:
+      self.on_event(event)
+
+GUI workerben:
+
+  runner.on_sample = self.sample_ready.emit
+  runner.on_event = self.event_ready.emit
+
+Így:
+  - TestRunner továbbra sem függ Qt-től
+  - GUI mégis real-time adatot kap
+
+
+THREAD SAFETY SZABÁLYOK
+=======================
+
+1. GUI widgetet csak GUI threadből szabad frissíteni.
+
+2. Worker thread csak signalokat emitáljon.
+
+3. Műszereket csak a worker thread / TestRunner érje el.
+
+4. GUI közvetlenül ne hívjon driver metódust.
+
+5. Stop gomb csak flaget állítson:
+     runner.request_stop()
+
+6. Emergency Stop gomb:
+     runner.request_emergency_stop("USER_EMERGENCY_STOP")
+
+7. A runner.safe_all_off() a worker threadben fusson.
+
+8. Ha emergency stop gombot megnyomják, a GUI azonnal váltson „Stopping...” állapotra,
+   de a tényleges safe_off eredményt a worker event/final signal adja vissza.
+
+
+JAVASOLT GUI FUTTATÁSI FLOW
+===========================
+
+Start gomb:
+
+  1. GUI validálja a beállításokat
+  2. létrehozza a TestPlan-t
+  3. létrehozza / konfigurálja a TestRunner-t
+  4. létrehozza a TestRunnerWorker-t
+  5. worker.moveToThread(qthread)
+  6. qthread.started.connect(worker.run)
+  7. worker.sample_ready.connect(gui.update_live_values)
+  8. worker.event_ready.connect(gui.append_event)
+  9. worker.finished.connect(gui.test_finished)
+  10. qthread.start()
+
+Stop gomb:
+
+  worker.request_stop()
+
+Emergency Stop gomb:
+
+  worker.request_emergency_stop()
+  GUI státusz: "Emergency stop requested..."
+
+
+KONKLÚZIÓ
+=========
+
+Választás:
+
+  A) QThread
+
+Ez a legjobb FÁZIS 6 GUI-hoz.
+
+A TestRunner maradjon blokkoló és GUI-független.
+A GUI egy PySide6 QThread workerben futtassa.
+Kommunikáció signal/slot alapon.
+A sample/event adatok callbacken keresztül jöhetnek ki a TestRunnerből, amit a worker
+Qt signalra fordít.
+
+Nem kell asyncio.
+Nem kell subprocess az MVP-hez.
+
+Választás: B) Részletesebb — feszültség, áram, hőmérséklet, dióda esés, Ah integrátor
+
+Ez a legjobb GUI MVP-hez.
+
+A) túl kevés lenne, mert nem látszana a hőmérséklet, a diódaesés és az Ah/Wh állapot.
+C) jó hosszú távon, de MVP-ben túl sok UI-komplexitás.
+D) túl sok lenne, mert nem minden CSV mező grafikonra való.
+
+
+JAVASOLT ÉLŐ GRAFIKONOK
+=======================
+
+A GUI-ban fix, de jól kiválasztott grafikonok legyenek.
+
+1. Akkufeszültség időben
+------------------------
+
+Grafikon:
+  battery_voltage_V vs elapsed_s
+
+Megjelenítendő:
+  - DMM-mel mért akkufeszültség
+  - opcionálisan célfeszültség / charge_voltage_pack_V vízszintes vonal
+  - terminate voltage vonal kisütésnél
+
+Miért fontos:
+  Ez a fő szabályozott mennyiség.
+  Töltésnél ebből látszik a CC → CV átmenet.
+  Kisütésnél ebből látszik a végpont közeledése.
+  Relax alatt ebből látszik a visszaállás / dV/dt.
+
+
+2. Áram időben
+--------------
+
+Grafikon:
+  signed_current_A vs elapsed_s
+
+Vagy két görbe:
+  charge_current_A
+  discharge_current_A
+
+Én inkább a signed_current_A-t javaslom:
+
+  töltés: pozitív
+  kisütés: negatív
+  relax: 0
+
+Miért fontos:
+  Egy grafikonon látszik a teljes ciklus.
+  Könnyen felismerhető a taper áram csökkenése.
+  Kisütésnél látszik, hogy a load tartja-e a CC-t.
+
+
+3. Hőmérséklet időben
+---------------------
+
+Grafikon:
+  battery_temperature_C vs elapsed_s
+
+Megjelenítendő:
+  - akkufelületi hőmérséklet
+  - opcionálisan min/max teszttartomány vonalak
+
+Miért fontos:
+  AGM/VRLA töltésnél safety szempontból fontos.
+  MONITOR_ONLY módban is ez adja a figyelmeztetést.
+  ENABLED hőkompenzációnál később a célfeszültséget is befolyásolja.
+
+
+4. Diódaesés / U_drop időben
+----------------------------
+
+Grafikon:
+  u_drop_V vs elapsed_s
+
+Miért fontos:
+  BY550 soros dióda miatt hasznos.
+  Látszik, hogy a DMM-kompenzáció miért szükséges.
+  Látszik, ha a diódaesés túl nagy vagy bekötési hiba gyanús.
+  A SERIES_DROP_HIGH / SERIES_DROP_TOO_HIGH warning/fault vizuálisan ellenőrizhető.
+
+
+5. Kapacitás integrátor
+-----------------------
+
+Grafikon:
+  accumulated_charge_Ah
+  accumulated_discharge_Ah
+
+Vagy signed formában:
+  net_Ah = charge_Ah - discharge_Ah
+
+MVP-ben javasolt:
+  accumulated_charge_Ah és accumulated_discharge_Ah külön görbeként.
+
+Miért fontos:
+  Kapacitásteszt és BQ learning miatt alapvető.
+  Látszik, hol tart a ciklus.
+  Riporttal könnyen összevethető.
+
+
+JAVASOLT GUI ELRENDEZÉS
+=======================
+
+MVP-ben ne legyen túlzsúfolt.
+
+Fő élő nézet:
+
+  1. felső status panel:
+     - aktuális state
+     - U_batt
+     - I_signed
+     - T_batt
+     - Ah charge/discharge
+     - warning/fault állapot
+
+  2. grafikon panel:
+     - Akkufeszültség
+     - Áram
+     - Hőmérséklet
+     - U_drop
+     - Ah integrátor
+
+Ezek lehetnek külön grafikonok, nem egyetlen túlzsúfolt grafikonon.
+
+
+MI NE LEGYEN ALAPBÓL GRAFIKONON?
+================================
+
+Nem kell élő grafikonra tenni minden CSV mezőt.
+
+Például ezek inkább táblázat / status / log mezők:
+
+  - psu_output_commanded_on
+  - psu_output_confirmed_on
+  - load_input_commanded_on
+  - load_input_confirmed_on
+  - dmm_voltage_valid
+  - dmm_temperature_valid
+  - psu_readback_valid
+  - fault_flags
+  - warning_flags
+  - event_code
+  - event_message
+  - capacity_result_quality
+  - integration_current_source
+
+Ezeket inkább status panelen vagy event logban kell mutatni.
+
+
+KÉSŐBBI BŐVÍTÉS
+===============
+
+Hosszabb távon lehet C irányba menni:
+
+  C) Teljesen konfigurálható
+
+De nem első körben.
+
+Javasolt fejlődési út:
+
+  FÁZIS 6A:
+    fix B típusú grafikonok
+
+  FÁZIS 6B:
+    checkboxok:
+      - U_batt
+      - I_signed
+      - T_batt
+      - U_drop
+      - Ah
+      - PSU readback
+      - Load readback
+
+  FÁZIS 6C:
+    post-mortem log viewerben teljesen konfigurálható grafikon
+
+Tehát:
+  real-time dashboard: fix, jól kiválasztott
+  post-mortem viewer: később konfigurálható
+
+
+JAVASOLT VÉGLEGES VÁLASZ
+========================
+
+B) Részletesebb
+
+MVP-ben élő grafikonon legyen:
+
+  - battery_voltage_V
+  - signed_current_A
+  - battery_temperature_C
+  - u_drop_V
+  - accumulated_charge_Ah
+  - accumulated_discharge_Ah
+
+Kiegészítésként status panelen:
+
+  - state
+  - psu_mode
+  - isolation_state
+  - dmm_valid
+  - warning_flags
+  - fault_flags
+  - integration_current_source
+  - capacity_result_quality
+
+Ez elég részletes a laborhoz, de még nem túl bonyolult.
+
+Választás: C) YAML + felülírás
+
+Ez a legjobb kompromisszum.
+
+A GUI ne akarjon minden konfigurációt nulláról kezelni, de ne is legyen pusztán
+YAML viewer. A stabil, ritkán változó paraméterek maradjanak YAML-ban, a laborban
+gyakran változó paraméterek pedig legyenek gyorsan szerkeszthetők GUI-ból.
+
+
+JAVASOLT MŰKÖDÉS
+================
+
+Induláskor:
+
+  1. A program betölti:
+       default_config.yaml.template
+       local_config.yaml
+       battery_profiles/*.yaml
+
+  2. A GUI megjeleníti az értékeket.
+
+  3. A kezelő GUI-ban módosíthatja a legfontosabb laborparamétereket.
+
+  4. Start előtt a GUI validál.
+
+  5. A ténylegesen futtatott konfiguráció bekerül:
+       session_meta.json
+       riport
+       checkpoint
+
+
+GUI-BAN SZERKESZTHETŐ PARAMÉTEREK
+=================================
+
+Első körben csak ezek legyenek szerkeszthetők:
+
+  Műszer resource stringek:
+    - PSU resource
+    - Load resource
+    - DMM voltage resource
+    - DMM temperature resource
+
+  Akkuprofil:
+    - profil választás: FIAMM_12V / FIAMM_24V
+    - battery model
+    - nominal_capacity_Ah
+    - battery sample ID / opcionális azonosító
+
+  Teszttípus:
+    - CHARACTERIZATION
+    - BQ_LEARNING_PHYSICAL
+
+  PSU mód:
+    - INDEPENDENT
+    - PARALLEL
+    - SERIES
+    - hardware wiring confirmed checkbox
+
+  Hőkompenzáció:
+    - OFF
+    - MONITOR_ONLY
+    - ENABLED
+
+  Alap tesztparaméterek:
+    - runner_tick_s
+    - taper_hold_s
+    - esetleg max charge/discharge idő
+
+Ezek legyenek GUI mezők.
+
+
+YAML-BAN MARADÓ PARAMÉTEREK
+===========================
+
+Ezek ne legyenek első körben GUI-ból piszkálhatók:
+
+  - safety limitek
+  - batt_absolute_max képlet
+  - DMM NPLC értékek
+  - fallback_max_duration_s
+  - temperature_dmm_fault_timeout_s
+  - warning/fault thresholdök
+  - BY550 dióda paraméterei
+  - logger commit / flush periódusok
+  - CSV oszlopstruktúra
+  - riport fix mezők
+
+Ezek config fájlban jobbak, mert ritkán változnak és safety-kritikusabbak.
+
+
+MIÉRT NEM A?
+============
+
+A) YAML fájl betöltése — jó fejlesztői mód, de laborban kényelmetlen.
+
+Hátrány:
+  - minden kisebb módosításhoz fájlt kell szerkeszteni
+  - könnyebb elgépelni
+  - műszer resource stringek / kapacitás / teszttípus gyors váltása nehézkes
+  - kezelői hibák kevésbé láthatók
+
+
+MIÉRT NEM B?
+============
+
+B) Beépített form minden paraméterrel — túl sok és veszélyes.
+
+Hátrány:
+  - rengeteg mező
+  - safety limitek véletlenül elállíthatók
+  - UI túl bonyolult
+  - validációs teher nagy
+  - nehezebb reprodukálni a mérési konfigurációt
+
+
+MIÉRT NEM CSAK D?
+=================
+
+D) Profil választó önmagában jó, de kevés.
+
+A profil választó kell, de mellé szükséges:
+
+  - resource string megadás
+  - teszttípus választás
+  - kapacitás megadás
+  - PSU mód megerősítés
+  - session-specifikus értékek
+
+Tehát a D része legyen a C-nek.
+
+
+JAVASOLT GUI FELÉPÍTÉS
+======================
+
+1. Config / Setup oldal
+-----------------------
+
+Szekciók:
+
+  Akkumulátor:
+    - Profil: FIAMM_12V / FIAMM_24V
+    - Modell: pl. FG20721
+    - Kapacitás: Ah
+    - Sample ID: opcionális
+    - Cellaszám: profilból, csak olvasható
+    - Töltési célfeszültség: profilból, csak olvasható
+    - Taper áram: számított, csak olvasható
+
+  Műszerek:
+    - PSU resource
+    - Load resource
+    - DMM voltage resource
+    - DMM temperature resource
+    - Connect / IDN check gombok
+
+  PSU mód:
+    - INDEPENDENT / PARALLEL / SERIES
+    - max voltage / max current kijelzés
+    - hardware wiring confirmed checkbox
+    - precheck státusz
+
+  Teszt:
+    - CHARACTERIZATION
+    - BQ_LEARNING_PHYSICAL
+    - Start gomb
+
+  Hőkompenzáció:
+    - OFF / MONITOR_ONLY / ENABLED
+
+
+2. Advanced config oldal
+------------------------
+
+Csak később, vagy read-only MVP-ben:
+
+  - DMM NPLC
+  - safety thresholdök
+  - fallback timeout
+  - BY550 paraméterek
+  - logger flush/commit időzítés
+
+MVP-ben ezek lehetnek csak megjelenítve, nem szerkesztve.
+
+
+MENTÉSI MODELL
+==============
+
+Fontos szabály:
+
+  A GUI ne írja felül automatikusan a default_config.yaml.template fájlt.
+
+Javasolt:
+
+  default_config.yaml.template:
+    gitben, gyári alap
+
+  local_config.yaml:
+    labori resource stringek, .gitignore-ban
+
+  battery_profiles/*.yaml:
+    alap profilok
+
+  session_meta.json:
+    a ténylegesen használt, GUI-ban felülírt értékek
+
+A GUI módosításai:
+
+  - resource stringek menthetők local_config.yaml-ba
+  - adott mérés paraméterei session_meta.json-ba kerülnek
+  - safety defaultok ne íródjanak át véletlenül
+
+
+START ELŐTTI VALIDÁCIÓ
+======================
+
+Start gomb előtt kötelező ellenőrizni:
+
+  - nominal_capacity_Ah > 0
+  - model nem üres
+  - resource stringek nem üresek
+  - PSU mode kompatibilis pack feszültséggel
+  - 24V pack → SERIES
+  - 12V pack + SERIES → warning + megerősítés
+  - hardware_wiring_confirmed = true, ha PARALLEL vagy SERIES
+  - DMM voltage elérhető
+  - temp DMM elérhető, ha MONITOR_ONLY vagy ENABLED
+  - precheck akkufeszültség rendben
+  - nincs mélykisült / overvoltage állapot
+
+
+KONKLÚZIÓ
+=========
+
+Választás:
+
+  C) YAML + felülírás
+
+Kiegészítve profilválasztóval.
+
+Tehát a GUI működése:
+
+  - betölti az alap YAML configokat
+  - FIAMM profilválasztót ad
+  - GUI-ban szerkeszthető:
+      resource stringek
+      akkukapacitás
+      akkumulátor modell / sample ID
+      teszttípus
+      PSU mód
+      hőkompenzáció mód
+  - safety-kritikus részletek maradnak YAML-ban / advanced read-only nézetben
+  - minden futtatott érték bekerül session_meta.json-ba és riportba
+
+Ez laborban kényelmes, de még kontrollált és reprodukálható.
+
+Választás: D) B + C — mind CSV, mind SQLite megnyitható, a grafikon mindkettőből rajzolható
+
+Hosszú távon ez a legjobb, de MVP-ben érdemes fokozatosan bevezetni:
+
+  FÁZIS 6C-1:
+    CSV megnyitás fájlböngészővel
+
+  FÁZIS 6C-2:
+    SQLite session .db megnyitás
+
+  FÁZIS 6C-3:
+    egységes log loader réteg, amely mind CSV-ből, mind SQLite-ból ugyanazt az
+    adatmodellt adja vissza a grafikonoknak
+
+
+MIÉRT D?
+========
+
+Mert a rendszer kétféle logolást használ:
+
+  - CSV:
+      gyors, egyszerű, Excel/Python kompatibilis, könnyen megosztható
+
+  - SQLite:
+      strukturáltabb, recoveryhez és session-kezeléshez jobb,
+      eventekhez, checkpointokhoz, metaadatokhoz alkalmasabb
+
+Ha a GUI csak az egyiket támogatja, akkor a másik logolási út kevésbé lesz hasznos.
+
+
+CSV ELŐNYEI
+===========
+
+CSV megnyitás kell, mert:
+
+  - egyszerű fájlböngészőből kiválasztani
+  - könnyen exportálható / archiválható
+  - külső eszközökkel is szerkeszthető
+  - hibakeresésnél gyors
+  - egy-egy mérési sorozatot könnyű átküldeni / megosztani
+
+MVP-ben a CSV loader legyen az első.
+
+
+SQLITE ELŐNYEI
+==============
+
+SQLite megnyitás is kell, mert:
+
+  - session_meta
+  - event log
+  - warning/fault események
+  - checkpoint
+  - több tábla
+  - hosszú mérések strukturált visszanézése
+  - keresés / szűrés / időtartomány lekérdezés
+
+Post-mortem elemzéshez a SQLite jobb hosszú távon.
+
+
+JAVASOLT ARCHITEKTÚRA
+=====================
+
+Ne a grafikon ismerje, hogy CSV vagy SQLite a forrás.
+
+Legyen egy közös LogLoader absztrakció:
+
+  class LoadedSession:
+      samples: list[dict] vagy DataFrame
+      events: list[dict]
+      session_meta: dict
+      source_type: "CSV" / "SQLITE"
+      source_path: str
+
+  class CsvLogLoader:
+      def load(path: str) -> LoadedSession
+
+  class SqliteLogLoader:
+      def load(path: str) -> LoadedSession
+
+A GUI grafikon panel csak ezt kapja:
+
+  loaded_session.samples
+
+Így a grafikon ugyanúgy működik CSV és SQLite esetén.
+
+
+MVP PRIORITÁS
+=============
+
+Első MVP-ben:
+
+  B) Bármely CSV fájl megnyitható
+
+Ez legyen a minimális működő post-mortem log viewer.
+
+Utána:
+
+  C) SQLite .db megnyitás
+
+Végső cél:
+
+  D) mindkettő
+
+
+JAVASOLT GUI FUNKCIÓK
+=====================
+
+Post-mortem log viewer:
+
+  File → Open CSV...
+  File → Open SQLite session...
+  Recent sessions list
+  Reload current session
+
+Megnyitás után:
+
+  - session összefoglaló panel
+  - grafikonok:
+      battery_voltage_V
+      signed_current_A
+      battery_temperature_C
+      u_drop_V
+      accumulated_charge_Ah
+      accumulated_discharge_Ah
+
+  - event / warning / fault táblázat
+  - metadata panel:
+      psu_mode
+      profile/model
+      capacity_Ah
+      test_type
+      temperature_compensation_mode
+      isolation_method
+      capacity_result_quality
+
+
+CSV MEGNYITÁS
+=============
+
+CSV esetén:
+
+  Kötelező:
+    - samples.csv betöltése
+
+Opcionális:
+    - events.csv keresése ugyanabban a mappában
+    - session_meta.json keresése ugyanabban a mappában
+    - report.json keresése ugyanabban a mappában
+
+Tehát ha a kezelő kiválasztja:
+
+  Mérések/session_001/samples.csv
+
+akkor a GUI próbálja automatikusan betölteni:
+
+  Mérések/session_001/events.csv
+  Mérések/session_001/session_meta.json
+  Mérések/session_001/report.json
+
+Ha nincs meg, akkor:
+  - ne legyen hiba
+  - csak kevesebb metaadat jelenik meg
+
+
+SQLITE MEGNYITÁS
+================
+
+SQLite esetén:
+
+  session.db megnyitása
+
+Betöltendő táblák:
+
+  - samples
+  - events
+  - session_meta
+  - checkpoints, ha van
+
+Ha valamelyik tábla hiányzik:
+
+  - warning
+  - részleges betöltés engedélyezett
+
+
+ADATFORRÁS EGYSÉGESÍTÉS
+=======================
+
+A grafikon panel ne így működjön:
+
+  if csv:
+      read csv
+  if sqlite:
+      query db
+
+Hanem így:
+
+  loaded_session = log_loader.load(path)
+  graph_panel.set_session(loaded_session)
+
+A graph_panel nem tudja, honnan jött az adat.
+
+
+JAVASOLT DÖNTÉS A TERVBE
+========================
+
+Post-mortem log viewer végső célja:
+
+  D) CSV és SQLite egyaránt megnyitható.
+
+MVP sorrend:
+
+  1. CSV loader
+  2. samples.csv grafikon
+  3. events.csv + session_meta.json automatikus felismerés
+  4. SQLite loader
+  5. közös LoadedSession adatmodell
+  6. grafikon mindkét forrásból
+
+
+KONKLÚZIÓ
+=========
+
+Választás:
+
+  D) B + C
+
+De implementációs sorrend:
+
+  először B, utána C.
+
+Végső GUI képesség:
+
+  - aktuális / utolsó futás megjelenítése
+  - bármely korábbi CSV session megnyitása
+  - SQLite session .db megnyitása
+  - ugyanazok a grafikonok mindkét forrásból
+  - eventek és session_meta megjelenítése, ha elérhető
+
+Ez adja a legjobb rugalmasságot és a legjobb hosszú távú diagnosztikai értéket.
+
+Választás: B) Státuszsor + gomb
+
+A MANUAL_CHECKPOINT ne popup-only legyen, hanem a fő futtatási nézet állapotaként
+jelenjen meg, külön "Folytatás" vagy "Checkpoint kész" gombbal.
+
+Ez a legjobb laboros működéshez.
+
+
+MIÉRT B?
+========
+
+A BQ_LEARNING_PHYSICAL checkpoint nem egy egyszerű figyelmeztetés, hanem a tesztfolyamat
+része.
+
+A felhasználónak ilyenkor kézzel kell dolgoznia:
+
+  - BQ eszköz csatlakoztatása
+  - bqStudio / saját tool használata
+  - UpdateStatus ellenőrzése
+  - Qmax / Ra / learning státusz ellenőrzése
+  - esetleg export / mentés készítése
+  - majd tudatos döntés, hogy folytatható-e vagy lezárható-e a folyamat
+
+Ez nem valódi „popup OK” jellegű esemény.
+Ez egy kézi munkapont, amit a fő ablaknak állapotként kell kezelnie.
+
+
+JAVASOLT GUI VISELKEDÉS
+=======================
+
+Amikor a TestRunner eléri a MANUAL_CHECKPOINT lépést:
+
+  1. Runner megáll biztonságos állapotban:
+       PSU OFF
+       Load OFF
+       isolation_state = PSU_OUTPUT_OFF_ONLY
+
+  2. GUI státusz:
+       "MANUAL BQ CHECKPOINT — kezelői ellenőrzés szükséges"
+
+  3. Főablakban megjelenik egy checkpoint panel:
+       - mi történt eddig
+       - mit kell kézzel ellenőrizni
+       - milyen fájlokat kell menteni
+       - milyen döntési lehetőségek vannak
+
+  4. Gombok:
+       - "Checkpoint kész / Folytatás"
+       - "Teszt lezárása"
+       - "Emergency Stop" vagy "Safe Off"
+       - opcionálisan: "Jegyzet hozzáadása"
+
+  5. A GUI nem zárja el a főablakot popup-pal.
+     A mérési adatok, grafikonok és logok továbbra is láthatók.
+
+
+POPUP HASZNÁLATA
+================
+
+Popup lehet, de csak kiegészítő figyelmeztetésként.
+
+Például:
+
+  "A BQ learning ciklus elérte a kézi ellenőrzési pontot.
+   A mérés biztonságos állapotban megállt. Nézd meg a főablak Checkpoint paneljét."
+
+De a tényleges vezérlés ne popupban legyen, hanem a fő GUI-ban.
+
+Tehát:
+
+  Popup: opcionális értesítés
+  Fő vezérlés: státuszpanel + gomb
+
+
+MIÉRT NEM A?
+============
+
+A) Popup dialógus önmagában nem ideális.
+
+Hátrányok:
+
+  - eltakarhatja a grafikonokat
+  - véletlenül bezárható
+  - hosszú kézi munka alatt zavaró
+  - nem alkalmas részletes checklist megjelenítésére
+  - rosszabb laboros workflow
+
+Popup csak jelzésnek jó, nem fő állapotkezelésnek.
+
+
+MIÉRT NEM C?
+============
+
+C) Automatikus STOPPED státusz + újraindítás túl darabos.
+
+Hátrány:
+
+  - a felhasználónak újra kell indítania a következő lépést
+  - nehezebb egyben kezelni a BQ learning sessiont
+  - checkpoint után a folyamat folytathatósága kevésbé kontrollált
+  - több hibalehetőség: rossz test_plan, rossz folytatási pont, új session indulhat
+
+A runner persze belül használhat "WAITING_FOR_MANUAL_CHECKPOINT" vagy hasonló státuszt,
+de GUI szinten legyen egyértelmű folytatás gomb.
+
+
+MIÉRT NEM D?
+============
+
+D) Most nem kell tervezni — ezt nem választanám.
+
+Indok:
+
+  Már a TestRunner tervben szerepel a MANUAL_CHECKPOINT.
+  Ha a GUI MVP-ben még csak CHARACTERIZATION fut, akkor is érdemes az állapotmodellt
+  előre jól kialakítani.
+
+Nem kell minden BQ részletet megvalósítani az első GUI-ban, de az architektúrában
+legyen helye a checkpointnak.
+
+
+JAVASOLT ÁLLAPOTMODELL
+======================
+
+GUI / Runner szinten:
+
+  RUNNING
+  STOPPING
+  STOPPED
+  FAULT
+  DONE
+  WAITING_FOR_MANUAL_CHECKPOINT
+
+Amikor MANUAL_CHECKPOINT lépéshez ér:
+
+  runner status:
+    WAITING_FOR_MANUAL_CHECKPOINT
+
+  GUI:
+    checkpoint panel aktív
+
+  Start gomb:
+    disabled
+
+  Stop gomb:
+    "Teszt lezárása" vagy "Stop"
+
+  Continue gomb:
+    enabled
+
+  Emergency Stop:
+    enabled
+
+
+JAVASOLT RUNNER API
+===================
+
+A TestRunnerben később legyen:
+
+  request_continue_from_checkpoint()
+
+vagy általánosabban:
+
+  request_continue()
+
+A MANUAL_CHECKPOINT nem legyen sima DONE.
+
+Lehetséges működés:
+
+  _run_manual_checkpoint(step):
+      safe_all_off()
+      logger.log_event("MANUAL_BQ_CHECKPOINT_REACHED", ...)
+      checkpoint mentés
+      self.status = "WAITING_FOR_MANUAL_CHECKPOINT"
+
+      while not self.continue_requested:
+          if self.emergency_stop_requested:
+              return self._emergency_stop(...)
+          if self.stop_requested:
+              return self._graceful_stop("USER_STOP_AT_MANUAL_CHECKPOINT")
+          sleep vagy tick
+
+      return TestResult(status="DONE")
+
+MVP-ben egyszerűbb változat:
+
+  - runner visszatér TestResult(status="STOPPED", reason="MANUAL_BQ_CHECKPOINT_REACHED")
+  - GUI megjeleníti a checkpoint panelt
+  - folytatás későbbi fázisban
+
+De hosszú távon jobb:
+
+  - runner várakozó állapotban marad
+  - GUI Continue gombbal megy tovább
+
+
+JAVASOLT CHECKPOINT PANEL TARTALOM
+==================================
+
+Cím:
+  MANUAL BQ CHECKPOINT
+
+Állapot:
+  A fizikai BQ learning ciklus elérte a kézi ellenőrzési pontot.
+  PSU OFF, Load OFF, aktív energiaút nincs.
+
+Checklist:
+
+  [ ] BQ eszköz csatlakoztatva
+  [ ] bqStudio / BQ tool elindítva
+  [ ] UpdateStatus ellenőrizve
+  [ ] Qmax ellenőrizve / mentve
+  [ ] Ra table ellenőrizve / mentve
+  [ ] Log / export fájl elmentve
+  [ ] Kezelő megerősíti, hogy a folyamat folytatható vagy lezárható
+
+Gombok:
+
+  - Checkpoint kész / Folytatás
+  - Teszt lezárása
+  - Jegyzet mentése
+  - Emergency Stop
+
+
+RIPORT / LOG
+============
+
+A checkpoint eseményt kötelező logolni:
+
+  event_code:
+    MANUAL_BQ_CHECKPOINT_REACHED
+
+  event_message:
+    "BQ learning fizikai ciklus kézi ellenőrzési pontja elérve."
+
+Session meta:
+
+  manual_bq_checkpoint_reached: true
+  manual_bq_checkpoint_completed: true/false
+  manual_bq_checkpoint_operator_note: str
+  manual_bq_checkpoint_timestamp
+
+Riport:
+
+  manual_bq_checkpoint_reached: true
+  manual_bq_checkpoint_completed: true/false
+  operator_note: ...
+
+
+JAVASOLT VÉGSŐ DÖNTÉS
+=====================
+
+Választás:
+
+  B) Státuszsor + gomb
+
+Kiegészítve:
+
+  - opcionális popup értesítés megengedett
+  - a fő vezérlés a futó teszt panelen történjen
+  - legyen WAITING_FOR_MANUAL_CHECKPOINT állapot
+  - legyen "Checkpoint kész / Folytatás" gomb
+  - legyen "Teszt lezárása" gomb
+  - checkpoint esemény menjen a logba és riportba
+
+MVP rövidítés:
+
+  Ha első GUI-ban még csak CHARACTERIZATION fut, akkor a MANUAL_CHECKPOINT panel
+  lehet későbbi, de az állapotmodellben és a TestRunner API-ban már legyen előkészítve.
+
