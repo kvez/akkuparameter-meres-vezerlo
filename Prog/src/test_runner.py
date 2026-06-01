@@ -124,6 +124,8 @@ class TestRunner:
         self._total_charge_ah: float = 0.0
         self._total_discharge_ah: float = 0.0
         self._start_time = None
+        self._active_plan = None
+        self.on_step_changed: "Callable[[dict], None] | None" = None
 
     def request_stop(self) -> None:
         self.stop_requested = True
@@ -133,6 +135,7 @@ class TestRunner:
         self.emergency_stop_reason = reason
 
     def run(self, test_plan: TestPlan) -> TestResult:
+        self._active_plan = test_plan
         self._start_time = datetime.now(timezone.utc)
         self.status = "RUNNING"
         self._total_charge_ah = 0.0
@@ -167,6 +170,16 @@ class TestRunner:
         )
 
     def _run_step(self, step: TestStep) -> TestResult:
+        if self.on_step_changed is not None and self._active_plan is not None:
+            steps_list = list(self._active_plan.steps)
+            self.on_step_changed({
+                "runner_status": "RUNNING",
+                "step_kind": step.kind.value,
+                "step_label": step.label,
+                "step_index": steps_list.index(step),
+                "step_count": len(steps_list),
+            })
+
         if step.kind == StepKind.MANUAL_CHECKPOINT:
             return self._run_manual_checkpoint(step)
 

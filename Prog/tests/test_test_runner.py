@@ -775,3 +775,32 @@ class TestCallbacks:
         runner.run(TestPlan.characterization())
         step_names = {s["step_name"] for s in samples}
         assert "charge" in step_names
+
+
+# ------------------------------------------------------------------ #
+# Task 7 (6B): on_step_changed callback                              #
+# ------------------------------------------------------------------ #
+
+class TestStepChanged:
+    def test_on_step_changed_called_for_each_step(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        calls = []
+        runner.on_step_changed = calls.append
+        runner.run(TestPlan.characterization())
+        # characterization: 4 lépés
+        assert len(calls) == 4
+        assert calls[0]["step_label"] == "charge"
+        assert calls[0]["runner_status"] == "RUNNING"
+        assert calls[0]["step_index"] == 0
+        assert calls[0]["step_count"] == 4
+        logger.close()
+
+    def test_on_step_changed_payload_has_step_kind(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        calls = []
+        runner.on_step_changed = calls.append
+        runner.run(TestPlan.characterization())
+        assert calls[0]["step_kind"] == "CHARGE"
+        assert calls[1]["step_kind"] == "RELAX"
+        assert calls[2]["step_kind"] == "DISCHARGE"
+        logger.close()
