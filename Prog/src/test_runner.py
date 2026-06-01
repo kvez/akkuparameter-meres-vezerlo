@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Optional, Callable
 
 from Prog.src.battery_profile import BatteryProfile
 from Prog.src.charge_controller import ChargeState
@@ -117,6 +117,8 @@ class TestRunner:
         self.emergency_stop_reason: str = ""
 
         self.status: str = "IDLE"
+        self.on_sample: "Callable[[dict], None] | None" = None
+        self.on_event: "Callable[[dict], None] | None" = None
         self.current_step = None
 
         self._total_charge_ah: float = 0.0
@@ -188,6 +190,8 @@ class TestRunner:
 
             sample = self._build_sample(step, controller)
             self._logger.log_sample(sample)
+            if self.on_sample is not None:
+                self.on_sample(sample)
             self._logger.flush_all()
             self._logger.write_checkpoint({
                 "status": "RUNNING",
@@ -226,6 +230,8 @@ class TestRunner:
         self._logger.log_event("EMERGENCY_STOP", reason, is_critical=True)
         self._logger.write_checkpoint({"status": "FAULT", "reason": reason})
         self._logger.flush_all()
+        if self.on_event is not None:
+            self.on_event({"event_code": "EMERGENCY_STOP", "event_message": reason})
         return TestResult(
             status="FAULT",
             reason=reason,
@@ -240,6 +246,8 @@ class TestRunner:
         self._logger.log_event("GRACEFUL_STOP", reason)
         self._logger.write_checkpoint({"status": "STOPPED", "reason": reason})
         self._logger.flush_all()
+        if self.on_event is not None:
+            self.on_event({"event_code": "GRACEFUL_STOP", "event_message": reason})
         return TestResult(
             status="STOPPED",
             reason=reason,

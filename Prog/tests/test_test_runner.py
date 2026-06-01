@@ -710,3 +710,68 @@ class TestRunIntegration:
         import json
         cp = json.loads((tmp_path / "checkpoint.json").read_text(encoding="utf-8"))
         assert "status" in cp
+
+
+# ------------------------------------------------------------------ #
+# Task 1: Callback tesztek                                           #
+# ------------------------------------------------------------------ #
+
+class TestCallbacks:
+    def test_on_sample_called_for_each_tick(self, tmp_path):
+        """on_sample callback minden tickben meghívódik."""
+        runner, _ = _make_runner(tmp_path)
+        samples = []
+        runner.on_sample = samples.append
+
+        runner.run(TestPlan.characterization())
+
+        assert len(samples) > 0
+        assert all("battery_voltage_V" in s for s in samples)
+        assert all("elapsed_s" in s for s in samples)
+
+    def test_on_sample_none_does_not_crash(self, tmp_path):
+        """on_sample=None esetén nincs hiba."""
+        runner, _ = _make_runner(tmp_path)
+        runner.on_sample = None
+        result = runner.run(TestPlan.characterization())
+        assert result.status == "DONE"
+
+    def test_on_event_called_on_emergency_stop(self, tmp_path):
+        """on_event callback meghívódik emergency stop esetén."""
+        runner, _ = _make_runner(tmp_path)
+        events = []
+        runner.on_event = events.append
+        runner.request_emergency_stop("TEST_REASON")
+        runner.run(TestPlan.characterization())
+        codes = [e["event_code"] for e in events]
+        assert "EMERGENCY_STOP" in codes
+
+    def test_on_event_called_on_graceful_stop(self, tmp_path):
+        """on_event callback meghívódik graceful stop esetén."""
+        runner, _ = _make_runner(
+            tmp_path,
+            rc=_StubRelaxCtrl(steps_to_done=100),
+        )
+        events = []
+        runner.on_event = events.append
+        runner.request_stop()
+        runner.run(TestPlan.characterization())
+        codes = [e["event_code"] for e in events]
+        assert "GRACEFUL_STOP" in codes
+
+    def test_on_event_none_does_not_crash(self, tmp_path):
+        """on_event=None esetén nincs hiba."""
+        runner, _ = _make_runner(tmp_path)
+        runner.on_event = None
+        runner.request_emergency_stop("TEST")
+        result = runner.run(TestPlan.characterization())
+        assert result.status == "FAULT"
+
+    def test_on_sample_receives_step_name(self, tmp_path):
+        """on_sample sample dict tartalmazza a step_name mezőt."""
+        runner, _ = _make_runner(tmp_path)
+        samples = []
+        runner.on_sample = samples.append
+        runner.run(TestPlan.characterization())
+        step_names = {s["step_name"] for s in samples}
+        assert "charge" in step_names
