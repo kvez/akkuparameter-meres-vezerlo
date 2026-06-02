@@ -136,6 +136,11 @@ class TestRunner:
         self.emergency_stop_requested = True
         self.emergency_stop_reason = reason
 
+    def reset_control_flags(self) -> None:
+        self.stop_requested = False
+        self.emergency_stop_requested = False
+        self.emergency_stop_reason = ""
+
     def run(self, test_plan: TestPlan, start_step_index: int = 0) -> TestResult:
         self._active_plan = test_plan
         self._start_time = datetime.now(timezone.utc)

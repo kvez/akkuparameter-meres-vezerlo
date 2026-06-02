@@ -560,6 +560,22 @@ class TestCheckpointTerminal:
         assert calls[1]["step_label"] == "relax_after_discharge"
         logger.close()
 
+    def test_reset_control_flags_clears_stop_requested(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner.stop_requested = True
+        runner.reset_control_flags()
+        assert runner.stop_requested is False
+        logger.close()
+
+    def test_reset_control_flags_clears_emergency_stop(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner.emergency_stop_requested = True
+        runner.emergency_stop_reason = "TEST_REASON"
+        runner.reset_control_flags()
+        assert runner.emergency_stop_requested is False
+        assert runner.emergency_stop_reason == ""
+        logger.close()
+
 
 # ------------------------------------------------------------------ #
 # Task 7: _run_step                                                   #
