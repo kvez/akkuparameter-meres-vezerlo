@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from Prog.gui.panels.config_panel import ConfigPanel, SessionConfig
 from Prog.gui.panels.live_panel import LivePanel
+from Prog.gui.panels.checkpoint_panel import CheckpointPanel
 from Prog.gui.worker import TestRunnerWorker
 
 
@@ -30,13 +31,21 @@ class MainWindow(QMainWindow):
 
         self._config_panel = ConfigPanel()
         self._live_panel = LivePanel()
+        self._checkpoint_panel = CheckpointPanel()
 
         self._tabs.addTab(self._config_panel, "Konfiguráció")
         self._tabs.addTab(self._live_panel, "Élő mérés")
+        self._checkpoint_tab_index = self._tabs.addTab(
+            self._checkpoint_panel, "BQ Checkpoint"
+        )
+        self._tabs.setTabEnabled(self._checkpoint_tab_index, False)
 
         self._live_panel.start_requested.connect(self._start_test)
         self._live_panel.stop_requested.connect(self._stop_test)
         self._live_panel.emergency_stop_requested.connect(self._emergency_stop)
+
+        self._checkpoint_panel.close_requested.connect(self._on_checkpoint_close)
+        self._checkpoint_panel.emergency_stop_requested.connect(self._emergency_stop)
 
         self._status_bar = QStatusBar()
         self.setStatusBar(self._status_bar)
@@ -75,6 +84,14 @@ class MainWindow(QMainWindow):
         self._worker.fault.connect(self._on_fault)
         self._worker.finished.connect(self._on_finished)
 
+        self._tabs.setTabEnabled(self._checkpoint_tab_index, False)   # reset
+        self._worker.event_ready.connect(self._live_panel.append_event)
+        self._worker.step_changed.connect(self._on_step_changed)
+        self._worker.checkpoint_reached.connect(
+            self._checkpoint_panel.show_checkpoint
+        )
+        self._worker.checkpoint_reached.connect(self._on_checkpoint_reached)
+
         self._thread.start()
         self._status_bar.showMessage("Teszt elindítva…")
 
@@ -105,6 +122,26 @@ class MainWindow(QMainWindow):
                 f"Töltve: {result.total_charge_ah:.4f} Ah\n"
                 f"Kisütve: {result.total_discharge_ah:.4f} Ah",
             )
+        elif result.status == "CHECKPOINT_STOPPED":
+            pass  # tab és status bar már frissítve az _on_checkpoint_reached-ben
+
+    def _on_step_changed(self, payload: dict) -> None:
+        status = payload.get("runner_status", "")
+        label  = payload.get("step_label", "")
+        self._status_bar.showMessage(f"{status} — {label}")
+
+    def _on_checkpoint_reached(self, event: dict) -> None:
+        self._tabs.setTabEnabled(self._checkpoint_tab_index, True)
+        self._tabs.setCurrentIndex(self._checkpoint_tab_index)
+        self._status_bar.showMessage(
+            "BQ kézi checkpoint elérve — végezd el a BQ műveletet"
+        )
+
+    def _on_checkpoint_close(self) -> None:
+        self._tabs.setTabEnabled(self._checkpoint_tab_index, False)
+        self._tabs.setCurrentIndex(0)
+        self._status_bar.showMessage("Teszt lezárva — konfigurálj új mérést.")
+        self._cleanup_thread()
 
     def _on_fault(self, reason: str) -> None:
         self._cleanup_thread()
