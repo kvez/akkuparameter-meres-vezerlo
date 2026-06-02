@@ -24,10 +24,12 @@ class TestRunnerWorker(QObject):
         self._runner.on_sample = self.sample_ready.emit
         self._runner.on_event = self._handle_event
         self._runner.on_step_changed = self.step_changed.emit   # ← új
+        self._checkpoint_next_step_index: int | None = None
 
     def _handle_event(self, event: dict) -> None:
         self.event_ready.emit(event)
         if event.get("event_code") == "MANUAL_BQ_CHECKPOINT_REACHED":
+            self._checkpoint_next_step_index = event.get("next_step_index")
             self.checkpoint_reached.emit(event)
 
     @Slot()
@@ -63,7 +65,8 @@ class TestRunnerWorker(QObject):
 
     @Slot()
     def request_continue_from_checkpoint(self) -> None:
-        pass  # 6C-ban implementálandó
+        # 6D: QThread újraindítás + self._runner.run(self._test_plan, self._checkpoint_next_step_index)
+        pass
 
     @property
     def runner(self):

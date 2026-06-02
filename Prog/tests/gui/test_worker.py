@@ -201,3 +201,15 @@ class TestWorkerSignals6B:
         mock_runner = _MockRunner(TestResult(status="DONE"))
         worker = TestRunnerWorker(mock_runner, TestPlan.characterization())
         worker.request_continue_from_checkpoint()   # nem dob kivételt
+
+    def test_worker_stores_checkpoint_next_step_index(self, qapp):
+        mock_runner = _MockRunner(TestResult(status="DONE"))
+        worker = TestRunnerWorker(mock_runner, TestPlan.characterization())
+        assert worker._checkpoint_next_step_index is None
+        worker._handle_event({
+            "event_code": "MANUAL_BQ_CHECKPOINT_REACHED",
+            "event_message": "checkpoint",
+            "step_name": "manual_bq_checkpoint",
+            "next_step_index": 9,
+        })
+        assert worker._checkpoint_next_step_index == 9
