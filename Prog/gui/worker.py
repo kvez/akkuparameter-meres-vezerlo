@@ -15,6 +15,7 @@ class TestRunnerWorker(QObject):
     checkpoint_reached = Signal(dict)
     finished           = Signal(object)
     fault              = Signal(str)
+    step_changed       = Signal(dict)      # ← új
 
     def __init__(self, runner, test_plan: TestPlan) -> None:
         super().__init__()
@@ -22,6 +23,7 @@ class TestRunnerWorker(QObject):
         self._test_plan = test_plan
         self._runner.on_sample = self.sample_ready.emit
         self._runner.on_event = self._handle_event
+        self._runner.on_step_changed = self.step_changed.emit   # ← új
 
     def _handle_event(self, event: dict) -> None:
         self.event_ready.emit(event)
@@ -44,6 +46,9 @@ class TestRunnerWorker(QObject):
         elif result.status == "STOPPED":
             self.status_changed.emit("STOPPED")
             self.finished.emit(result)
+        elif result.status == "CHECKPOINT_STOPPED":           # ← új ág
+            self.status_changed.emit("CHECKPOINT_STOPPED")
+            self.finished.emit(result)
         else:
             self.status_changed.emit("DONE")
             self.finished.emit(result)
@@ -58,7 +63,7 @@ class TestRunnerWorker(QObject):
 
     @Slot()
     def request_continue_from_checkpoint(self) -> None:
-        pass  # 6B-ben implementálandó
+        pass  # 6C-ban implementálandó
 
     @property
     def runner(self):
