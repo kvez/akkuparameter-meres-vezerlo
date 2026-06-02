@@ -548,6 +548,18 @@ class TestCheckpointTerminal:
         assert events[0]["checkpoint_is_terminal"] is True
         logger.close()
 
+    def test_run_with_start_step_index_skips_steps(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        calls = []
+        runner.on_step_changed = calls.append
+        runner.run(TestPlan.characterization(), start_step_index=2)
+        # characterization: charge(0), relax(1), discharge(2), relax(3)
+        # start_step_index=2 → csak discharge és relax_after_discharge fut
+        assert len(calls) == 2
+        assert calls[0]["step_label"] == "discharge"
+        assert calls[1]["step_label"] == "relax_after_discharge"
+        logger.close()
+
 
 # ------------------------------------------------------------------ #
 # Task 7: _run_step                                                   #

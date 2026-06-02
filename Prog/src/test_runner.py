@@ -136,7 +136,7 @@ class TestRunner:
         self.emergency_stop_requested = True
         self.emergency_stop_reason = reason
 
-    def run(self, test_plan: TestPlan) -> TestResult:
+    def run(self, test_plan: TestPlan, start_step_index: int = 0) -> TestResult:
         self._active_plan = test_plan
         self._start_time = datetime.now(timezone.utc)
         self.status = "RUNNING"
@@ -144,7 +144,7 @@ class TestRunner:
         self._total_discharge_ah = 0.0
 
         try:
-            for step in test_plan.steps:
+            for step in list(test_plan.steps)[start_step_index:]:
                 self.current_step = step
 
                 if self.emergency_stop_requested:
