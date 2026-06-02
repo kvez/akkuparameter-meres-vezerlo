@@ -108,5 +108,23 @@ class CheckpointPanel(QWidget):
         self._charge_lbl.setText(f"{charge:.4f} Ah" if charge is not None else "–")
         self._disch_lbl.setText(f"{disch:.4f} Ah"  if disch  is not None else "–")
 
+        resume_possible = event.get("resume_possible", False)
+        if resume_possible:
+            self._continue_btn.setEnabled(True)
+            self._continue_btn.setText("Folytatás checkpointból")
+            self._continue_btn.setToolTip("")
+            self._header_lbl.setText(
+                "BQ_LEARNING_PHYSICAL — kézi ellenőrzési pont (folytatható)"
+            )
+        else:
+            self._continue_btn.setEnabled(False)
+            self._continue_btn.setText("Folytatás — nem elérhető")
+            self._continue_btn.setToolTip(
+                "Ez a checkpoint terminális — a teszt itt ért véget."
+            )
+            self._header_lbl.setText(
+                "BQ_LEARNING_PHYSICAL — kézi ellenőrzési pont (terminális)"
+            )
+
         for cb in self._checkboxes:
             cb.setChecked(False)
