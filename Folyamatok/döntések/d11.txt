@@ -1,0 +1,241 @@
+Válaszaim a checkpoint / folytatás tervezési kérdésekre:
+
+1. Mit csinál a "Folytatás" gomb?
+=================================
+
+Választás: B
+
+A checkpoint lezárja a jelenlegi BQ_LEARNING_PHYSICAL plant.
+Mivel a jelenlegi bq_learning_physical() plan MANUAL_CHECKPOINT-tal végződik, utána
+nincs következő automatikus lépés.
+
+Ezért ebben a konkrét planben a "Folytatás checkpointból" gomb ne fusson tovább
+ugyanebben a planben.
+
+Javasolt GUI viselkedés:
+
+  - Ha next_step_index >= step_count:
+      resume_possible = false
+      checkpoint_is_terminal = true
+
+  - A gomb szövege ne "Folytatás checkpointból" legyen, hanem:
+      "Checkpoint kész — session lezárása"
+      vagy
+      "BQ ellenőrzés kész — riport lezárása"
+
+  - Ha a felhasználó újabb mérést akar:
+      új mérési session / új test plan induljon.
+
+Tehát:
+
+  B) A checkpoint lezár mindent — a "folytatás" valójában egy új, külön plannal indul.
+
+Pontosítás:
+  A jelenlegi planhez inkább lezárás tartozik, nem tényleges folytatás.
+
+
+2. Ah integrátorok és logger — mi történjen folytatáskor?
+=========================================================
+
+Választás: A
+
+Ha checkpoint után új mérési session indul, akkor az Ah/Wh integrátorok induljanak nulláról.
+
+Tehát:
+
+  _total_charge_ah = 0.0
+  _total_discharge_ah = 0.0
+  accumulated_charge_Wh = 0.0
+  accumulated_discharge_Wh = 0.0
+
+Indok:
+
+  - új mérési session = új mérési eredmény
+  - könnyebb riportolni
+  - nem keveredik a BQ learning fizikai ciklus és az utólagos validáció
+  - kisebb a hibalehetőség
+  - tisztább session boundary
+
+A korábbi session eredményei ne vesszenek el, de ne élő integrátorként folytatódjanak.
+Ha később összesített riport kell, azt report szinten lehet összefűzni:
+
+  parent_session_id
+  previous_session_id
+  related_sessions
+
+
+3. Logger/session folytonosság — ugyanabba a CSV/SQLite fájlba kerüljön a folytatás?
+===================================================================================
+
+Választás: B
+
+Ne ugyanabba a fájlba írjon.
+A checkpoint utáni új mérés új session fájlokat nyisson.
+
+Javaslat:
+
+  BQ learning session:
+    session_001/
+      samples.csv
+      events.csv
+      session.db
+      report.json
+
+  Post-BQ / validációs session:
+    session_002/
+      samples.csv
+      events.csv
+      session.db
+      report.json
+      parent_session_id = session_001
+
+Indok:
+
+  - tisztább adatkezelés
+  - kisebb fájl-korrupciós kockázat
+  - könnyebb megkülönböztetni a BQ learning és validációs mérést
+  - egyértelműbb riport
+  - post-mortem log viewerben külön sessionként kezelhető
+
+Kapcsolat legyen közöttük:
+
+  parent_session_id
+  related_to_checkpoint_session
+  source_bq_learning_session_id
+
+Tehát:
+  új session, de metaadatban kapcsolódjon az előzőhöz.
+
+
+4. Műszerek állapota checkpoint után — folytatáskor mit kell csinálni?
+======================================================================
+
+Választás: B
+
+Folytatás / új session előtt legyen explicit biztonságos újraellenőrzés.
+
+Javasolt sorrend:
+
+  1. safe_all_off()
+  2. check / reconnect / connect_all()
+  3. IDN vagy connection check
+  4. PSU mode ellenőrzés
+  5. wiring confirmation ellenőrzés, ha PARALLEL/SERIES
+  6. DMM voltage read
+  7. precheck voltage
+  8. temp DMM check, ha MONITOR_ONLY vagy ENABLED
+  9. csak ezután indulhat az új mérés
+
+Indok:
+
+A checkpoint alatt a felhasználó kézzel dolgozik:
+
+  - BQ eszközt csatlakoztat
+  - kábelezéshez nyúlhat
+  - bqStudio-t használ
+  - műszereket esetleg átállíthat
+  - idő telik el
+
+Ezért nem biztonságos feltételezni, hogy minden változatlan.
+
+Tehát:
+
+  B) safe_all_off() → re-check → connect_all()/ellenőrzés → precheck → új mérés
+
+
+5. Ha a felhasználó soha nem kattint a "Folytatás" gombra — timeout kell-e?
+============================================================================
+
+Választás: A
+
+Nem kell timeout.
+
+Indok:
+
+A javasolt modell szerint a checkpoint terminális és a runner már nem vár blokkolva.
+Nincs aktív mérés, nincs aktív energiaút, PSU/Load OFF.
+
+Ezért nincs szükség automatikus timeoutos lezárásra.
+
+GUI állapot:
+
+  CHECKPOINT_STOPPED
+  PSU OFF
+  Load OFF
+  session checkpoint mentve
+  riport / log elérhető
+
+A felhasználó később dönthet:
+
+  - lezárja a sessiont
+  - új mérést indít
+  - megnyitja a logot
+  - kilép az alkalmazásból
+
+Ha mégis kell állapotkezelés, akkor ne hard timeout legyen, hanem emlékeztető / vizuális jelzés:
+
+  "A session checkpoint állapotban van. Zárd le vagy indíts új mérést."
+
+De automatikus lezárás nem szükséges.
+
+
+Összesített döntések
+====================
+
+1. Folytatás gomb:
+   B — új mérési session / külön plan, mert a jelenlegi checkpoint terminális.
+
+2. Ah integrátor:
+   A — új sessionnél reset.
+
+3. Logger/session:
+   B — új session fájlok, parent_session_id kapcsolattal.
+
+4. Műszerek folytatás előtt:
+   B — safe_all_off + re-check + precheck.
+
+5. Timeout:
+   A — nem kell timeout, mert a runner nem blokkolva vár, hanem CHECKPOINT_STOPPED állapotban lezárt.
+
+Javasolt végső modell
+=====================
+
+A jelenlegi BQ_LEARNING_PHYSICAL plan:
+
+  charge_1
+  relax_after_charge_1
+  discharge_1
+  relax_after_discharge_1
+  charge_2
+  relax_after_charge_2
+  discharge_2
+  relax_after_discharge_2
+  manual_bq_checkpoint
+
+A manual_bq_checkpoint terminális checkpoint.
+
+Elérésekor:
+
+  status = CHECKPOINT_STOPPED
+  resume_possible = false
+  checkpoint_is_terminal = true
+  next_step_index = len(plan.steps)
+
+GUI:
+
+  - CheckpointPanel megjelenik
+  - checklist látható
+  - "Folytatás checkpointból" disabled vagy átnevezve:
+      "Checkpoint kész — session lezárása"
+  - opcionális:
+      "Új validációs mérés indítása"
+      "Új karakterizálás indítása"
+      "Új BQ learning session indítása"
+
+Ha később lesz nem terminális checkpoint:
+
+  resume_possible = true
+  next_step_index < step_count
+  runner.run(test_plan, start_step_index=next_step_index)
+
+De a mostani BQ_LEARNING_PHYSICAL végpontjánál nincs valódi folytatás.
