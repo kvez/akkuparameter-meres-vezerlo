@@ -15,7 +15,7 @@ class TestRunnerWorker(QObject):
     checkpoint_reached = Signal(dict)
     finished           = Signal(object)
     fault              = Signal(str)
-    step_changed       = Signal(dict)      # ← új
+    step_changed       = Signal(dict)
 
     def __init__(self, runner, test_plan: TestPlan) -> None:
         super().__init__()
@@ -23,7 +23,7 @@ class TestRunnerWorker(QObject):
         self._test_plan = test_plan
         self._runner.on_sample = self.sample_ready.emit
         self._runner.on_event = self._handle_event
-        self._runner.on_step_changed = self.step_changed.emit   # ← új
+        self._runner.on_step_changed = self.step_changed.emit
         self._checkpoint_next_step_index: int | None = None
 
     def _handle_event(self, event: dict) -> None:
@@ -32,11 +32,10 @@ class TestRunnerWorker(QObject):
             self._checkpoint_next_step_index = event.get("next_step_index")
             self.checkpoint_reached.emit(event)
 
-    @Slot()
-    def run(self) -> None:
+    def _do_run(self, start_step_index: int = 0) -> None:
         self.status_changed.emit("RUNNING")
         try:
-            result = self._runner.run(self._test_plan)
+            result = self._runner.run(self._test_plan, start_step_index)
         except Exception as exc:
             self.status_changed.emit("FAULT")
             self.fault.emit(str(exc))
@@ -48,12 +47,16 @@ class TestRunnerWorker(QObject):
         elif result.status == "STOPPED":
             self.status_changed.emit("STOPPED")
             self.finished.emit(result)
-        elif result.status == "CHECKPOINT_STOPPED":           # ← új ág
+        elif result.status == "CHECKPOINT_STOPPED":
             self.status_changed.emit("CHECKPOINT_STOPPED")
             self.finished.emit(result)
         else:
             self.status_changed.emit("DONE")
             self.finished.emit(result)
+
+    @Slot()
+    def run(self) -> None:
+        self._do_run(start_step_index=0)
 
     @Slot()
     def request_stop(self) -> None:
@@ -65,8 +68,15 @@ class TestRunnerWorker(QObject):
 
     @Slot()
     def request_continue_from_checkpoint(self) -> None:
-        # 6D: QThread újraindítás + self._runner.run(self._test_plan, self._checkpoint_next_step_index)
-        pass
+        if self._checkpoint_next_step_index is None:
+            self.event_ready.emit({
+                "event_code": "CHECKPOINT_RESUME_INVALID_STATE",
+                "event_message": "Folytatás kérése érkezett, de nincs érvényes next_step_index.",
+                "severity": "WARNING",
+            })
+            return
+        self._runner.reset_control_flags()
+        self._do_run(start_step_index=self._checkpoint_next_step_index)
 
     @property
     def runner(self):

@@ -14,17 +14,20 @@ class _MockRunner:
         self._emit = emit_sample
         self.on_sample = None
         self.on_event = None
-        self.on_step_changed = None          # ← új sor
+        self.on_step_changed = None
         self.stop_requested = False
         self.emergency_stop_requested = False
         self.emergency_stop_reason = ""
+        self.reset_flags_called = False
+        self.last_start_step_index = 0
 
-    def run(self, plan) -> TestResult:
+    def run(self, plan, start_step_index: int = 0) -> TestResult:
+        self.last_start_step_index = start_step_index
         if self._emit and self.on_sample:
             self.on_sample({"event_code": None, "battery_voltage_V": 12.5, "elapsed_s": 1.0})
         if self._emit and self.on_event:
             self.on_event({"event_code": "TEST_EVENT", "event_message": "ok"})
-        if self._emit and self.on_step_changed:        # ← új blokk
+        if self._emit and self.on_step_changed:
             self.on_step_changed({
                 "runner_status": "RUNNING",
                 "step_kind": "CHARGE",
@@ -40,6 +43,9 @@ class _MockRunner:
     def request_emergency_stop(self, reason: str = "USER_EMERGENCY_STOP"):
         self.emergency_stop_requested = True
         self.emergency_stop_reason = reason
+
+    def reset_control_flags(self) -> None:
+        self.reset_flags_called = True
 
 
 class TestWorkerSignals:
@@ -128,7 +134,7 @@ class TestWorkerSignals:
 
     def test_worker_exception_emits_fault(self, qapp):
         class _CrashRunner(_MockRunner):
-            def run(self, plan):
+            def run(self, plan, start_step_index: int = 0):
                 raise RuntimeError("instrument disconnected")
 
         mock_runner = _CrashRunner(TestResult(status="DONE"))
@@ -213,3 +219,40 @@ class TestWorkerSignals6B:
             "next_step_index": 9,
         })
         assert worker._checkpoint_next_step_index == 9
+
+
+class TestWorkerContinuation:
+    def test_continue_emits_warning_when_no_index(self, qapp):
+        mock_runner = _MockRunner(TestResult(status="DONE"))
+        worker = TestRunnerWorker(mock_runner, TestPlan.characterization())
+        assert worker._checkpoint_next_step_index is None
+        events = []
+        worker.event_ready.connect(events.append)
+        worker.request_continue_from_checkpoint()
+        assert any(
+            e.get("event_code") == "CHECKPOINT_RESUME_INVALID_STATE"
+            for e in events
+        )
+
+    def test_continue_resets_runner_flags(self, qapp):
+        mock_runner = _MockRunner(TestResult(status="DONE"))
+        worker = TestRunnerWorker(mock_runner, TestPlan.characterization())
+        worker._checkpoint_next_step_index = 2
+        worker.request_continue_from_checkpoint()
+        assert mock_runner.reset_flags_called is True
+
+    def test_continue_runs_with_start_index(self, qapp):
+        mock_runner = _MockRunner(TestResult(status="DONE"))
+        worker = TestRunnerWorker(mock_runner, TestPlan.characterization())
+        worker._checkpoint_next_step_index = 3
+        worker.request_continue_from_checkpoint()
+        assert mock_runner.last_start_step_index == 3
+
+    def test_continue_emits_running(self, qapp):
+        mock_runner = _MockRunner(TestResult(status="DONE"))
+        worker = TestRunnerWorker(mock_runner, TestPlan.characterization())
+        worker._checkpoint_next_step_index = 2
+        statuses = []
+        worker.status_changed.connect(statuses.append)
+        worker.request_continue_from_checkpoint()
+        assert "RUNNING" in statuses
