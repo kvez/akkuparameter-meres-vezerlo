@@ -133,9 +133,11 @@ class MainWindow(QMainWindow):
     def _on_checkpoint_reached(self, event: dict) -> None:
         self._tabs.setTabEnabled(self._checkpoint_tab_index, True)
         self._tabs.setCurrentIndex(self._checkpoint_tab_index)
-        self._status_bar.showMessage(
-            "BQ kézi checkpoint elérve — végezd el a BQ műveletet"
-        )
+        if event.get("resume_possible", False):
+            msg = "BQ checkpoint elérve — végezd el a BQ műveletet, majd folytathatod."
+        else:
+            msg = "BQ checkpoint elérve — végezd el a BQ műveletet, majd zárd le a sessiont."
+        self._status_bar.showMessage(msg)
 
     def _on_checkpoint_close(self) -> None:
         self._tabs.setTabEnabled(self._checkpoint_tab_index, False)
