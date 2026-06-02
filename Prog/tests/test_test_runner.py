@@ -507,8 +507,45 @@ class TestStopMethods:
         assert len(events) == 1
         assert events[0]["event_code"] == "MANUAL_BQ_CHECKPOINT_REACHED"
         assert events[0]["status"] == "CHECKPOINT_STOPPED"
-        assert events[0]["resume_possible"] is True
+        assert events[0]["resume_possible"] is False          # ← volt: True
+        assert events[0]["checkpoint_is_terminal"] is True   # ← új assertion
         assert "next_step_index" in events[0]
+        logger.close()
+
+
+# ------------------------------------------------------------------ #
+# Task 1 (6C): resume_possible + checkpoint_is_terminal              #
+# ------------------------------------------------------------------ #
+
+class TestCheckpointTerminal:
+    def test_testresult_resume_possible_default_false(self):
+        r = TestResult(status="DONE")
+        assert r.resume_possible is False
+
+    def test_testresult_next_step_index_default_zero(self):
+        r = TestResult(status="DONE")
+        assert r.next_step_index == 0
+
+    def test_checkpoint_is_terminal_for_bq_learning(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner._start_time = datetime.now(timezone.utc)
+        runner._active_plan = TestPlan.bq_learning_physical()
+        step = TestStep(StepKind.MANUAL_CHECKPOINT, "manual_bq_checkpoint")
+        result = runner._run_manual_checkpoint(step)
+        assert result.resume_possible is False
+        assert result.next_step_index == 9
+        logger.close()
+
+    def test_checkpoint_resume_possible_in_event_dict(self, tmp_path):
+        runner, logger = _make_runner(tmp_path)
+        runner._start_time = datetime.now(timezone.utc)
+        runner._active_plan = TestPlan.bq_learning_physical()
+        events = []
+        runner.on_event = events.append
+        step = TestStep(StepKind.MANUAL_CHECKPOINT, "manual_bq_checkpoint")
+        runner._run_manual_checkpoint(step)
+        assert events[0]["resume_possible"] is False
+        assert events[0]["checkpoint_is_terminal"] is True
         logger.close()
 
 

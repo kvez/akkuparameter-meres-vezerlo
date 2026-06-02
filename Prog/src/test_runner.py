@@ -80,6 +80,8 @@ class TestResult:
     reason: str = ""
     total_charge_ah: float = 0.0
     total_discharge_ah: float = 0.0
+    resume_possible: bool = False    # ← új
+    next_step_index: int = 0         # ← új
 
 
 @dataclass
@@ -272,12 +274,15 @@ class TestRunner:
         """BQ kézi ellenőrzési pont — CHECKPOINT_STOPPED státusz, on_event hívással."""
         steps = self._active_plan.steps
         next_step_index = steps.index(step) + 1
+        checkpoint_is_terminal = (next_step_index >= len(steps))
+        resume_possible = not checkpoint_is_terminal
         event = {
             "event_code": "MANUAL_BQ_CHECKPOINT_REACHED",
             "event_message": "BQ learning fizikai ciklus kézi ellenőrzési pontja elérve.",
             "step_name": step.label,
             "status": "CHECKPOINT_STOPPED",
-            "resume_possible": True,
+            "resume_possible": resume_possible,
+            "checkpoint_is_terminal": checkpoint_is_terminal,
             "next_step_index": next_step_index,
             "total_charge_ah": self._total_charge_ah,
             "total_discharge_ah": self._total_discharge_ah,
@@ -297,6 +302,8 @@ class TestRunner:
             reason="MANUAL_BQ_CHECKPOINT_REACHED",
             total_charge_ah=self._total_charge_ah,
             total_discharge_ah=self._total_discharge_ah,
+            resume_possible=resume_possible,
+            next_step_index=next_step_index,
         )
 
     def _is_finished(self, controller) -> bool:
