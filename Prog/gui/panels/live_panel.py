@@ -7,6 +7,7 @@ from collections import deque
 
 import pyqtgraph as pg
 from PySide6.QtCore import Signal, Slot
+from Prog.gui.panels.event_log_widget import EventLogWidget
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QGridLayout, QSizePolicy,
@@ -123,6 +124,9 @@ class LivePanel(QWidget):
                    self._pw_udrop, self._pw_ah):
             root.addWidget(pw)
 
+        self._event_log = EventLogWidget()
+        root.addWidget(self._event_log)
+
     @staticmethod
     def _status_label(text: str) -> QLabel:
         lbl = QLabel(text)
@@ -175,10 +179,11 @@ class LivePanel(QWidget):
         self._stop_btn.setEnabled(is_running)
         self._emstop_btn.setEnabled(is_running)
         color = {
-            "RUNNING": "#e8f5e9",
-            "FAULT":   "#ffebee",
-            "DONE":    "#e3f2fd",
-            "STOPPED": "#fff8e1",
+            "RUNNING":             "#e8f5e9",
+            "FAULT":               "#ffebee",
+            "DONE":                "#e3f2fd",
+            "STOPPED":             "#fff8e1",
+            "CHECKPOINT_STOPPED":  "#fff3e0",   # ← új
         }.get(status, "")
         self._state_lbl.setStyleSheet(
             f"font-size: 14px; padding: 4px; background-color: {color};"
@@ -191,6 +196,10 @@ class LivePanel(QWidget):
             "font-size: 14px; padding: 4px; color: #b71c1c; font-weight: bold;"
         )
 
+    @Slot(dict)
+    def append_event(self, event: dict) -> None:
+        self._event_log.append_event(event)
+
     def reset_plots(self) -> None:
         for q in (self._xs, self._u_batt, self._i_signed, self._temp,
                   self._u_drop, self._charge_ah, self._discharge_ah):
@@ -200,3 +209,4 @@ class LivePanel(QWidget):
             curve.setData([], [])
         self._fault_lbl.setText("–")
         self._fault_lbl.setStyleSheet("font-size: 14px; padding: 4px;")
+        self._event_log.clear()
