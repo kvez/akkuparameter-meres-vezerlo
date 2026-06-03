@@ -80,11 +80,11 @@ def check_psu(cfg: dict) -> None:
     try:
         psu.connect(resource)
         idn = psu.idn()
-        psu.safe_off()
         _ok("PSU", idn.strip())
     except Exception as exc:
         _fail("PSU", str(exc))
     finally:
+        psu.safe_off()
         psu.disconnect()
 
 
@@ -98,11 +98,11 @@ def check_load(cfg: dict) -> None:
     try:
         load.connect(resource)
         idn = load.idn()
-        load.safe_off()
         _ok("Load", idn.strip())
     except Exception as exc:
         _fail("Load", str(exc))
     finally:
+        load.safe_off()
         load.disconnect()
 
 
