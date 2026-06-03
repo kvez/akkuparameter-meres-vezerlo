@@ -92,6 +92,12 @@ class MainWindow(QMainWindow):
         )
         self._worker.checkpoint_reached.connect(self._on_checkpoint_reached)
 
+        self._checkpoint_panel.continue_requested.connect(self._on_continue_requested)
+        self._checkpoint_panel.continue_requested.connect(
+            self._worker.request_continue_from_checkpoint
+        )
+        self._worker.status_changed.connect(self._on_status_changed)
+
         self._thread.start()
         self._status_bar.showMessage("Teszt elindítva…")
 
@@ -110,7 +116,10 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ #
 
     def _on_finished(self, result) -> None:
-        self._cleanup_thread()
+        keep_thread = (result.status == "CHECKPOINT_STOPPED"
+                       and result.resume_possible)
+        if not keep_thread:
+            self._cleanup_thread()
         self._status_bar.showMessage(
             f"Kész | Töltve: {result.total_charge_ah:.4f} Ah | "
             f"Kisütve: {result.total_discharge_ah:.4f} Ah"
@@ -144,6 +153,18 @@ class MainWindow(QMainWindow):
         self._tabs.setCurrentIndex(0)
         self._status_bar.showMessage("Teszt lezárva — konfigurálj új mérést.")
         self._cleanup_thread()
+
+    def _on_continue_requested(self) -> None:
+        if self._worker is None:
+            return
+        self._live_panel.reset_plots()
+        self._checkpoint_panel.set_continuing()
+        self._status_bar.showMessage("Folytatás indítása...")
+
+    def _on_status_changed(self, status: str) -> None:
+        if (status == "RUNNING"
+                and self._tabs.currentIndex() == self._checkpoint_tab_index):
+            self._tabs.setCurrentIndex(1)
 
     def _on_fault(self, reason: str) -> None:
         self._cleanup_thread()
