@@ -57,6 +57,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ #
 
     def _start_test(self) -> None:
+        if self._worker is not None:
+            return
         cfg = self._config_panel.get_session_config()
         errors = cfg.validate()
         if errors:
