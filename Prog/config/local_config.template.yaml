@@ -1,0 +1,41 @@
+# ================================================================
+# local_config.yaml — helyi műszer konfiguráció
+# Másold át local_config.yaml névre és töltsd ki.
+# Ez a fájl NINCS git-követve (lásd .gitignore).
+#
+# Használat:
+#   1. copy Prog\config\local_config.template.yaml Prog\config\local_config.yaml
+#   2. Töltsd ki a resource stringeket (connection_test.py segít megtalálni)
+#   3. Állítsd be a PSU módot és erősítsd meg a fizikai bekötést
+# ================================================================
+
+instruments:
+  psu:
+    # USB eszköz — tipikus format: "USB0::0x05E6::0x2220::XXXXXXXX::INSTR"
+    # Resource keresés: python Prog/tools/connection_test.py
+    resource: "USB0::PLACEHOLDER::INSTR"
+    timeout_ms: 5000
+    # PSU mód: INDEPENDENT | PARALLEL | SERIES
+    #   INDEPENDENT : 12V pack, CH1+CH2 külön, 30V/1.5A — nincs extra bekötés
+    #   PARALLEL    : 12V pack, jumper CH1-CH2 között, 30V/3A — fizikai bekötés szükséges!
+    #   SERIES      : 24V pack, 60V/1.5A — fizikai bekötés szükséges!
+    combination_mode: INDEPENDENT
+    # PARALLEL vagy SERIES módban kötelező True-ra állítani!
+    hardware_wiring_confirmed: false
+
+  load:
+    # USB eszköz — tipikus format: "USB0::0x05E6::0x2380::XXXXXXXX::INSTR"
+    resource: "USB0::PLACEHOLDER::INSTR"
+    timeout_ms: 5000
+
+  dmm_voltage:
+    # LAN eszköz — format: "TCPIP0::192.168.X.X::inst0::INSTR"
+    # Keysight 34465A — DCV mérés az akkukapocsokon (BY550 katód oldal)
+    resource: "TCPIP0::192.168.X.X::inst0::INSTR"
+    timeout_ms: 10000
+
+  dmm_temperature:
+    # LAN eszköz — format: "TCPIP0::192.168.X.X::inst0::INSTR"
+    # Keysight 34465A — PT100 hőmérsékletmérés (4-wire FRTD mód)
+    resource: "TCPIP0::192.168.X.X::inst0::INSTR"
+    timeout_ms: 10000

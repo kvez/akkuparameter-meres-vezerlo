@@ -36,3 +36,6 @@ GPTprompt.txt
 TODO.txt
 Kulsoreview.txt
 Kulsoreview2.txt
+
+# Helyi műszer konfiguráció — gépenként eltérő, nem verziókövetett
+Prog/config/local_config.yaml
