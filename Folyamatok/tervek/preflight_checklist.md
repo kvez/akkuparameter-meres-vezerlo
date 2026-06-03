@@ -5,7 +5,22 @@ Minden sor elvégzése után tedd ki a jelölést: `[x]`.
 
 ---
 
-## 1. Hardver bekötés (PSU mód szerint)
+## 1. Hardver bekötés
+
+### Elektronikus terhelés (Load) bekötése — minden mód esetén azonos
+
+```
+Akku+ ──────────────────────────────► Load HI (Input+)
+Akku– ──────────────────────────────► Load LO (Input–)
+```
+
+- [ ] Load HI → Akku+ bekötve
+- [ ] Load LO → Akku– bekötve
+- [ ] Load USB kábel bekötve (SCPI vezérléshez)
+
+A Load a PSU-tól függetlenül, közvetlenül az akkukapcsokra csatlakozik (kisütési ág). A BY550 dióda csak a töltési ágban (PSU oldalon) van.
+
+### PSU bekötés (töltési ág — PSU mód szerint)
 
 ### INDEPENDENT mód (12V pack, max 1.5A)
 
