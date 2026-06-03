@@ -128,3 +128,12 @@ class CheckpointPanel(QWidget):
 
         for cb in self._checkboxes:
             cb.setChecked(False)
+
+    def set_continuing(self) -> None:
+        """Folytatás indításakor hívódik — gombok inaktiválva, Safe Off megmarad."""
+        self._continue_btn.setEnabled(False)
+        self._close_btn.setEnabled(False)
+        self._emstop_btn.setEnabled(True)
+        self._header_lbl.setText(
+            "BQ_LEARNING_PHYSICAL — folytatás indítása..."
+        )
