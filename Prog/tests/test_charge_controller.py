@@ -391,6 +391,7 @@ class TestSeriesSafety:
         psu.voltage_V = 12.5 + 0.85
         ctrl.advance(dt_s=1.0)
         assert ctrl.state == ChargeState.CHARGE_CC
+        assert ctrl.last_warning_code == ""
 
     def test_negative_drop_no_fault(self):
         """u_psu < u_batt (pl. PSU kikapcsolva) → nincs false fault."""
@@ -407,4 +408,4 @@ class TestSeriesSafety:
         psu.voltage_V = 12.5 + 1.10  # 1.5A × 1.10V = 1.65W > 1.5W → warning
         ctrl.advance(dt_s=1.0)
         assert ctrl.state == ChargeState.CHARGE_CC  # nincs fault
-        assert ctrl.last_warning_code != ""
+        assert ctrl.last_warning_code in ("DIODE_POWER_HIGH", "DIODE_POWER_TOO_HIGH")

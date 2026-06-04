@@ -253,6 +253,9 @@ class ChargeController:
         if self._check_charge_limits():
             return
 
+        if self._check_series_safety():
+            return
+
         if not self._check_taper_condition():
             self._taper_timer_s = 0.0
             self._state = ChargeState.CHARGE_CV_DMM_CONTROL
