@@ -409,3 +409,34 @@ class TestSeriesSafety:
         ctrl.advance(dt_s=1.0)
         assert ctrl.state == ChargeState.CHARGE_CC  # nincs fault
         assert ctrl.last_warning_code in ("DIODE_POWER_HIGH", "DIODE_POWER_TOO_HIGH")
+
+
+class TestPsuCommLost:
+    """V1: PSU current readback hiba → PSU_COMM_LOST fault, nem CHARGE_DONE."""
+
+    def test_psu_current_failure_in_cv_phase_triggers_fault_not_charge_done(self):
+        ctrl, psu, load, dmm = make_controller(dmm_voltage_V=14.4, psu_current_A=1.5)
+        ctrl.advance(dt_s=1.0)  # INIT → PRECHECK
+        ctrl.advance(dt_s=1.0)  # PRECHECK → PSU_PRESET
+        ctrl.advance(dt_s=1.0)  # PSU_PRESET → CHARGE_CC
+        ctrl.advance(dt_s=1.0)  # CHARGE_CC → CHARGE_CV
+        assert ctrl.state == ChargeState.CHARGE_CV_DMM_CONTROL
+
+        psu.simulate_current_readback_timeout = True
+        ctrl.advance(dt_s=1.0)
+
+        assert ctrl.state == ChargeState.FAULT
+        assert ctrl.fault_reason == "PSU_COMM_LOST"
+
+    def test_psu_current_failure_in_cc_phase_triggers_fault(self):
+        ctrl, psu, load, dmm = make_controller(dmm_voltage_V=12.5, psu_current_A=1.5)
+        ctrl.advance(dt_s=1.0)
+        ctrl.advance(dt_s=1.0)
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state == ChargeState.CHARGE_CC
+
+        psu.simulate_current_readback_timeout = True
+        ctrl.advance(dt_s=1.0)
+
+        assert ctrl.state == ChargeState.FAULT
+        assert ctrl.fault_reason == "PSU_COMM_LOST"

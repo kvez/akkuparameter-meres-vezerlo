@@ -18,6 +18,7 @@ class MockPSU:
     raise_on_connect: bool = False
     raise_on_output_on: bool = False
     simulate_timeout: bool = False
+    simulate_current_readback_timeout: bool = False
 
     # Call log
     calls: list[str] = field(default_factory=list)
@@ -86,7 +87,7 @@ class MockPSU:
 
     def measure_output_current(self) -> float:
         self.calls.append("measure_output_current()")
-        if self.simulate_timeout:
+        if self.simulate_timeout or self.simulate_current_readback_timeout:
             raise InstrumentTimeoutError("MockPSU: simulated read timeout")
         return self.current_A
 

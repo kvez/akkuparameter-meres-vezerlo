@@ -220,6 +220,8 @@ class ChargeController:
 
     def _run_charge_cc(self, dt_s: float) -> None:
         self._i_charge = self._read_psu_current()
+        if self._state == ChargeState.FAULT:
+            return
         self._integrate(dt_s, signed_current_A=self._i_charge, source="PSU_READBACK")
 
         if self._check_charge_limits():
@@ -234,6 +236,8 @@ class ChargeController:
 
     def _run_charge_cv(self, dt_s: float) -> None:
         self._i_charge = self._read_psu_current()
+        if self._state == ChargeState.FAULT:
+            return
         self._regulate_cv()
         self._integrate(dt_s, signed_current_A=self._i_charge, source="PSU_READBACK")
 
@@ -248,6 +252,8 @@ class ChargeController:
 
     def _run_taper_hold(self, dt_s: float) -> None:
         self._i_charge = self._read_psu_current()
+        if self._state == ChargeState.FAULT:
+            return
         self._integrate(dt_s, signed_current_A=self._i_charge, source="PSU_READBACK")
 
         if self._check_charge_limits():
@@ -351,7 +357,8 @@ class ChargeController:
         try:
             return self._psu.measure_output_current()
         except Exception:
-            return 0.0
+            self.emergency_stop("PSU_COMM_LOST")
+            return 0.0  # hívó a FAULT állapotot ellenőrzi
 
     def _read_psu_voltage(self) -> Optional[float]:
         try:
