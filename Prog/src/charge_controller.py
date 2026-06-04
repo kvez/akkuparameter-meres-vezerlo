@@ -200,18 +200,23 @@ class ChargeController:
         self._psu.output_on()
         self._state = ChargeState.CHARGE_CC
 
-    def _run_charge_cc(self, dt_s: float) -> None:
-        self._i_charge = self._read_psu_current()
-        self._integrate(dt_s, signed_current_A=self._i_charge, source="PSU_READBACK")
-
+    def _check_charge_limits(self) -> bool:
+        """K2: Ah és idő limit ellenőrzés. True = limit elérve, emergency_stop meghívva."""
         if self._elapsed_s > self._config.max_charge_time_s:
             self.emergency_stop("MAX_CHARGE_TIME_REACHED")
-            return
-
+            return True
         if self._integrator.accumulated_charge_Ah > (
             self._profile.nominal_capacity_Ah * self._config.max_charge_Ah_factor
         ):
             self.emergency_stop("MAX_CHARGE_AH_REACHED")
+            return True
+        return False
+
+    def _run_charge_cc(self, dt_s: float) -> None:
+        self._i_charge = self._read_psu_current()
+        self._integrate(dt_s, signed_current_A=self._i_charge, source="PSU_READBACK")
+
+        if self._check_charge_limits():
             return
 
         target_V = self._profile.charge_voltage_pack_V
@@ -223,12 +228,18 @@ class ChargeController:
         self._regulate_cv()
         self._integrate(dt_s, signed_current_A=self._i_charge, source="PSU_READBACK")
 
+        if self._check_charge_limits():
+            return
+
         if self._check_taper_condition():
             self._state = ChargeState.TAPER_HOLD
 
     def _run_taper_hold(self, dt_s: float) -> None:
         self._i_charge = self._read_psu_current()
         self._integrate(dt_s, signed_current_A=self._i_charge, source="PSU_READBACK")
+
+        if self._check_charge_limits():
+            return
 
         if not self._check_taper_condition():
             self._taper_timer_s = 0.0

@@ -299,3 +299,64 @@ class TestIntegrationSourceCharge:
         for _ in range(5):
             ctrl.advance(dt_s=1.0)
         assert ctrl.last_integration_source in ("PSU_READBACK", "SETPOINT_FALLBACK", "ZERO")
+
+
+class TestChargeLimitsAllPhases:
+    """K2: max_charge_Ah és max_charge_time minden töltési fázisban ellenőrzött."""
+
+    def _advance_to_cv(self, dmm_voltage_V=14.4):
+        """Helper: controller CHARGE_CV_DMM_CONTROL állapotba hozva."""
+        ctrl, psu, load, dmm = make_controller(dmm_voltage_V=dmm_voltage_V)
+        ctrl.advance(dt_s=1.0)  # INIT → PRECHECK
+        ctrl.advance(dt_s=1.0)  # PRECHECK → PSU_PRESET
+        ctrl.advance(dt_s=1.0)  # PSU_PRESET → CHARGE_CC
+        ctrl.advance(dt_s=1.0)  # CHARGE_CC → CHARGE_CV (u_batt=14.4 >= 14.3)
+        assert ctrl.state == ChargeState.CHARGE_CV_DMM_CONTROL, ctrl.state
+        return ctrl
+
+    def test_max_charge_ah_triggers_fault_in_cv_phase(self):
+        ctrl = self._advance_to_cv()
+        ctrl._integrator.accumulated_charge_Ah = (
+            ctrl._profile.nominal_capacity_Ah * 1.21
+        )
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state == ChargeState.FAULT
+        assert "MAX_CHARGE_AH" in ctrl.fault_reason
+
+    def test_max_charge_time_triggers_fault_in_cv_phase(self):
+        ctrl = self._advance_to_cv()
+        ctrl._elapsed_s = ctrl._config.max_charge_time_s + 1.0
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state == ChargeState.FAULT
+        assert "MAX_CHARGE_TIME" in ctrl.fault_reason
+
+    def test_max_charge_ah_triggers_fault_in_taper_phase(self):
+        ctrl = self._advance_to_cv()
+        ctrl._state = ChargeState.TAPER_HOLD
+        ctrl._integrator.accumulated_charge_Ah = (
+            ctrl._profile.nominal_capacity_Ah * 1.21
+        )
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state == ChargeState.FAULT
+        assert "MAX_CHARGE_AH" in ctrl.fault_reason
+
+    def test_max_charge_time_triggers_fault_in_taper_phase(self):
+        ctrl = self._advance_to_cv()
+        ctrl._state = ChargeState.TAPER_HOLD
+        ctrl._elapsed_s = ctrl._config.max_charge_time_s + 1.0
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state == ChargeState.FAULT
+        assert "MAX_CHARGE_TIME" in ctrl.fault_reason
+
+    def test_cc_limits_still_work(self):
+        """K2 nem töri el a meglévő CC limitet."""
+        ctrl, *_ = make_controller(dmm_voltage_V=12.5)
+        ctrl.advance(dt_s=1.0)
+        ctrl.advance(dt_s=1.0)
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state == ChargeState.CHARGE_CC
+        ctrl._integrator.accumulated_charge_Ah = (
+            ctrl._profile.nominal_capacity_Ah * 1.21
+        )
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state == ChargeState.FAULT
