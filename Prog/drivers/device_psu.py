@@ -142,6 +142,8 @@ class Keithley2220PSU:
         self.combination_mode = PsuMode.PARALLEL
 
     def query_combination_mode(self) -> str:
+        # [FIRMWARE KORLÁT] INST:COMB? fw 1.15-1.05-ön "Invalid command" (170) hibát ad,
+        # bár a manual dokumentálja. A program a combination_mode attribútumot használja.
         return self._query("INST:COMB?").strip()
 
     # ------------------------------------------------------------------ #

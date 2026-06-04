@@ -40,8 +40,8 @@ def load_config(
 
 
 def is_placeholder(resource: str) -> bool:
-    """Igaz, ha a resource string még nincs kitöltve."""
-    return "PLACEHOLDER" in resource
+    """Igaz, ha a resource string még nincs kitöltve (üres vagy PLACEHOLDER)."""
+    return not resource or "PLACEHOLDER" in resource
 
 
 # ------------------------------------------------------------------ #
