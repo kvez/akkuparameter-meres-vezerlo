@@ -85,6 +85,7 @@ class ChargeController:
         self._u_batt: float = 0.0
         self._i_charge: float = 0.0
         self._dmm_valid: bool = True
+        self._last_warning_code: str = ""
 
     # ------------------------------------------------------------------ #
     # Nyilvános tulajdonságok                                              #
@@ -107,6 +108,10 @@ class ChargeController:
         return self._last_integration_source
 
     @property
+    def last_warning_code(self) -> str:
+        return self._last_warning_code
+
+    @property
     def accumulated_charge_Ah(self) -> float:
         return self._integrator.accumulated_charge_Ah
 
@@ -116,6 +121,7 @@ class ChargeController:
 
     def advance(self, dt_s: float) -> ChargeState:
         self._elapsed_s += dt_s
+        self._last_warning_code = ""
 
         if self._state == ChargeState.FAULT:
             return self._state
@@ -219,6 +225,9 @@ class ChargeController:
         if self._check_charge_limits():
             return
 
+        if self._check_series_safety():
+            return
+
         target_V = self._profile.charge_voltage_pack_V
         if self._u_batt >= target_V - self._config.cv_entry_margin_V:
             self._state = ChargeState.CHARGE_CV_DMM_CONTROL
@@ -229,6 +238,9 @@ class ChargeController:
         self._integrate(dt_s, signed_current_A=self._i_charge, source="PSU_READBACK")
 
         if self._check_charge_limits():
+            return
+
+        if self._check_series_safety():
             return
 
         if self._check_taper_condition():
@@ -337,6 +349,32 @@ class ChargeController:
             return self._psu.measure_output_current()
         except Exception:
             return 0.0
+
+    def _read_psu_voltage(self) -> Optional[float]:
+        try:
+            return self._psu.measure_output_voltage()
+        except Exception:
+            return None
+
+    def _check_series_safety(self) -> bool:
+        """K3: series_drop és diode_power ellenőrzés. True = fault triggerelt."""
+        u_psu = self._read_psu_voltage()
+        if u_psu is None or self._u_batt <= 0:
+            return False
+        u_drop_V = u_psu - self._u_batt
+        if u_drop_V < 0:
+            return False  # PSU feszültség akkuszint alatt — skip
+
+        drop_result = self._safety.check_series_drop(u_drop_V)
+        if drop_result.fault is not None:
+            self.emergency_stop(drop_result.fault.name)
+            return True
+
+        power_result = self._safety.check_diode_power(self._i_charge, u_drop_V)
+        if power_result.warning is not None:
+            self._last_warning_code = power_result.warning.name
+
+        return False
 
     def _integrate(self, dt_s: float, signed_current_A: float, source: str) -> None:
         self._last_integration_source = source

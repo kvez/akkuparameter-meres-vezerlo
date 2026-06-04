@@ -360,3 +360,51 @@ class TestChargeLimitsAllPhases:
         )
         ctrl.advance(dt_s=1.0)
         assert ctrl.state == ChargeState.FAULT
+
+
+class TestSeriesSafety:
+    """K3: series_drop és diode_power safety check bekötve töltés közben."""
+
+    def _advance_to_cc(self, psu_voltage_V=13.0, dmm_voltage_V=12.5):
+        ctrl, psu, load, dmm = make_controller(
+            dmm_voltage_V=dmm_voltage_V,
+            psu_current_A=1.5,
+        )
+        psu.voltage_V = psu_voltage_V
+        ctrl.advance(dt_s=1.0)  # INIT → PRECHECK
+        ctrl.advance(dt_s=1.0)  # PRECHECK → PSU_PRESET
+        ctrl.advance(dt_s=1.0)  # PSU_PRESET → CHARGE_CC
+        assert ctrl.state == ChargeState.CHARGE_CC
+        return ctrl, psu, dmm
+
+    def test_series_drop_above_fault_triggers_fault(self):
+        """u_psu - u_batt > fault_series_drop_V (1.25V) → SERIES_DROP_TOO_HIGH fault."""
+        ctrl, psu, dmm = self._advance_to_cc(dmm_voltage_V=12.5)
+        psu.voltage_V = 12.5 + 1.30  # u_drop = 1.30V > 1.25V
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state == ChargeState.FAULT
+        assert "SERIES_DROP_TOO_HIGH" in ctrl.fault_reason
+
+    def test_series_drop_below_fault_no_fault(self):
+        """u_drop = 0.85V < 1.25V → nincs fault."""
+        ctrl, psu, dmm = self._advance_to_cc(dmm_voltage_V=12.5)
+        psu.voltage_V = 12.5 + 0.85
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state == ChargeState.CHARGE_CC
+
+    def test_negative_drop_no_fault(self):
+        """u_psu < u_batt (pl. PSU kikapcsolva) → nincs false fault."""
+        ctrl, psu, dmm = self._advance_to_cc(dmm_voltage_V=12.5)
+        psu.voltage_V = 12.0  # alatt
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state != ChargeState.FAULT
+
+    def test_diode_power_warning_stored(self):
+        """Diode power magas: warning_code beállítva, nincs fault."""
+        ctrl, psu, dmm = self._advance_to_cc(dmm_voltage_V=12.5, psu_voltage_V=12.5)
+        # 1.5A × 1.10V = 1.65W > custom warning threshold
+        ctrl._safety.diode_power_warning_W = 1.5
+        psu.voltage_V = 12.5 + 1.10  # 1.5A × 1.10V = 1.65W > 1.5W → warning
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state == ChargeState.CHARGE_CC  # nincs fault
+        assert ctrl.last_warning_code != ""
