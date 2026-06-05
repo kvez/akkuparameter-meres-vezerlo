@@ -119,6 +119,10 @@ class DischargeController:
         self._state = DischargeState.FAULT
 
     def _run_precheck(self) -> None:
+        if not self._dmm_valid:
+            self.emergency_stop("DMM_FEEDBACK_LOST")
+            return
+
         voltage_result = self._safety.check_precheck_voltage(self._u_batt)
         if voltage_result.fault is not None:
             self.emergency_stop(voltage_result.fault.name)

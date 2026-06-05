@@ -109,3 +109,15 @@ class TestDischargeMaxTime:
             ctrl.advance(dt_s=1.0)
         ctrl.advance(dt_s=10.0)  # exceeds max_discharge_time
         assert ctrl.state == DischargeState.FAULT
+
+
+class TestDischargePrecheckDmmGuard:
+    """V4: DischargeController PRECHECK DMM hiba → DMM_FEEDBACK_LOST."""
+
+    def test_dmm_failure_at_precheck_gives_dmm_fault(self):
+        ctrl, psu, load, dmm = make_discharge_controller(dmm_voltage_V=12.5)
+        dmm.dmm_valid = False
+        ctrl.advance(dt_s=1.0)  # INIT → PRECHECK
+        ctrl.advance(dt_s=1.0)  # PRECHECK → fault
+        assert ctrl.state == DischargeState.FAULT
+        assert ctrl.fault_reason == "DMM_FEEDBACK_LOST"

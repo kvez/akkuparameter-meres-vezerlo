@@ -186,6 +186,10 @@ class ChargeController:
     # ------------------------------------------------------------------ #
 
     def _run_precheck(self) -> None:
+        if not self._dmm_valid:
+            self.emergency_stop("DMM_FEEDBACK_LOST")
+            return
+
         mode_result = self._safety.check_psu_mode_compatibility()
         if mode_result.fault is not None:
             self.emergency_stop(mode_result.fault.name)

@@ -440,3 +440,22 @@ class TestPsuCommLost:
 
         assert ctrl.state == ChargeState.FAULT
         assert ctrl.fault_reason == "PSU_COMM_LOST"
+
+
+class TestPrecheckDmmGuard:
+    """V4: PRECHECK DMM hiba → DMM_FEEDBACK_LOST, nem DEEPLY_DISCHARGED."""
+
+    def test_dmm_failure_at_precheck_gives_dmm_fault(self):
+        ctrl, psu, load, dmm = make_controller(dmm_voltage_V=12.5)
+        dmm.dmm_valid = False
+        ctrl.advance(dt_s=1.0)  # INIT → PRECHECK
+        ctrl.advance(dt_s=1.0)  # PRECHECK → kell fault legyen
+        assert ctrl.state == ChargeState.FAULT
+        assert ctrl.fault_reason == "DMM_FEEDBACK_LOST"
+
+    def test_dmm_failure_not_misleading_deeply_discharged(self):
+        ctrl, psu, load, dmm = make_controller(dmm_voltage_V=12.5)
+        dmm.dmm_valid = False
+        ctrl.advance(dt_s=1.0)
+        ctrl.advance(dt_s=1.0)
+        assert "DEEPLY_DISCHARGED" not in ctrl.fault_reason
