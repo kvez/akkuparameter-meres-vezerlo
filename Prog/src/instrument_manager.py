@@ -40,10 +40,32 @@ class InstrumentManager:
         return self._dmm_t
 
     def connect_all(self, config: InstrumentConfig) -> None:
-        self._psu.connect(config.psu_resource)
-        self._load.connect(config.load_resource)
-        self._dmm_v.connect(config.dmm_voltage_resource)
-        self._dmm_t.connect(config.dmm_temperature_resource)
+        instruments = [
+            (self._psu,   config.psu_resource),
+            (self._load,  config.load_resource),
+            (self._dmm_v, config.dmm_voltage_resource),
+            (self._dmm_t, config.dmm_temperature_resource),
+        ]
+        connected: list = []
+        try:
+            for inst, resource in instruments:
+                inst.connect(resource)
+                connected.append(inst)
+        except Exception:
+            for inst in reversed(connected):
+                try:
+                    inst.disconnect()
+                except Exception:
+                    pass
+            raise
+
+    def disconnect_all(self) -> None:
+        """Fordított connect sorrend: DMM_T → DMM_V → Load → PSU."""
+        for inst in (self._dmm_t, self._dmm_v, self._load, self._psu):
+            try:
+                inst.disconnect()
+            except Exception:
+                pass
 
     def safe_all_off(self) -> None:
         """Sorrend: LOAD OFF → PSU OFF → DMM-ek (no-op). [R1] Relay nincs."""

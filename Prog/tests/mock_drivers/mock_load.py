@@ -3,7 +3,7 @@ MockLoad — determinisztikus szimulált elektronikus terhelés teszteléshez.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from Prog.src.exceptions import InstrumentTimeoutError
+from Prog.src.exceptions import InstrumentTimeoutError, InstrumentError
 
 
 @dataclass
@@ -16,6 +16,7 @@ class MockLoad:
     simulate_timeout: bool = False
     simulate_power_limit: bool = False
     power_limit_W: float = 60.0
+    raise_on_connect: bool = False
 
     # Feszültség csökkentési szimulációhoz
     voltage_discharge_slope_V_per_Ah: float = 0.5
@@ -24,6 +25,8 @@ class MockLoad:
 
     def connect(self, resource: str) -> None:
         self.calls.append(f"connect({resource!r})")
+        if self.raise_on_connect:
+            raise InstrumentError("MockLoad: simulated connect failure")
 
     def disconnect(self) -> None:
         self.calls.append("disconnect()")
