@@ -484,6 +484,7 @@ class TestTempDmmFault:
         """ENABLED: bármilyen temp DMM hiba → azonnali fault"""
         ctrl = self._advance_to_cc()
         ctrl._safety.temp_comp_mode = TempCompMode.ENABLED
+        ctrl._dmm_t.simulate_temp_failure = True
         ctrl._temp_dmm_fault_s = 1.0
         ctrl.advance(dt_s=0.1)
         assert ctrl.state == ChargeState.FAULT

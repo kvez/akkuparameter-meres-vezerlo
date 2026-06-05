@@ -157,7 +157,7 @@ class TestTemperatureDmmFaultEscalation:
         result = sm.check_temperature_dmm_fault(elapsed_fault_s=60)
         assert result.fault == FaultCode.TEMPERATURE_MONITOR_LOST_CRITICAL
 
-    def test_enabled_mode_immediate_fault(self):
+    def test_enabled_mode_no_fault_when_dmm_ok(self):
         profile = make_12v_profile()
         sm = SafetyManager(
             profile=profile,
@@ -165,7 +165,18 @@ class TestTemperatureDmmFaultEscalation:
             temp_comp_mode=TempCompMode.ENABLED,
             temperature_dmm_fault_timeout_s=60,
         )
-        result = sm.check_temperature_dmm_fault(elapsed_fault_s=0)
+        result = sm.check_temperature_dmm_fault(elapsed_fault_s=0.0)
+        assert result.fault is None
+
+    def test_enabled_mode_immediate_fault_on_any_loss(self):
+        profile = make_12v_profile()
+        sm = SafetyManager(
+            profile=profile,
+            psu_mode=PsuMode.INDEPENDENT,
+            temp_comp_mode=TempCompMode.ENABLED,
+            temperature_dmm_fault_timeout_s=60,
+        )
+        result = sm.check_temperature_dmm_fault(elapsed_fault_s=0.1)
         assert result.fault == FaultCode.TEMPERATURE_MONITOR_LOST_CRITICAL
 
     def test_off_mode_no_fault_no_warning(self):

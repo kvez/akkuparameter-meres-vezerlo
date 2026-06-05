@@ -151,10 +151,12 @@ class SafetyManager:
             return SafetyResult()
 
         if self.temp_comp_mode == TempCompMode.ENABLED:
-            return SafetyResult(
-                fault=FaultCode.TEMPERATURE_MONITOR_LOST_CRITICAL,
-                message="Temp DMM kiesés ENABLED módban — azonnali leállítás"
-            )
+            if elapsed_fault_s > 0.0:
+                return SafetyResult(
+                    fault=FaultCode.TEMPERATURE_MONITOR_LOST_CRITICAL,
+                    message="Temp DMM kiesés ENABLED módban — azonnali leállítás"
+                )
+            return SafetyResult()
 
         # MONITOR_ONLY
         if elapsed_fault_s >= self.temperature_dmm_fault_timeout_s:

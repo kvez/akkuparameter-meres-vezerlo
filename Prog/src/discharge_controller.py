@@ -79,6 +79,7 @@ class DischargeController:
 
     def advance(self, dt_s: float) -> DischargeState:
         self._elapsed_s += dt_s
+        self._last_warning_code = ""
 
         if self._state == DischargeState.FAULT:
             return self._state
