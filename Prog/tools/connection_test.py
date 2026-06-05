@@ -6,6 +6,7 @@ Futtatás:
     python Prog/tools/connection_test.py
 """
 from __future__ import annotations
+import argparse
 import sys
 from pathlib import Path
 from typing import Optional
@@ -180,11 +181,23 @@ def print_summary() -> int:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Akkuteszter — Connection Test: műszer IDN + safe_off ellenőrzés"
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="local_config.yaml elérési útja (alapértelmezett: Prog/config/local_config.yaml)",
+    )
+    args = parser.parse_args()
+
     _RESULTS.clear()
     print("=== Akkuteszter — Connection Test ===")
     discover_resources()
     try:
-        cfg = load_config()
+        cfg = load_config(local_path=args.config)
     except Exception as exc:
         print(f"\n❌ Config betöltési hiba: {exc}")
         return 1

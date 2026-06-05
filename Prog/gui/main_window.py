@@ -46,6 +46,7 @@ class MainWindow(QMainWindow):
 
         self._checkpoint_panel.close_requested.connect(self._on_checkpoint_close)
         self._checkpoint_panel.emergency_stop_requested.connect(self._emergency_stop)
+        self._checkpoint_panel.continue_requested.connect(self._on_continue_requested)
 
         self._status_bar = QStatusBar()
         self.setStatusBar(self._status_bar)
@@ -94,10 +95,6 @@ class MainWindow(QMainWindow):
         )
         self._worker.checkpoint_reached.connect(self._on_checkpoint_reached)
 
-        self._checkpoint_panel.continue_requested.connect(self._on_continue_requested)
-        self._checkpoint_panel.continue_requested.connect(
-            self._worker.request_continue_from_checkpoint
-        )
         self._worker.status_changed.connect(self._on_status_changed)
 
         self._thread.start()
@@ -159,6 +156,7 @@ class MainWindow(QMainWindow):
     def _on_continue_requested(self) -> None:
         if self._worker is None:
             return
+        self._worker.request_continue_from_checkpoint()
         self._live_panel.reset_plots()
         self._checkpoint_panel.set_continuing()
         self._status_bar.showMessage("Folytatás indítása...")
@@ -178,8 +176,11 @@ class MainWindow(QMainWindow):
         if self._thread:
             self._thread.quit()
             self._thread.wait(5000)
+            self._thread.deleteLater()
             self._thread = None
-        self._worker = None
+        if self._worker:
+            self._worker.deleteLater()
+            self._worker = None
 
     # ------------------------------------------------------------------ #
     # Objektumgráf factory                                               #

@@ -1,0 +1,16 @@
+# Akkuteszter — Python függőségek
+# Telepítés: pip install -r requirements.txt
+
+# Kötelező futtatási függőségek
+PyYAML>=6.0
+pyvisa>=1.13
+PySide6>=6.5
+pyqtgraph>=0.13
+
+# Fejlesztői és tesztelési függőségek
+pytest>=7.0
+ruff>=0.4
+mypy>=1.0
+
+# Opcionális: NI-VISA nélküli fallback (Windows-on USBTMC nem megbízható)
+# pyvisa-py>=0.7

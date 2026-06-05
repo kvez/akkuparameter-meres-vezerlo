@@ -489,7 +489,7 @@ class TestStopMethods:
         runner._total_charge_ah = 1.5
         runner._total_discharge_ah = 1.4
         step = TestStep(StepKind.MANUAL_CHECKPOINT, "manual_bq_checkpoint")
-        result = runner._run_manual_checkpoint(step)
+        result = runner._run_manual_checkpoint(8, step)
         assert result.status == "CHECKPOINT_STOPPED"
         assert result.reason == "MANUAL_BQ_CHECKPOINT_REACHED"
         assert result.total_charge_ah == pytest.approx(1.5)
@@ -503,7 +503,7 @@ class TestStopMethods:
         events = []
         runner.on_event = events.append
         step = TestStep(StepKind.MANUAL_CHECKPOINT, "manual_bq_checkpoint")
-        runner._run_manual_checkpoint(step)
+        runner._run_manual_checkpoint(8, step)
         assert len(events) == 1
         assert events[0]["event_code"] == "MANUAL_BQ_CHECKPOINT_REACHED"
         assert events[0]["status"] == "CHECKPOINT_STOPPED"
@@ -531,7 +531,7 @@ class TestCheckpointTerminal:
         runner._start_time = datetime.now(timezone.utc)
         runner._active_plan = TestPlan.bq_learning_physical()
         step = TestStep(StepKind.MANUAL_CHECKPOINT, "manual_bq_checkpoint")
-        result = runner._run_manual_checkpoint(step)
+        result = runner._run_manual_checkpoint(8, step)
         assert result.resume_possible is False
         assert result.next_step_index == 9
         logger.close()
@@ -543,7 +543,7 @@ class TestCheckpointTerminal:
         events = []
         runner.on_event = events.append
         step = TestStep(StepKind.MANUAL_CHECKPOINT, "manual_bq_checkpoint")
-        runner._run_manual_checkpoint(step)
+        runner._run_manual_checkpoint(8, step)
         assert events[0]["resume_possible"] is False
         assert events[0]["checkpoint_is_terminal"] is True
         logger.close()
@@ -586,7 +586,7 @@ class TestRunStep:
         runner, logger = _make_runner(tmp_path, cc=_StubChargeCtrl(steps_to_done=3))
         runner._start_time = datetime.now(timezone.utc)
         step = TestStep(StepKind.CHARGE, "charge")
-        result = runner._run_step(step)
+        result = runner._run_step(0, step)
         assert result.status == "DONE"
         logger.close()
 
@@ -594,7 +594,7 @@ class TestRunStep:
         runner, logger = _make_runner(tmp_path, dc=_StubDischargeCtrl(steps_to_done=3))
         runner._start_time = datetime.now(timezone.utc)
         step = TestStep(StepKind.DISCHARGE, "discharge")
-        result = runner._run_step(step)
+        result = runner._run_step(0, step)
         assert result.status == "DONE"
         logger.close()
 
@@ -602,7 +602,7 @@ class TestRunStep:
         runner, logger = _make_runner(tmp_path, rc=_StubRelaxCtrl(steps_to_done=2))
         runner._start_time = datetime.now(timezone.utc)
         step = TestStep(StepKind.RELAX, "relax_after_charge")
-        result = runner._run_step(step)
+        result = runner._run_step(0, step)
         assert result.status == "DONE"
         logger.close()
 
@@ -610,7 +610,7 @@ class TestRunStep:
         runner, logger = _make_runner(tmp_path, cc=_StubChargeCtrl(fault_at_step=2))
         runner._start_time = datetime.now(timezone.utc)
         step = TestStep(StepKind.CHARGE, "charge")
-        result = runner._run_step(step)
+        result = runner._run_step(0, step)
         assert result.status == "FAULT"
         assert "FAULT" in result.reason
         logger.close()
@@ -621,7 +621,7 @@ class TestRunStep:
         runner.emergency_stop_requested = True
         runner.emergency_stop_reason = "USER_EMSTOP"
         step = TestStep(StepKind.CHARGE, "charge")
-        result = runner._run_step(step)
+        result = runner._run_step(0, step)
         assert result.status == "FAULT"
         assert "USER_EMSTOP" in result.reason
         logger.close()
@@ -631,7 +631,7 @@ class TestRunStep:
         runner._start_time = datetime.now(timezone.utc)
         runner.stop_requested = True
         step = TestStep(StepKind.CHARGE, "charge")
-        result = runner._run_step(step)
+        result = runner._run_step(0, step)
         # CHARGE nem szakítható meg graceful stop-pal — végigfut DONE-ig
         assert result.status == "DONE"
         logger.close()
@@ -641,7 +641,7 @@ class TestRunStep:
         runner._start_time = datetime.now(timezone.utc)
         runner.stop_requested = True
         step = TestStep(StepKind.DISCHARGE, "discharge")
-        result = runner._run_step(step)
+        result = runner._run_step(0, step)
         # DISCHARGE nem szakítható meg graceful stop-pal — végigfut DONE-ig
         assert result.status == "DONE"
         logger.close()
@@ -651,7 +651,7 @@ class TestRunStep:
         runner._start_time = datetime.now(timezone.utc)
         runner.stop_requested = True
         step = TestStep(StepKind.RELAX, "relax_after_charge")
-        result = runner._run_step(step)
+        result = runner._run_step(0, step)
         assert result.status == "STOPPED"
         logger.close()
 
@@ -660,7 +660,7 @@ class TestRunStep:
         runner._start_time = datetime.now(timezone.utc)
         runner._active_plan = TestPlan.bq_learning_physical()
         step = TestStep(StepKind.MANUAL_CHECKPOINT, "manual_bq_checkpoint")
-        result = runner._run_step(step)
+        result = runner._run_step(0, step)
         assert result.status == "CHECKPOINT_STOPPED"
         assert result.reason == "MANUAL_BQ_CHECKPOINT_REACHED"
         logger.close()
@@ -670,7 +670,7 @@ class TestRunStep:
         runner, logger = _make_runner(tmp_path, cc=cc)
         runner._start_time = datetime.now(timezone.utc)
         step = TestStep(StepKind.CHARGE, "charge")
-        runner._run_step(step)
+        runner._run_step(0, step)
         # 5 advance() × 0.01 Ah = 0.05 Ah
         assert runner._total_charge_ah == pytest.approx(0.05, abs=0.001)
         logger.close()
@@ -680,7 +680,7 @@ class TestRunStep:
         runner, logger = _make_runner(tmp_path, dc=dc)
         runner._start_time = datetime.now(timezone.utc)
         step = TestStep(StepKind.DISCHARGE, "discharge")
-        runner._run_step(step)
+        runner._run_step(0, step)
         # 4 advance() × 0.01 Ah = 0.04 Ah
         assert runner._total_discharge_ah == pytest.approx(0.04, abs=0.001)
         logger.close()
@@ -690,10 +690,10 @@ class TestRunStep:
         runner, logger = _make_runner(tmp_path, cc=cc)
         runner._start_time = datetime.now(timezone.utc)
         # Első ciklus
-        runner._run_step(TestStep(StepKind.CHARGE, "charge_1"))
+        runner._run_step(0, TestStep(StepKind.CHARGE, "charge_1"))
         assert cc.state == ChargeState.CHARGE_DONE
         # Második ciklus — reset() visszaállítja INIT-re
-        runner._run_step(TestStep(StepKind.CHARGE, "charge_2"))
+        runner._run_step(0, TestStep(StepKind.CHARGE, "charge_2"))
         assert cc.state == ChargeState.CHARGE_DONE
         logger.close()
 
@@ -761,7 +761,7 @@ class TestRunIntegration:
 
     def test_unhandled_exception_returns_fault(self, tmp_path):
         runner, logger = _make_runner(tmp_path)
-        def _bad_run_step(step):
+        def _bad_run_step(step_index, step):
             raise RuntimeError("simulated crash")
         runner._run_step = _bad_run_step
         result = runner.run(TestPlan.characterization())
@@ -934,6 +934,37 @@ class TestRealDtIntegration:
         assert len(recorded_dt) >= 1
         assert abs(recorded_dt[0] - 2.4) < 0.05, (
             f"Elvárt ~2.4s valós dt_s, kapott {recorded_dt[0]}s (nominális tick=1.0s)"
+        )
+        logger.close()
+
+    def test_first_tick_dt_is_non_negative(self, tmp_path):
+        """P1-F: Az első tick dt_s >= 0.0 (perf_counter garantálja, nincs negatív drift)."""
+        recorded_dt: list[float] = []
+
+        class DtRecordingRelax:
+            def __init__(self):
+                self._tick = 0
+
+            @property
+            def state(self) -> RelaxState:
+                return RelaxState.RELAX_DONE if self._tick >= 1 else RelaxState.RELAXING
+
+            def advance(self, dt_s: float) -> RelaxState:
+                recorded_dt.append(dt_s)
+                self._tick += 1
+                return self.state
+
+            def reset(self) -> None:
+                pass
+
+        runner, logger = _make_runner(tmp_path, rc=DtRecordingRelax())
+        step = TestStep(StepKind.RELAX, "relax_first_tick")
+        plan = TestPlan(test_type=None, steps=(step,))
+        runner.run(plan)
+
+        assert len(recorded_dt) >= 1
+        assert all(dt >= 0.0 for dt in recorded_dt), (
+            f"Negatív dt_s érték: {[dt for dt in recorded_dt if dt < 0.0]}"
         )
         logger.close()
 

@@ -149,7 +149,10 @@ class TestRunner:
         self._total_discharge_ah = 0.0
 
         try:
-            for step in list(test_plan.steps)[start_step_index:]:
+            for step_index, step in enumerate(
+                list(test_plan.steps)[start_step_index:],
+                start=start_step_index,
+            ):
                 self.current_step = step
 
                 if self.emergency_stop_requested:
@@ -158,7 +161,7 @@ class TestRunner:
                 if self.stop_requested:
                     return self._graceful_stop("USER_STOP_REQUESTED")
 
-                step_result = self._run_step(step)
+                step_result = self._run_step(step_index, step)
 
                 if step_result.status == "FAULT":
                     return self._emergency_stop(step_result.reason or "STEP_FAULT")
@@ -177,19 +180,18 @@ class TestRunner:
             total_discharge_ah=self._total_discharge_ah,
         )
 
-    def _run_step(self, step: TestStep) -> TestResult:
+    def _run_step(self, step_index: int, step: TestStep) -> TestResult:
         if self.on_step_changed is not None and self._active_plan is not None:
-            steps = self._active_plan.steps
             self.on_step_changed({
                 "runner_status": "RUNNING",
                 "step_kind": step.kind.value,
                 "step_label": step.label,
-                "step_index": steps.index(step),
-                "step_count": len(steps),
+                "step_index": step_index,
+                "step_count": len(self._active_plan.steps),
             })
 
         if step.kind == StepKind.MANUAL_CHECKPOINT:
-            return self._run_manual_checkpoint(step)
+            return self._run_manual_checkpoint(step_index, step)
 
         controller = self._controller_for_step(step)
 
@@ -210,6 +212,7 @@ class TestRunner:
                 return self._graceful_stop("USER_STOP_REQUESTED")
 
             _t_now = time.perf_counter()
+            # Első tickben actual_dt_s ≈ 0 (INIT/PRECHECK fázis, integráció nem fut).
             actual_dt_s = _t_now - _last_tick_t
             _last_tick_t = _t_now
             controller.advance(actual_dt_s)
@@ -282,12 +285,11 @@ class TestRunner:
             total_discharge_ah=self._total_discharge_ah,
         )
 
-    def _run_manual_checkpoint(self, step: TestStep) -> TestResult:
+    def _run_manual_checkpoint(self, step_index: int, step: TestStep) -> TestResult:
         """BQ kézi ellenőrzési pont — CHECKPOINT_STOPPED státusz, on_event hívással."""
         assert self._active_plan is not None
-        steps = self._active_plan.steps
-        next_step_index = steps.index(step) + 1
-        checkpoint_is_terminal = (next_step_index >= len(steps))
+        next_step_index = step_index + 1
+        checkpoint_is_terminal = (next_step_index >= len(self._active_plan.steps))
         resume_possible = not checkpoint_is_terminal
         event = {
             "event_code": "MANUAL_BQ_CHECKPOINT_REACHED",
@@ -405,5 +407,23 @@ class TestRunner:
             sample["signed_current_A"] = 0.0
             sample["accumulated_charge_Ah"] = self._total_charge_ah
             sample["accumulated_discharge_Ah"] = self._total_discharge_ah
+
+        # P1-C: driver állapot + integrátor minőségi mezők
+        sample["psu_output_commanded_on"] = getattr(
+            self._instruments.psu, "output_commanded_on", None
+        )
+        sample["load_input_commanded_on"] = getattr(
+            self._instruments.load, "input_commanded_on", None
+        )
+
+        sample["fault_flags"] = getattr(controller, "fault_reason", None) or None
+        sample["warning_flags"] = getattr(controller, "last_warning_code", None) or None
+
+        integrator = getattr(controller, "_integrator", None)
+        if integrator is not None:
+            sample["integration_valid"] = integrator.integration_valid
+            sample["capacity_result_quality"] = integrator.capacity_result_quality
+            sample["accumulated_charge_Wh"] = integrator.accumulated_charge_Wh
+            sample["accumulated_discharge_Wh"] = integrator.accumulated_discharge_Wh
 
         return sample

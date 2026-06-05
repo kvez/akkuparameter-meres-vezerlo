@@ -39,3 +39,10 @@ Kulsoreview2.txt
 
 # Helyi műszer konfiguráció — gépenként eltérő, nem verziókövetett
 Prog/config/local_config.yaml
+
+# Mérési session kimenetek — nem verziókövetett (nagy fájlok, gépenként eltérők)
+Mérések/
+*.db
+samples.csv
+events.csv
+checkpoint.json
