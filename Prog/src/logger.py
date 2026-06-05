@@ -6,6 +6,7 @@ Logger — CSV + SQLite + checkpoint.json + events.csv.
 from __future__ import annotations
 import csv
 import json
+import os
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -123,10 +124,12 @@ class Logger:
             self.flush_all()
 
     def write_checkpoint(self, state: dict) -> None:
-        self._checkpoint_path.write_text(
+        tmp = self._checkpoint_path.with_suffix(".json.tmp")
+        tmp.write_text(
             json.dumps(state, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        os.replace(tmp, self._checkpoint_path)
 
     def flush_all(self) -> None:
         self._csv_file.flush()

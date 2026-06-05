@@ -241,3 +241,26 @@ class TestLoggerCommitTiming:
         # Új kód: wall-clock alapú → 5 gyors hívás << 10s → 0 commit
         assert commit_count[0] <= 1, f"Túl sok commit: {commit_count[0]}"
         logger.close()
+
+
+class TestAtomicCheckpoint:
+    """K4: checkpoint.json write atomi — temp fájl + os.replace."""
+
+    def test_checkpoint_valid_json_after_write(self, tmp_path):
+        logger = Logger(tmp_path, LogConfig())
+        state = {"status": "RUNNING", "step": "charge", "charge_ah": 1.23}
+        logger.write_checkpoint(state)
+
+        content = (tmp_path / "checkpoint.json").read_text(encoding="utf-8")
+        parsed = json.loads(content)
+        assert parsed["status"] == "RUNNING"
+        assert abs(parsed["charge_ah"] - 1.23) < 1e-9
+        logger.close()
+
+    def test_no_tmp_file_left_after_write(self, tmp_path):
+        logger = Logger(tmp_path, LogConfig())
+        logger.write_checkpoint({"status": "TEST"})
+
+        tmp_files = list(tmp_path.glob("*.tmp"))
+        assert tmp_files == [], f"Maradt temp fájl: {tmp_files}"
+        logger.close()
