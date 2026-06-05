@@ -50,6 +50,9 @@ class DischargeController:
         self._u_batt: float = 0.0
         self._dmm_valid: bool = True
         self._last_integration_source: str = "ZERO"
+        self._battery_temperature_C: float = 20.0
+        self._temp_dmm_fault_s: float = 0.0
+        self._last_warning_code: str = ""
         self._integrator = Integrator(
             fallback_max_duration_s=config.fallback_max_duration_s
         )
@@ -67,6 +70,10 @@ class DischargeController:
         return self._last_integration_source
 
     @property
+    def last_warning_code(self) -> str:
+        return self._last_warning_code
+
+    @property
     def accumulated_discharge_Ah(self) -> float:
         return self._integrator.accumulated_discharge_Ah
 
@@ -76,7 +83,7 @@ class DischargeController:
         if self._state == DischargeState.FAULT:
             return self._state
 
-        self._dmm_valid = self._read_dmm()
+        self._dmm_valid = self._read_dmm(dt_s)
 
         if self._state in (
             DischargeState.DISCHARGE_CC_SETUP,
@@ -89,6 +96,13 @@ class DischargeController:
             if self._elapsed_s > self._config.max_discharge_time_s:
                 self.emergency_stop("MAX_DISCHARGE_TIME_REACHED")
                 return self._state
+
+            t_result = self._safety.check_temperature_dmm_fault(self._temp_dmm_fault_s)
+            if t_result.fault is not None:
+                self.emergency_stop(t_result.fault.name)
+                return self._state
+            if t_result.warning is not None:
+                self._last_warning_code = t_result.warning.name
 
         if self._state == DischargeState.INIT:
             self._state = DischargeState.PRECHECK
@@ -142,6 +156,8 @@ class DischargeController:
 
     def _run_cc(self, dt_s: float) -> None:
         i_load = self._read_load_current()
+        if self._state == DischargeState.FAULT:
+            return
         self._integrate(dt_s, signed_current_A=-i_load, source="LOAD_READBACK")
 
         terminate_V = self._profile.terminate_voltage_pack_V
@@ -155,17 +171,26 @@ class DischargeController:
         ):
             self.emergency_stop("MAX_DISCHARGE_AH_REACHED")
 
-    def _read_dmm(self) -> bool:
+    def _read_dmm(self, dt_s: float) -> bool:
         try:
             self._u_batt = self._dmm_v.read_voltage()
-            return True
+            voltage_ok = True
         except Exception:
-            return False
+            voltage_ok = False
+
+        try:
+            self._battery_temperature_C = self._dmm_t.read_temperature()
+            self._temp_dmm_fault_s = 0.0
+        except Exception:
+            self._temp_dmm_fault_s += dt_s
+
+        return voltage_ok
 
     def _read_load_current(self) -> float:
         try:
             return self._load.measure_current()
         except Exception:
+            self.emergency_stop("LOAD_COMM_LOST")
             return 0.0
 
     def _integrate(self, dt_s, signed_current_A, source):

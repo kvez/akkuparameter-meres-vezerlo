@@ -458,3 +458,82 @@ class TestPrecheckDmmGuard:
         ctrl.advance(dt_s=1.0)
         ctrl.advance(dt_s=1.0)
         assert "DEEPLY_DISCHARGED" not in ctrl.fault_reason
+
+
+class TestTempDmmFault:
+    """P0-3: Hőmérséklet DMM kiesés safety bekötve töltés közben."""
+
+    def _advance_to_cc(self):
+        ctrl, *_ = make_controller(dmm_voltage_V=12.5)
+        for _ in range(3):
+            ctrl.advance(dt_s=1.0)
+        assert ctrl.state == ChargeState.CHARGE_CC
+        return ctrl
+
+    def test_temp_dmm_lost_monitor_only_faults_after_timeout(self):
+        """MONITOR_ONLY: folyamatos temp hiba > timeout → TEMPERATURE_MONITOR_LOST_CRITICAL"""
+        ctrl = self._advance_to_cc()
+        ctrl._safety.temp_comp_mode = TempCompMode.MONITOR_ONLY
+        ctrl._dmm_t.simulate_temp_failure = True
+        ctrl._temp_dmm_fault_s = 61.0  # szimulált felhalmozott hiba
+        ctrl.advance(dt_s=0.1)         # hiba folytatódik → 61.1s > 60s threshold
+        assert ctrl.state == ChargeState.FAULT
+        assert ctrl.fault_reason == "TEMPERATURE_MONITOR_LOST_CRITICAL"
+
+    def test_temp_dmm_lost_enabled_faults_immediately(self):
+        """ENABLED: bármilyen temp DMM hiba → azonnali fault"""
+        ctrl = self._advance_to_cc()
+        ctrl._safety.temp_comp_mode = TempCompMode.ENABLED
+        ctrl._temp_dmm_fault_s = 1.0
+        ctrl.advance(dt_s=0.1)
+        assert ctrl.state == ChargeState.FAULT
+        assert ctrl.fault_reason == "TEMPERATURE_MONITOR_LOST_CRITICAL"
+
+    def test_temp_dmm_no_fault_below_timeout(self):
+        """MONITOR_ONLY: 30s hiba még nem fault"""
+        ctrl = self._advance_to_cc()
+        ctrl._safety.temp_comp_mode = TempCompMode.MONITOR_ONLY
+        ctrl._temp_dmm_fault_s = 30.0
+        ctrl.advance(dt_s=0.1)
+        assert ctrl.state == ChargeState.CHARGE_CC
+
+
+class TestTempCompensation:
+    """P0-4: ENABLED hőkompenzáció a töltési célfeszültségben."""
+
+    def test_enabled_reduces_target_at_high_temperature(self):
+        """30°C: kompenzált target < névleges target"""
+        profile = make_12v_profile()
+        ctrl = ChargeController(
+            MockPSU(voltage_V=14.2, current_A=0.5), MockLoad(),
+            MockDMM(voltage_V=12.5), MockDMM(temperature_C=30.0),
+            profile,
+            SafetyManager(profile=profile, psu_mode=PsuMode.INDEPENDENT,
+                          temp_comp_mode=TempCompMode.ENABLED),
+            ChargeConfig(),
+        )
+        ctrl.advance(dt_s=1.0)  # INIT → PRECHECK, reads temp=30°C
+        ctrl.advance(dt_s=1.0)  # PRECHECK → PSU_PRESET
+        assert ctrl._effective_charge_target_V() < profile.charge_voltage_pack_V
+
+    def test_enabled_raises_target_at_low_temperature(self):
+        """0°C: kompenzált target > névleges, de clampelve batt_absolute_max alatt"""
+        profile = make_12v_profile()
+        ctrl = ChargeController(
+            MockPSU(voltage_V=14.2, current_A=0.5), MockLoad(),
+            MockDMM(voltage_V=12.5), MockDMM(temperature_C=0.0),
+            profile,
+            SafetyManager(profile=profile, psu_mode=PsuMode.INDEPENDENT,
+                          temp_comp_mode=TempCompMode.ENABLED),
+            ChargeConfig(),
+        )
+        ctrl.advance(dt_s=1.0)  # INIT → PRECHECK, reads temp=0°C
+        ctrl.advance(dt_s=1.0)  # PRECHECK → PSU_PRESET
+        target = ctrl._effective_charge_target_V()
+        assert target > profile.charge_voltage_pack_V
+        assert target <= profile.batt_absolute_max_V
+
+    def test_monitor_only_uses_nominal_target(self):
+        """MONITOR_ONLY: target = charge_voltage_pack_V, hőmérséklet-független"""
+        ctrl, *_ = make_controller(dmm_voltage_V=12.5)
+        assert ctrl._effective_charge_target_V() == ctrl._profile.charge_voltage_pack_V

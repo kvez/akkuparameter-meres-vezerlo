@@ -32,6 +32,7 @@ class FaultCode(Enum):
     MAX_CHARGE_AH_REACHED = auto()
     MAX_CHARGE_TIME_REACHED = auto()
     PSU_COMM_LOST = auto()
+    LOAD_COMM_LOST = auto()
 
 
 class WarningCode(Enum):
@@ -161,10 +162,12 @@ class SafetyManager:
                 fault=FaultCode.TEMPERATURE_MONITOR_LOST_CRITICAL,
                 message=f"Temp DMM kiesés > {self.temperature_dmm_fault_timeout_s:.0f}s"
             )
-        return SafetyResult(
-            warning=WarningCode.TEMPERATURE_DMM_LOST,
-            message=f"Temp DMM kiesés {elapsed_fault_s:.0f}s"
-        )
+        if elapsed_fault_s > 0.0:
+            return SafetyResult(
+                warning=WarningCode.TEMPERATURE_DMM_LOST,
+                message=f"Temp DMM kiesés {elapsed_fault_s:.0f}s"
+            )
+        return SafetyResult()
 
     def check_battery_voltage(self, measured_V: float) -> SafetyResult:
         """Futó mérés közben: BATTERY_OVERVOLTAGE ellenőrzés."""

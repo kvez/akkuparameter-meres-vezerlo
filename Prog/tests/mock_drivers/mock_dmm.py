@@ -16,6 +16,7 @@ class MockDMM:
     simulate_timeout: bool = False
     simulate_nan: bool = False
     simulate_overload: bool = False
+    simulate_temp_failure: bool = False
 
     # Feszültség szimulációhoz: lineáris emelkedés töltés közben
     voltage_slope_V_per_sample: float = 0.0
@@ -79,7 +80,7 @@ class MockDMM:
 
     def read_temperature(self) -> float:
         self.calls.append("read_temperature()")
-        if self.simulate_timeout:
+        if self.simulate_timeout or self.simulate_temp_failure:
             raise InstrumentTimeoutError("MockDMM: simulated temp timeout")
         return self.temperature_C
 

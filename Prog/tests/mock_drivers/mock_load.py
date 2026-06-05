@@ -14,6 +14,7 @@ class MockLoad:
     power_W: float = 0.0
     _input_is_on: bool = False           # NEM input_on — névütközés elkerülése
     simulate_timeout: bool = False
+    simulate_current_readback_failure: bool = False
     simulate_power_limit: bool = False
     power_limit_W: float = 60.0
     raise_on_connect: bool = False
@@ -82,6 +83,8 @@ class MockLoad:
 
     def measure_current(self) -> float:
         self.calls.append("measure_current()")
+        if self.simulate_current_readback_failure:
+            raise InstrumentTimeoutError("MockLoad: simulated current readback failure")
         return self.current_A if self._input_is_on else 0.0
 
     def measure_power(self) -> float:

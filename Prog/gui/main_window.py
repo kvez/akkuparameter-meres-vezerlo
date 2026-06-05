@@ -235,6 +235,18 @@ class MainWindow(QMainWindow):
         )
         instruments.connect_all(instr_cfg)
 
+        # P0-1: DMM mérési módok konfigurálása — connect után kötelező
+        dmm_v.configure_dcv(range_V=100, nplc=10)
+        dmm_t.configure_temp_4wire_pt100(nplc=10)
+
+        # P0-2: PSU kombináció mód tényleges beállítása a műszeren
+        if psu_mode == PsuMode.INDEPENDENT:
+            psu.set_mode_independent()
+        elif psu_mode == PsuMode.PARALLEL:
+            psu.set_mode_parallel()
+        elif psu_mode == PsuMode.SERIES:
+            psu.set_mode_series()
+
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         session_dir = Path("Mérések") / f"session_{cfg.battery_model}_{stamp}"
         logger = Logger(session_dir, LogConfig())

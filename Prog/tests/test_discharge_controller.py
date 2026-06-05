@@ -120,3 +120,37 @@ class TestDischargePrecheckDmmGuard:
         ctrl.advance(dt_s=1.0)  # PRECHECK → fault
         assert ctrl.state == DischargeState.FAULT
         assert ctrl.fault_reason == "DMM_FEEDBACK_LOST"
+
+
+class TestLoadCommLost:
+    """P0-5: Load current readback hiba → LOAD_COMM_LOST fault, nem 0.0A integráció."""
+
+    def _advance_to_cc_run(self):
+        ctrl, psu, load, dmm = make_discharge_controller(dmm_voltage_V=12.5)
+        for _ in range(3):
+            ctrl.advance(dt_s=1.0)
+        assert ctrl.state == DischargeState.DISCHARGE_CC_RUN
+        return ctrl, load
+
+    def test_load_comm_failure_causes_fault(self):
+        ctrl, load = self._advance_to_cc_run()
+        load.simulate_current_readback_failure = True
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state == DischargeState.FAULT
+        assert "LOAD_COMM_LOST" in ctrl.fault_reason
+
+    def test_load_comm_failure_not_silently_integrated(self):
+        """Kommunikáció hiba után nem 0.0A-t integrál — azonnal faultol."""
+        ctrl, load = self._advance_to_cc_run()
+        ah_before = ctrl.accumulated_discharge_Ah
+        load.simulate_current_readback_failure = True
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state == DischargeState.FAULT
+        # Az Ah nem nőtt (0A integráció nélkül)
+        assert ctrl.accumulated_discharge_Ah == ah_before
+
+    def test_load_comm_failure_triggers_safe_off(self):
+        ctrl, load = self._advance_to_cc_run()
+        load.simulate_current_readback_failure = True
+        ctrl.advance(dt_s=1.0)
+        assert load.called("input_off")

@@ -12,7 +12,7 @@ from enum import Enum
 from typing import Optional
 
 from Prog.src.battery_profile import BatteryProfile
-from Prog.src.safety import SafetyManager, PsuMode
+from Prog.src.safety import SafetyManager, PsuMode, TempCompMode
 from Prog.src.integrator import Integrator
 
 
@@ -85,6 +85,7 @@ class ChargeController:
         self._i_charge: float = 0.0
         self._dmm_valid: bool = True
         self._last_warning_code: str = ""
+        self._battery_temperature_C: float = 20.0
 
     # ------------------------------------------------------------------ #
     # Nyilvános tulajdonságok                                              #
@@ -141,6 +142,13 @@ class ChargeController:
             if v_result.fault is not None:
                 self.emergency_stop(v_result.fault.name)
                 return self._state
+
+            t_result = self._safety.check_temperature_dmm_fault(self._temp_dmm_fault_s)
+            if t_result.fault is not None:
+                self.emergency_stop(t_result.fault.name)
+                return self._state
+            if t_result.warning is not None:
+                self._last_warning_code = t_result.warning.name
 
         # Állapotgép átmenetek
         if self._state == ChargeState.INIT:
@@ -202,7 +210,7 @@ class ChargeController:
         self._state = ChargeState.PSU_PRESET
 
     def _run_psu_preset(self) -> None:
-        target_V = self._profile.charge_voltage_pack_V
+        target_V = self._effective_charge_target_V()
         self._u_psu_set = target_V * 0.9  # induljon alacsonyabban
         self._psu.set_output_voltage(self._u_psu_set)
         self._psu.set_output_current(self._profile.effective_max_charge_A)
@@ -233,7 +241,7 @@ class ChargeController:
         if self._check_series_safety():
             return
 
-        target_V = self._profile.charge_voltage_pack_V
+        target_V = self._effective_charge_target_V()
         if self._u_batt >= target_V - self._config.cv_entry_margin_V:
             self._state = ChargeState.CHARGE_CV_DMM_CONTROL
 
@@ -280,7 +288,7 @@ class ChargeController:
     # ------------------------------------------------------------------ #
 
     def _regulate_cv(self) -> None:
-        target_V = self._profile.charge_voltage_pack_V
+        target_V = self._effective_charge_target_V()
         error = target_V - self._u_batt
 
         if abs(error) <= self._config.deadband_V:
@@ -339,7 +347,7 @@ class ChargeController:
         )
 
         voltage_ok = self._u_batt >= (
-            self._profile.charge_voltage_pack_V - cv_tolerance_V
+            self._effective_charge_target_V() - cv_tolerance_V
         )
         current_ok = self._i_charge <= self._profile.effective_taper_A
 
@@ -352,9 +360,17 @@ class ChargeController:
     def _read_dmm(self, dt_s: float) -> bool:
         try:
             self._u_batt = self._dmm_v.read_voltage()
-            return True
+            voltage_ok = True
         except Exception:
-            return False
+            voltage_ok = False
+
+        try:
+            self._battery_temperature_C = self._dmm_t.read_temperature()
+            self._temp_dmm_fault_s = 0.0
+        except Exception:
+            self._temp_dmm_fault_s += dt_s
+
+        return voltage_ok
 
     def _read_psu_current(self) -> float:
         try:
@@ -362,6 +378,11 @@ class ChargeController:
         except Exception:
             self.emergency_stop("PSU_COMM_LOST")
             return 0.0  # hívó a FAULT állapotot ellenőrzi
+
+    def _effective_charge_target_V(self) -> float:
+        if self._safety.temp_comp_mode == TempCompMode.ENABLED:
+            return self._profile.compensated_charge_voltage_V(self._battery_temperature_C)
+        return self._profile.charge_voltage_pack_V
 
     def _read_psu_voltage(self) -> Optional[float]:
         try:

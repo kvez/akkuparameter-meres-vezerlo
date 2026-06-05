@@ -1,0 +1,1400 @@
+TELJES REVIEW — Prog.zip
+Akkutesztelő / AGM-VRLA / BQ learning előkészítő rendszer
+
+ÁLLAPOT ÖSSZEFOGLALÓ
+====================
+
+A feltöltött program összességében jó irányba halad, és már nem csak tervszintű,
+hanem ténylegesen rétegzett, tesztelt, GUI-val és HW-előkészítő eszközökkel rendelkező
+rendszer.
+
+A fő architektúra alapvetően jó:
+
+  - külön safety réteg
+  - külön charge / discharge / relax controller
+  - külön TestRunner
+  - külön logger
+  - külön instrument manager
+  - külön driver réteg
+  - PySide6 GUI külön rétegben
+  - TestRunner nem importál PySide6-ot
+  - worker.py az egyetlen GUI ↔ runner bridge
+  - mock driverek és sok unit teszt már létezik
+  - connection_test.py jó irányú HW smoke test
+
+Nem GUI tesztek nálam lefutottak:
+
+  353 passed
+  7 pytest warning
+
+A GUI teszteket ebben a környezetben nem tudtam futtatni, mert nincs PySide6 telepítve:
+
+  ModuleNotFoundError: No module named 'PySide6'
+
+Ez nem feltétlen programhiba, de a CI / fejlesztői környezet szempontjából fontos:
+ha a GUI teszteket is kötelezőnek tekintjük, akkor a PySide6 dependency-t rögzíteni
+kell.
+
+A program aktív akkumulátoros HW futtatásra még nem mondanám teljesen késznek.
+Connection test / safe-off / IDN ellenőrzés mehet.
+Éles charge/discharge futás előtt van néhány valódi, szükséges javítás.
+
+A legfontosabb blokkoló pontok:
+
+  1. A GUI-ból indított valós mérés előtt a DMM-ek nincsenek konfigurálva.
+  2. A GUI-ban kiválasztott PSU mód nincs ténylegesen beállítva / ellenőrizve a PSU-n.
+  3. A hőmérsékletmérő DMM kiesését a futó charge/discharge folyamat jelenleg nem használja safety döntésre.
+  4. ENABLED hőkompenzáció választható a GUI-ban, de a charge controller nem használ hőkompenzált célfeszültséget.
+  5. A discharge controller load-current readback hibánál 0.0 A-t használ, ami hamis integrációt / hibás kisütési eredményt okozhat.
+  6. A TestRunner első tick dt_s értéke gyakorlatilag 0 lehet; ez nem nagy hiba, de tisztítani kell.
+  7. A GUI thread / worker lifecycle és signal connection kezelés még tartalmazhat duplikált kapcsolatokat / objektumszivárgást ismételt start után.
+  8. local_config.yaml valós IP és sorozatszám jellegű resource stringekkel benne van a csomagban. Ezt nem szabad verziózott / megosztott csomagban hagyni.
+
+Ezek nem „csak refaktor” jellegű dolgok. Ezek ténylegesen növelik a rendszer biztonságát,
+metrológiai megbízhatóságát és laborban való használhatóságát.
+
+
+1. MI SIKERÜLT JÓL
+==================
+
+1.1 Architektúra
+----------------
+
+A rétegezés jó.
+
+A jelenlegi bontás:
+
+  Prog/src/
+    battery_profile.py
+    safety.py
+    integrator.py
+    charge_controller.py
+    discharge_controller.py
+    relax_controller.py
+    instrument_manager.py
+    logger.py
+    report_generator.py
+    test_runner.py
+
+  Prog/drivers/
+    device_psu.py
+    device_load.py
+    device_dmm.py
+
+  Prog/gui/
+    main_window.py
+    worker.py
+    panels/
+
+  Prog/tools/
+    connection_test.py
+
+Ez tiszta és karbantartható.
+
+A legfontosabb pozitívum:
+  a TestRunner GUI-független maradt, és a PySide6 csak a gui rétegben jelenik meg.
+
+Ez jó szakmai döntés.
+
+
+1.2 Safety szemlélet
+--------------------
+
+Jó pontok:
+
+  - relay_state nincs
+  - nincs relés feltételezés
+  - PSU/Load safe_off logika létezik
+  - emergency_stop van
+  - DMM feedback lost töltés közben fault
+  - PSU_COMM_LOST már nem simán 0A taperként él tovább charge oldalon
+  - max_charge_Ah / max_charge_time már nem csak CC-ben van, hanem CV/TAPER alatt is
+  - series_drop safety már be van kötve charge alatt
+  - checkpoint írás atomi os.replace-szel
+  - instrument_manager.connect_all rollbacket csinál részleges connect failure esetén
+
+Ezek a korábbi review kritikus pontjainak érdemi javításai.
+
+
+1.3 Tesztelhetőség
+------------------
+
+A tesztek mennyisége és lefedési iránya jó.
+
+Nem-GUI tesztek:
+
+  353 passed
+
+Ez erős alap.
+
+Vannak tesztek:
+
+  - BatteryProfile
+  - SafetyManager
+  - Integrator
+  - ChargeController
+  - DischargeController
+  - TestRunner
+  - Logger
+  - ReportGenerator
+  - Drivers
+  - Connection test
+  - GUI worker/session config
+
+Ez már nem „ad hoc script”, hanem valódi fejlesztett rendszer.
+
+
+1.4 Logger / riport
+-------------------
+
+Pozitívumok:
+
+  - CSV + SQLite párhuzamos logolás
+  - events.csv
+  - checkpoint.json
+  - relay_state nincs
+  - isolation_state van
+  - MEASUREMENT_LIMITATIONS szekció van
+  - OCV / galvanikus leválasztási korlát dokumentálva van
+  - BY550 explicit szerepel a riportban
+
+Ez jó irány metrológiai átláthatóság szempontból.
+
+
+1.5 GUI irány
+-------------
+
+A GUI koncepció jó:
+
+  - ConfigPanel
+  - LivePanel
+  - CheckpointPanel
+  - EventLogWidget
+  - TestRunnerWorker
+  - step_changed
+  - event_ready
+  - checkpoint_reached
+  - status_changed
+
+Az EventLogWidget külön fájlba kiemelése jó döntés volt.
+A CheckpointPanel külön panelként jó.
+A checkpoint terminal / resume_possible logika is jó irány.
+
+
+2. BLOKKOLÓ JAVÍTÁSOK AKTÍV HW FUTÁS ELŐTT
+==========================================
+
+Ezeket én még az első valós akkumulátoros charge/discharge futás előtt javítanám.
+
+
+P0-1 — GUI-ból induló mérés előtt a DMM-ek nincsenek konfigurálva
+-----------------------------------------------------------------
+
+Hely:
+
+  Prog/gui/main_window.py
+    _build_runner()
+
+Jelenlegi állapot:
+
+  dmm_v = Keysight34465ADMM()
+  dmm_t = Keysight34465ADMM()
+  instruments.connect_all(instr_cfg)
+
+Ezután a charge/discharge/relax controller azonnal read_voltage() / read_temperature()
+hívásokat használ.
+
+Probléma:
+
+  A DMM voltage nincs configure_dcv() módban beállítva.
+  A DMM temperature nincs configure_temp_4wire_pt100() módban beállítva.
+
+A connection_test.py helyesen konfigurálja a DMM-eket:
+
+  dmm.configure_dcv(range_V=100, nplc=1.0)
+  dmm.configure_temp_4wire_pt100(nplc=1.0)
+
+De a GUI mérési útvonalon ez hiányzik.
+
+Kockázat:
+
+  - A DMM abban a módban marad, amiben korábban volt.
+  - A voltage DMM nem biztos, hogy DCV módban mér.
+  - A temperature DMM nem biztos, hogy FRTD PT100 módban mér.
+  - A precheck hibás lehet.
+  - A charge controller rossz feszültség alapján dönthet.
+  - A hőmérséklet mező hamis vagy invalid lehet.
+
+Javasolt javítás:
+
+  _build_runner() után, connect_all() után:
+
+    dmm_v.configure_dcv(range_V=100, nplc=10)
+    dmm_t.configure_temp_4wire_pt100(nplc=10)
+
+Vagy még jobb:
+
+  InstrumentManager.configure_all_measurement_modes(config)
+
+Példa:
+
+  instruments.connect_all(instr_cfg)
+  dmm_v.configure_dcv(range_V=100, nplc=10)
+  dmm_t.configure_temp_4wire_pt100(nplc=10)
+
+Relax / OCV NPLC100 később lehet külön módváltás, de az első safety-hez a fix DCV +
+PT100 konfiguráció kötelező.
+
+Teszt:
+
+  MockDMM kapjon configure_dcv_called / configure_temp_called flaget.
+  MainWindow._build_runner() vagy factory teszt ellenőrizze, hogy connect után
+  konfigurálás megtörténik.
+
+
+P0-2 — GUI-ban kiválasztott PSU mód nincs ténylegesen beállítva / ellenőrizve
+----------------------------------------------------------------------------
+
+Hely:
+
+  Prog/gui/main_window.py
+    _build_runner()
+
+Jelenlegi állapot:
+
+  psu_mode = PsuMode(cfg.psu_mode)
+  safety = SafetyManager(..., psu_mode=psu_mode)
+
+De:
+
+  psu = Keithley2220PSU()
+
+A PSU driver combination_mode defaultja INDEPENDENT.
+Nem látok hívást:
+
+  psu.set_mode_series()
+  psu.set_mode_parallel()
+  psu.set_mode_independent()
+
+Kockázat:
+
+  A SafetyManager azt hiszi, SERIES módban vagyunk,
+  miközben a tényleges PSU driver / műszer nem biztos, hogy SERIES módban van.
+
+24V packnál ez különösen fontos.
+
+Javasolt javítás:
+
+  connect_all után explicit módbeállítás vagy legalább ellenőrzés:
+
+    if psu_mode == PsuMode.INDEPENDENT:
+        psu.set_mode_independent()
+    elif psu_mode == PsuMode.PARALLEL:
+        psu.set_mode_parallel()
+    elif psu_mode == PsuMode.SERIES:
+        psu.set_mode_series()
+
+Majd:
+
+  - hardware_wiring_confirmed legyen kötelező PARALLEL/SERIES módban
+  - lehetőleg low-voltage wiring validation később
+
+Ha a konkrét 2220 firmware-ben az INST:COMB? problémás, akkor a program legalább a
+set_mode_* parancsot küldje ki, és logolja:
+
+  psu_combination_mode_commanded = SERIES
+
+Ha a módot front panelen akarod kézzel állítani, akkor ezt expliciten dönteni kell:
+de akkor a GUI-ban ne azt sugalljuk, hogy a szoftver állítja.
+
+Ajánlott döntés:
+  A szoftver küldje a set_mode_* parancsot, és logolja.
+
+
+P0-3 — Hőmérséklet-DMM safety logika nincs bekötve a futó mérésbe
+-----------------------------------------------------------------
+
+Hely:
+
+  SafetyManager:
+    check_temperature_dmm_fault()
+
+De a charge_controller / discharge_controller nem hívja.
+
+Jelenlegi állapot:
+
+  A SafetyManager szépen definiálja:
+    OFF
+    MONITOR_ONLY
+    ENABLED
+
+  De a controller csak DMM voltage validitást néz.
+  A temperature DMM hibát csak a TestRunner sample dmm_temperature_valid mezője jelzi.
+
+Kockázat:
+
+  MONITOR_ONLY módban a hőmérséklet elvileg safety monitor.
+  ENABLED módban különösen kritikus lenne.
+  Ha a temp DMM kiesik, a töltés ettől még mehet tovább.
+
+Ez ellentmond a korábbi safety tervnek.
+
+Javasolt javítás:
+
+  ChargeController.advance() alatt olvasni kell dmm_t.read_temperature()-t is,
+  vagy InstrumentManager readings alapján átadni a temperature_valid állapotot.
+
+Egyszerűbb első javítás:
+
+  ChargeController-ben:
+
+    _read_temperature_dmm(dt_s)
+
+    ha temp read fail:
+       self._temp_dmm_fault_s += dt_s
+    else:
+       self._temp_dmm_fault_s = 0
+
+    result = safety.check_temperature_dmm_fault(self._temp_dmm_fault_s)
+
+    if result.fault:
+       emergency_stop(result.fault.name)
+
+    if result.warning:
+       self._last_warning_code = result.warning.name
+
+Ezt charge és discharge alatt is érdemes használni.
+Relax alatt warning elég lehet.
+
+Teszt:
+
+  temp_comp_mode=MONITOR_ONLY
+  temp DMM 61s-ig hibázik
+  elvárás: TEMPERATURE_MONITOR_LOST_CRITICAL fault
+
+  temp_comp_mode=ENABLED
+  temp DMM első hibára fault
+
+
+P0-4 — ENABLED hőkompenzáció választható, de nem befolyásolja a töltési célfeszültséget
+-------------------------------------------------------------------------------------
+
+Hely:
+
+  BatteryProfile.compensated_charge_voltage_V()
+  ChargeController._regulate_cv()
+  ChargeController._run_psu_preset()
+  ChargeController._check_taper_condition()
+
+Jelenlegi állapot:
+
+  BatteryProfile tartalmazza:
+    compensated_charge_voltage_V(temperature_C)
+
+De a ChargeController ezt nem használja.
+Mindig ezt használja:
+
+  self._profile.charge_voltage_pack_V
+
+Kockázat:
+
+  A GUI-ban ENABLED választható, de a rendszer valójában nem kompenzál.
+  Ez metrológiailag és safety szempontból félrevezető.
+  Hideg/meleg AGM töltésnél a célfeszültség hibás lesz.
+
+Javasolt javítás:
+
+  Ha még nincs kész a hőkompenzáció, akkor GUI-ban az ENABLED opciót ideiglenesen le
+  kell tiltani, vagy erős figyelmeztetést kell adni:
+
+    "ENABLED még nincs implementálva — használj MONITOR_ONLY módot."
+
+Jobb megoldás:
+
+  ChargeController tartson:
+
+    self._battery_temperature_C
+    self._charge_target_V
+
+  és minden ciklusban:
+
+    if safety.temp_comp_mode == ENABLED:
+        target_V = profile.compensated_charge_voltage_V(self._battery_temperature_C)
+    else:
+        target_V = profile.charge_voltage_pack_V
+
+Ezt kell használni:
+
+  - PSU preset célhoz
+  - CV regulation targethez
+  - taper voltage thresholdhöz
+  - report/log target mezőhöz
+
+Teszt:
+
+  temperature_C = 30°C
+  temp_comp = ENABLED
+  target kisebb legyen, mint 20°C-on.
+
+  temperature_C = 0°C
+  target nő, de clampelve batt_absolute_max alatt marad.
+
+
+P0-5 — Discharge current readback hiba 0.0A-t ad vissza
+-------------------------------------------------------
+
+Hely:
+
+  Prog/src/discharge_controller.py
+    _read_load_current()
+
+Jelenlegi állapot:
+
+  except Exception:
+      return 0.0
+
+Kockázat:
+
+  Load readback kommunikációs hiba esetén a kisütés futó állapotban maradhat,
+  de az integrátor 0A-t integrál.
+
+Ez hamis kapacitásmérést okoz:
+
+  - a load ténylegesen kisüthet
+  - a szoftver 0Ah-t vagy alulbecsült Ah-t rögzít
+  - terminate voltage alapján a kisütés egyszer véget érhet, de kapacitás rossz lesz
+
+Charge oldalon ezt már javítottátok PSU_COMM_LOST felé.
+Discharge oldalon is ugyanaz kell.
+
+Javasolt javítás:
+
+  _read_load_current() exception esetén:
+
+    self.emergency_stop("LOAD_COMM_LOST")
+    return 0.0
+
+Ehhez lehet új FaultCode:
+
+  LOAD_COMM_LOST
+
+vagy átmenetileg:
+
+  LOAD_POWER_LIMIT / CONTROLLER_FAULT / LOAD_READBACK_LOST
+
+De jobb explicit:
+
+  LOAD_COMM_LOST
+
+Teszt:
+
+  MockLoad.measure_current() raises
+  DISCHARGE_CC_RUN állapotban advance()
+  elvárás: FAULT, nem 0.0A integráció.
+
+
+3. FONTOS, DE NEM FELTÉTLEN BLOKKOLÓ JAVÍTÁSOK
+==============================================
+
+P1-1 — TestRunner első tick dt_s értéke közel 0
+-----------------------------------------------
+
+Hely:
+
+  Prog/src/test_runner.py
+    _run_step()
+
+Jelenlegi állapot:
+
+  _last_tick_t = time.perf_counter()
+
+  while:
+      _t_now = time.perf_counter()
+      actual_dt_s = _t_now - _last_tick_t
+      _last_tick_t = _t_now
+      controller.advance(actual_dt_s)
+
+Az első advance dt_s értéke gyakorlatilag 0.
+
+Ez nem akkora hiba, mint a korábbi fix 2.0s integráció, de nem ideális.
+
+Kockázat:
+
+  Első állapotátmeneteknél nem gond.
+  De ha az első aktív tick rögtön integrálna, akkor egy minta kimarad.
+
+Javasolt javítás:
+
+  Két opció:
+
+  A) Első tick explicit runner_tick_s-sel induljon csak akkor, ha már volt előző tick.
+     De ez kicsit mesterséges.
+
+  B) Állapotlépés előtt/után különválasztani:
+       - controller.advance() vezérlési tick
+       - integráció csak aktív állapotban, valós elapsed alapján
+
+  Praktikus egyszerű megoldás:
+
+    last_tick_t = time.perf_counter()
+
+    while:
+        loop_start = time.perf_counter()
+        dt_s = max(loop_start - last_tick_t, 0.0)
+        if dt_s == 0.0:
+            dt_s = self._config.runner_tick_s if not first_tick else 0.0
+        last_tick_t = loop_start
+
+  Vagy egyszerűen elfogadni, mert az első INIT/PRECHECK ciklus úgysem integrál.
+  De dokumentáld, hogy az első tick 0 lehet.
+
+Nem blokkoló, ha az első 0 dt nem aktív integrációs állapotban történik.
+
+
+P1-2 — TestRunner step_index még mindig steps.index(step)-et használ
+--------------------------------------------------------------------
+
+Hely:
+
+  Prog/src/test_runner.py
+    _run_step()
+    _run_manual_checkpoint()
+
+Jelenlegi állapot:
+
+  steps.index(step)
+
+Ez működik, mert a TestStep-ek külön labellel rendelkeznek.
+De korábban már eldöntöttük, hogy jobb lenne step_index-et átadni.
+
+Kockázat:
+
+  Nem nagy.
+  De ha valaha két azonos TestStep lenne, rossz indexet adhat.
+  Felesleges O(n).
+
+Javasolt javítás:
+
+  run():
+
+    for step_index in range(start_step_index, len(test_plan.steps)):
+        step = test_plan.steps[step_index]
+        result = self._run_step(step_index, step)
+
+  _run_step(step_index, step)
+  _run_manual_checkpoint(step_index, step)
+
+Ez tisztább, de nem sürgős.
+
+
+P1-3 — Logger.close() után a TestRunner objektum nem újrahasználható tisztán
+---------------------------------------------------------------------------
+
+Hely:
+
+  TestRunner.run()
+  _emergency_stop()
+  _graceful_stop()
+
+Jelenlegi állapot:
+
+  DONE / FAULT / STOPPED esetén logger.close() meghívódik.
+
+Ez jó fájlhandle szempontból.
+
+Viszont:
+
+  Ha ugyanazt a TestRunner objektumot valaki újra használná, zárt loggerrel futna.
+
+A GUI jelenleg új runnert épít Startkor, ez rendben van.
+Checkpoint continuation esetén viszont figyelni kell.
+
+Javaslat:
+
+  Dokumentáld:
+
+    TestRunner egyszer használatos session objektum.
+    Új sessionhez új Logger + új TestRunner kell.
+
+Vagy:
+
+  TestRunner.run() elején ellenőrizze, ha logger zárt, és dobjon egy érthető hibát.
+
+Ez nem aktív hiba, ha mindig új runner/session készül.
+
+
+P1-4 — GUI worker / QThread lifecycle és signal duplikáció kockázat
+-------------------------------------------------------------------
+
+Hely:
+
+  Prog/gui/main_window.py
+  Prog/gui/worker.py
+
+Jelenlegi állapot:
+
+  Minden _start_test() híváskor létrejön új worker és thread.
+  A checkpoint_panel.continue_requested jel újra és újra hozzákapcsolódik:
+
+    self._checkpoint_panel.continue_requested.connect(self._on_continue_requested)
+    self._checkpoint_panel.continue_requested.connect(self._worker.request_continue_from_checkpoint)
+
+Ezek a connectek minden startnál újra létrejönnek.
+
+Kockázat:
+
+  Többszöri start/stop után a continue_requested több slotot hívhat.
+  Régi worker objektumhoz kapcsolódó connection bent maradhat.
+  A worker nincs explicit deleteLater-rel törölve.
+  A thread nincs deleteLater-rel törölve.
+
+Javasolt javítás:
+
+  - A checkpoint_panel.continue_requested → _on_continue_requested kapcsolatot csak egyszer, __init__-ben kösd.
+  - A workerhez kötött dinamikus kapcsolatot cleanupkor bontsd, vagy lambda helyett MainWindow hívja az aktuális self._worker-t.
+
+Jobb minta:
+
+  __init__:
+    checkpoint_panel.continue_requested.connect(self._on_continue_requested)
+
+  _on_continue_requested():
+    if self._worker:
+        self._worker.request_continue_from_checkpoint()
+
+Így nincs minden startnál új worker slot connection.
+
+Thread cleanup:
+
+  worker.finished.connect(worker.deleteLater)
+  thread.finished.connect(thread.deleteLater)
+
+Vagy _cleanup_thread() explicit:
+
+  self._worker.deleteLater()
+  self._thread.deleteLater()
+
+A mostani működés valószínűleg egyszeri futásnál jó, de hosszú GUI sessionnél
+érdemes javítani.
+
+
+P1-5 — local_config.yaml nem kerülhet verziózott / megosztott csomagba
+----------------------------------------------------------------------
+
+Hely:
+
+  Prog/config/local_config.yaml
+
+Jelenlegi csomagban szerepel:
+
+  TCPIP::192.168.2.79::INSTR
+  TCPIP::192.168.2.80::INSTR
+  USB0::... sorozatszámok
+
+Kockázat:
+
+  Nem feltétlen titkos adat, de helyi labor topológiát és műszerazonosítókat tartalmaz.
+  Gitbe és megosztott review csomagba nem való.
+
+Javasolt javítás:
+
+  - local_config.yaml törlése a repóból
+  - .gitignore:
+      Prog/config/local_config.yaml
+      Mérések/
+      .pytest_cache/
+      __pycache__/
+      *.pyc
+
+  - csak local_config.template.yaml maradjon verziózva
+
+Ez fontos professzionális repo-higiénia.
+
+
+P1-6 — connection_test.py nem támogat --config paramétert
+---------------------------------------------------------
+
+Jelenlegi állapot:
+
+  Futtatás:
+    python Prog/tools/connection_test.py
+
+A load_config() tudna paramétert kapni, de CLI nincs.
+
+Javaslat:
+
+  argparse:
+
+    python Prog/tools/connection_test.py --config Prog/config/local_config.yaml
+
+Ez nem kritikus, de hasznos.
+
+Plusz:
+
+  --skip-discovery
+  --no-color
+
+Nem kötelező első körben.
+
+
+P1-7 — connection_test.py local_config alapján fail-el, ha pyvisa nincs telepítve
+--------------------------------------------------------------------------------
+
+Nálam:
+
+  pyvisa nem elérhető
+  majd minden műszer FAIL
+
+Ez helyes, ha valós HW környezetben fut.
+De fejlesztői környezetben hasznos lenne:
+
+  - pyvisa hiány esetén overall FAIL érthető üzenettel
+  - vagy --mock / --dry-run mód
+
+Nem blokkoló, csak usability.
+
+
+4. METROLÓGIAI ÉRTÉKELÉS
+========================
+
+4.1 Ah/Wh integráció
+--------------------
+
+A korábbi legsúlyosabb probléma részben javítva van:
+
+  már nem fix runner_tick_s-t ad át,
+  hanem time.perf_counter() alapú dt_s-t használ.
+
+Ez jó irány.
+
+A jelenlegi implementáció a ciklusidőt igyekszik runner_tick_s körül tartani:
+
+  - advance
+  - sample build
+  - logger
+  - sleep maradék
+
+Ez metrológiailag sokkal jobb, mint a korábbi fix 2s.
+
+Maradék kérdés:
+
+  Az első dt_s közel 0.
+  Ez valószínűleg nem okoz jelentős hibát, mert az első tick INIT/PRECHECK.
+  De dokumentálni / tesztelni érdemes.
+
+Javasolt új teszt:
+
+  charge controller aktív állapotban 3 tick:
+    dt_s = 2.0, 2.0, 2.0 körül legyen, ne 0,2,2 vagy 0,2.4,2.4 váratlanul.
+
+Ha pontos kapacitás a cél, hosszabb távon javasolt:
+
+  - minden sample-ben dt_s logolása külön oszlopként
+  - integration_dt_s mező CSV-ben
+
+Ez nagyon hasznos későbbi auditnál.
+
+
+4.2 Árammérés forrása
+---------------------
+
+Töltés:
+
+  PSU readback
+
+Kisütés:
+
+  Load readback
+
+Ez elfogadható MVP-re, de riportban jól kell jelölni, hogy nincs külső kalibrált shunt.
+
+A ReportGenerator ezt jelöli:
+
+  no_external_calibrated_shunt = True
+
+Ez jó.
+
+Metrológiai korlát:
+
+  Kis taper áramnál PSU readback pontosság kérdéses.
+  Kapacitásméréshez a load readback valószínűleg jobb, de nem kalibrált shunt.
+
+Javaslat:
+
+  Tartósan, ha kapacitáskarakterizálás komoly cél:
+    külső shunt + DMM opció később.
+  De most nem blokkoló.
+
+
+4.3 Feszültségmérés
+-------------------
+
+A koncepció jó:
+
+  akkufeszültség DMM-mel mérve,
+  CV szabályozás DMM alapján,
+  PSU feszültség csak kompenzáció / u_drop logika.
+
+Ez jó metrológiai döntés.
+
+De P0-1 miatt:
+  DMM konfiguráció kötelező.
+
+Továbbá:
+  DMM voltage jump detector 2V jó safety irány, de load stepnél okozhat false faultot,
+  ha a kisütés túl agresszív. Ezért load soft-start később indokolt.
+
+
+4.4 Hőmérséklet
+---------------
+
+A hőmérsékletmérés jelenleg inkább logadat, nem valódi safety / compensation input.
+
+Ez akkor elfogadható, ha:
+
+  temperature_compensation_mode = MONITOR_ONLY
+  és ez tényleg csak kijelzés.
+
+De a SafetyManager alapján ez már többnek van tervezve.
+Ezért P0-3 és P0-4 fontos.
+
+Javasolt rövid táv:
+
+  GUI-ban ENABLED tiltása, amíg nincs bekötve.
+
+Javasolt középtáv:
+
+  temp DMM valid safety
+  hőkompenzált target
+  reportban:
+    temperature_compensation_applied: true/false
+    charge_target_uncompensated_V
+    charge_target_effective_V
+
+
+4.5 OCV / relax
+---------------
+
+A RelaxController alapként egyszerű és rendben van.
+
+De:
+
+  - dV/dt threshold default 0, tehát nincs korai kilépés
+  - DMM hiba esetén pass
+  - ha valaki dV/dt küszöböt engedélyez, az INIT DMM hiba utáni első sikeres mérés hamis dvdt-t okozhat
+
+Ez nem blokkoló, mert dV/dt ki van kapcsolva.
+Ha később bekapcsoljátok, akkor javítani kell:
+
+  - last_voltage csak valid első mérés után legyen beállítva
+  - ha nincs valid baseline, ne számoljon dV/dt-t
+
+
+5. SAFETY REVIEW
+================
+
+5.1 Töltés
+----------
+
+Jó:
+
+  - DMM voltage lost aktív töltésnél fault
+  - battery overvoltage check van
+  - max Ah/time check van CC/CV/TAPER alatt
+  - series_drop check van CC/CV/TAPER alatt
+  - PSU current readback hiba faultot ad
+
+Hiány:
+
+  - temp DMM safety nincs bekötve
+  - hőkompenzáció nincs bekötve
+  - PSU mód nincs ténylegesen setelve
+  - DMM nincs konfigurálva
+
+Ezek közül az első négy fontos HW előtt.
+
+
+5.2 Kisütés
+-----------
+
+Jó:
+
+  - PSU all_outputs_off kisütés előtt
+  - DMM lost aktív kisütésnél fault
+  - terminate voltage alapján leáll
+  - max discharge Ah limit van
+
+Hiány / javítandó:
+
+  - load current readback hiba 0.0A-t ad
+  - load soft-start nincs
+  - temp DMM safety nincs bekötve
+
+A legfontosabb:
+  load readback hiba fault legyen.
+
+
+5.3 Emergency stop
+------------------
+
+Jó:
+
+  - LOAD OFF → PSU OFF sorrend
+  - InstrumentManager.safe_all_off is ezt a sorrendet használja
+  - nincs relay hívás
+
+Javaslat:
+
+  safe_all_off eredményeket lehetne logolni.
+  Jelenleg exception silent pass. Ez safe-off végrehajtásnál érthető,
+  de event logban hasznos lenne:
+
+    LOAD_SAFE_OFF_OK
+    PSU_SAFE_OFF_OK
+    PSU_SAFE_OFF_FAILED
+
+Nem kötelező MVP-ben, de jó diagnosztikához.
+
+
+6. GUI REVIEW
+=============
+
+6.1 MainWindow
+--------------
+
+A fő koncepció jó.
+
+A legfontosabb javítandó:
+
+  - worker/thread deleteLater
+  - checkpoint continue signal ne duplikálódjon több start után
+  - status bar jelenleg több signalból kap showMessage-et, néha felülírhatja egymást
+
+A status bar több forrásból frissül:
+
+  worker.status_changed → status_bar.showMessage
+  worker.step_changed → _on_step_changed
+  _on_checkpoint_reached
+  _on_finished
+  _on_status_changed
+
+Ez működhet, de később nehéz lesz követni.
+
+Nem javaslok külön StatusBarManager-t most, de legalább kommentben legyen szabály:
+
+  - step_changed mutatja RUNNING — step_label
+  - status_changed mutatja végállapotokat
+  - checkpoint felülírhatja checkpoint üzenettel
+
+
+6.2 CheckpointPanel
+-------------------
+
+Jó:
+
+  - resume_possible alapján enable/disable
+  - terminal checkpointot jól jelzi
+  - checklist hasznos
+
+Javaslat:
+
+  A "Safe Off" gomb neve félreérthető, mert emergency_stop_requested jelet küld.
+  Ha tényleg emergency pathra megy, neve legyen:
+
+    "Emergency / Safe Off"
+
+  vagy
+
+    "Vészleállítás / Safe Off"
+
+Ha csak safe_all_off-ot akarunk, akkor külön safe_off slot kellene.
+
+Nem blokkoló, de UI safety szempontból jobb egyértelműsíteni.
+
+
+6.3 LivePanel
+-------------
+
+Jó:
+
+  - U/I/T/u_drop/Ah grafikonok
+  - event log beágyazva
+  - reset_plots van
+
+Javaslat:
+
+  Hosszú tesztekhez a grafikon adatpontok korlátozása kellhet.
+  Ha 2s tick és 10–20 óra futás:
+
+    10 óra / 2s = 18 000 pont
+
+Ez még kezelhető, de több görbével PyQtGraph alatt már lassulhat.
+Érdemes később max_points vagy decimation.
+
+Nem blokkoló.
+
+
+7. DRIVER REVIEW
+================
+
+7.1 PSU driver
+--------------
+
+Jó:
+
+  - mód-agnosztikus API
+  - CH1/CH2 nincs controller szinten
+  - output_commanded_on
+  - safe_off
+
+Kérdéses:
+
+  - connect() közben _detect_output_command() OUTP OFF-ot küld.
+    Ez safe irányú, rendben.
+
+  - measure_output_voltage/current mindig CH1-et kérdez.
+    Kombinált módban ez a korábbi terv szerint rendben lehet, de valós műszeren validálni kell.
+
+Fontos:
+  GUI-nak vagy InstrumentManagernek be kell állítania a PSU combination mode-ot.
+
+
+7.2 Load driver
+---------------
+
+Jó:
+
+  - INP parancs igazolva
+  - input_commanded_on
+  - safe_off
+
+Hiány:
+
+  - slew rate / soft-start támogatás nincs
+
+Nem kötelező első teszthez, ha kis árammal indulsz.
+De később javasolt:
+
+  set_current_slew(rate_A_per_us vagy A_per_s)
+  vagy szoftveres ramp.
+
+
+7.3 DMM driver
+--------------
+
+Jó:
+
+  - DCV configure van
+  - TEMP PT100 configure van
+  - NaN/Inf/overload validáció van
+  - voltage jump detector van
+
+Javítandó:
+
+  - _validate_voltage range-alapú limitet is használhatna, nem csak 1e30 overload és jump.
+  - A GUI útvonalon konfigurálni kell.
+
+Nem blokkoló:
+  A 2V jump detector jó safety alap, de lehet, hogy load step / akku csatlakozáskor false hitet okoz. Ezt a mérési fázisokhoz kell igazítani.
+
+
+8. LOGGER / ADATKEZELÉS
+=======================
+
+8.1 Logger
+----------
+
+Jó:
+
+  - atomikus checkpoint
+  - wall-clock alapú SQLite commit
+  - close idempotens
+  - CSV + SQLite + events
+
+Javítási javaslat:
+
+  - log_event() jelenleg csak string API-t fogad.
+    A TestRunner manual checkpointnál event dictet épít, de loggernek stringet ad.
+    Ez elfogadható, de hosszabb távon jobb lenne egy egységes event dict API.
+
+Nem sürgős.
+
+
+8.2 CSV mezők
+-------------
+
+Jó a mezőkészlet, de pár mező nincs töltve:
+
+  psu_set_voltage_V
+  psu_set_current_A
+  load_set_current_A
+  psu_output_commanded_on
+  load_input_commanded_on
+  accumulated_charge_Wh
+  accumulated_discharge_Wh
+  psu_readback_valid
+  load_readback_valid
+  sample_valid
+  integration_valid
+  safety_valid
+  capacity_result_quality
+  fault_flags
+  warning_flags
+
+Ezek a CSV_COLUMNS-ben vannak, de _build_sample() nem tölti mindet.
+
+Ez nem azonnali hiba, de professzionális riportnál érdemes:
+
+  - vagy töltsük ki őket
+  - vagy vegyük ki, ha még nincs implementálva
+
+Javaslat:
+
+  Rövid távon:
+    legalább integration_valid, capacity_result_quality, warning_flags/fault_flags töltése.
+
+  Középtávon:
+    ControllerSnapshot bevezetése, és abból egységesen tölteni.
+
+
+9. CONFIG / REPO HIGIÉNIA
+=========================
+
+9.1 local_config.yaml
+---------------------
+
+Javítandó:
+
+  local_config.yaml ne legyen a repo / review csomag része.
+
+Tartalmaz helyi IP-ket és USB serialokat.
+Ezt törölni kell verziózásból.
+
+Kell:
+
+  .gitignore
+
+Tartalom:
+
+  __pycache__/
+  *.pyc
+  .pytest_cache/
+  Prog/config/local_config.yaml
+  Mérések/
+  *.db
+  samples.csv
+  events.csv
+  checkpoint.json
+
+9.2 dependency lista hiányzik
+-----------------------------
+
+Nem látok requirements.txt / pyproject.toml fájlt.
+
+Javasolt:
+
+  requirements.txt:
+
+    PyYAML
+    pyvisa
+    PySide6
+    pyqtgraph
+    pytest
+
+Esetleg opcionális:
+
+    pyvisa-py
+
+Ez fontos, mert nálam a GUI tesztek PySide6 hiány miatt nem futottak.
+
+
+10. CONNECTION TEST REVIEW
+==========================
+
+connection_test.py scope jó.
+
+Amit csinál:
+
+  - VISA discovery
+  - config load
+  - instrument IDN
+  - safe_off
+  - DMM alap mérés
+  - summary
+
+Ez pontosan jó.
+
+Javítási javaslat:
+
+  - --config CLI paraméter
+  - pyvisa hiány esetén előbb dependency hint:
+      pip install pyvisa
+  - PASS_WITH_SKIPS külön kiírás
+  - local_config.yaml hiány esetén template/default használat mellett jelezze, hogy nem éles configgal fut
+
+Nem blokkoló.
+
+
+11. TESZT REVIEW
+================
+
+11.1 Ami jó
+-----------
+
+A tesztmennyiség jó.
+Nem-GUI tesztek zöldek.
+
+Külön jó:
+
+  - safety tesztek
+  - charge controller taper / CV / DMM lost tesztek
+  - logger tesztek
+  - TestRunner checkpoint / status tesztek
+  - connection_test tesztek
+  - GUI worker tesztek léteznek
+
+11.2 Hiányzó fontos tesztek
+---------------------------
+
+Ezeket érdemes hozzáadni:
+
+T1 — GUI runner factory konfigurálja a DMM-eket
+
+  Elvárás:
+    dmm_v.configure_dcv(...)
+    dmm_t.configure_temp_4wire_pt100(...)
+
+T2 — GUI runner factory beállítja a PSU mode-ot
+
+  psu_mode SERIES esetén:
+    psu.set_mode_series() hívódik
+
+T3 — Temperature DMM fault charge alatt
+
+  MONITOR_ONLY + 61s temp DMM hiba:
+    TEMPERATURE_MONITOR_LOST_CRITICAL
+
+T4 — ENABLED hőkompenzáció targetet módosít
+
+  30°C-on target kisebb legyen, mint 20°C-on.
+
+T5 — Load current readback failure
+
+  measure_current raises:
+    DischargeController FAULT
+
+T6 — MainWindow többszöri start/stop után nincs duplikált continue signal
+
+  Ez nehéz unitban, de legalább worker lifecycle teszt.
+
+T7 — CSV mezők minimálisan töltve vannak
+
+  integration_valid
+  capacity_result_quality
+  warning_flags/fault_flags
+
+
+12. JAVASOLT JAVÍTÁSI ROADMAP
+=============================
+
+HOTFIX CSOMAG — aktív HW futás előtt
+------------------------------------
+
+1. DMM konfiguráció GUI futás előtt
+   - dmm_v.configure_dcv()
+   - dmm_t.configure_temp_4wire_pt100()
+
+2. PSU mode set / verify
+   - cfg.psu_mode alapján psu.set_mode_*
+   - log / event / config meta
+
+3. Temp DMM safety bekötés
+   - MONITOR_ONLY fault timeout
+   - ENABLED azonnali fault
+
+4. ENABLED hőkompenzáció vagy tiltás
+   - vagy implementálni
+   - vagy GUI-ban disabled + warning
+
+5. Discharge load readback hiba → fault
+   - ne 0.0A legyen
+
+6. local_config.yaml eltávolítás + .gitignore
+
+Ezek után mehet az első kisáramú aktív HW próba.
+
+
+P1 CSOMAG — minőségi javítás
+----------------------------
+
+1. TestRunner step_index átadása steps.index helyett
+2. GUI worker/thread lifecycle cleanup
+3. CSV hiányzó mezők kitöltése
+4. connection_test --config CLI
+5. requirements.txt / pyproject.toml
+6. first tick dt_s dokumentálás / teszt
+
+
+P2 CSOMAG — metrológiai bővítés
+-------------------------------
+
+1. integration_dt_s CSV mező
+2. load soft-start
+3. Rb pulse mérési mód
+4. OCV/dVdt relax valid baseline
+5. külső shunt opció későbbre
+
+
+13. VÉGSŐ MINŐSÍTÉS
+===================
+
+Architektúra:
+  JÓ
+
+Szoftveres minőség:
+  JÓ, de néhány lifecycle/config pont javítandó
+
+Tesztelhetőség:
+  JÓ
+
+Safety koncepció:
+  JÓ, de aktív HW előtt DMM config, PSU mode és temp safety miatt még nem teljes
+
+Metrológiai tartalom:
+  KÖZEPES-JÓ
+  Az alapelv jó, de hőkompenzáció és DMM konfiguráció nélkül még félrevezető lehet.
+
+GUI:
+  JÓ MVP alap, de worker/thread cleanup javítandó
+
+HW connection test:
+  JÓ irány
+
+Éles aktív akkus mérésre:
+  MÉG NEM AJÁNLOTT a P0 javítások előtt
+
+Connection testre / safe_off / IDN ellenőrzésre:
+  IGEN, használható
+
+
+RÖVID KONKLÚZIÓ
+===============
+
+A rendszer már komolyan vehető, jó irányban megírt laborautomatizálási alap.
+Nem látok olyat, hogy újra kellene tervezni az egészet.
+
+Nem érdemes azonos szintű megoldásokat lecserélni csak refaktor kedvéért.
+A fő architektúra maradjon.
+
+A ténylegesen szükséges javítások:
+
+  1. DMM-ek konfigurálása mérés előtt
+  2. PSU mód tényleges beállítása / ellenőrzése
+  3. temperature DMM fault policy bekötése
+  4. ENABLED hőkompenzáció implementálása vagy ideiglenes tiltása
+  5. discharge load readback hiba faulttá alakítása
+  6. local_config.yaml eltávolítása a verziózott csomagból
+  7. GUI worker/thread lifecycle tisztítása
+  8. CSV hiányzó minőségi mezők fokozatos feltöltése
+
+Ezek valóban növelik a rendszer színvonalát, biztonságát és metrológiai hitelességét.
