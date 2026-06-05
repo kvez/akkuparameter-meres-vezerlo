@@ -1,0 +1,303 @@
+Átnéztem a review-t. Ez egy hasznos és elég komoly találati lista; én nem kezelném sima “majd később” jellegű észrevételként. Fizikai HW teszt előtt legalább a K1–K3 + V1 javítását kötelezőnek venném. :contentReference[oaicite:0]{index=0}
+
+
+DÖNTÉS
+======
+
+HW éles teszt előtt:
+
+  BLOKKOLÓ:
+    K1 — valós dt_s hiánya az integrációban
+    K2 — max_charge_Ah / max_charge_time csak CC-ben ellenőrzött
+    K3 — series_drop / diode_power safety check nincs bekötve
+    V1 — PSU current readback hiba 0.0A-ként kezelve
+
+  ERŐSEN JAVASOLT még HW előtt:
+    V4 — PRECHECK DMM hiba félrevezető mélykisült faultként jelenik meg
+    K4 — checkpoint atomikus írás
+    V2 — instrument connect rollback / disconnect_all
+
+  HW teszt után is javítható:
+    V3 — SQLite commit időzítés
+    V5 — load soft-start
+    E1–E5 edge case-ek, kivéve ha pont érintik az első tesztet
+
+
+PRIORITÁSI JAVASLAT
+===================
+
+1. HOTFIX-1 — integrációs időalap javítása
+------------------------------------------
+
+Cél:
+  Az Ah/Wh integrátor ne a névleges runner_tick_s értékkel számoljon, hanem a tényleges
+  eltelt idővel.
+
+Javítás iránya:
+
+  loop_start = time.perf_counter()
+
+  controller.advance(dt_s=actual_dt_s)
+
+  elapsed = time.perf_counter() - loop_start
+  sleep_s = max(0.0, runner_tick_s - elapsed)
+  time.sleep(sleep_s)
+
+Fontos:
+  A pontos implementációt úgy kell kialakítani, hogy az első tick se kapjon fals dt-t.
+  Én külön last_tick_time alapú megoldást választanék:
+
+    now = time.perf_counter()
+    dt_s = now - last_tick_time
+    last_tick_time = now
+
+  Így a dt tényleg a két advance közötti valós idő.
+
+Teszt:
+  Mock sleep / perf_counter.
+  Elvárás:
+    ha a ciklus valós ideje 2.4 s, akkor az integrátor 2.4 s-t kapjon, ne 2.0 s-t.
+
+
+2. HOTFIX-2 — charge limit check minden töltési fázisban
+--------------------------------------------------------
+
+Cél:
+  MAX_CHARGE_AH_REACHED és MAX_CHARGE_TIME_REACHED ne csak CC-ben fusson.
+
+Javítás:
+  Ugyanazt a limitellenőrzést hívd meg:
+
+    _run_charge_cc()
+    _run_charge_cv()
+    _run_taper_hold()
+
+Én nem másolnám három helyre hosszú távon, hanem csinálnék egy kis belső metódust:
+
+  _check_charge_limits()
+
+De ha gyors hotfix kell, a copy is elfogadható.
+
+Teszt:
+  Controller CV állapotba állítva.
+  accumulated_charge_Ah > nominal * max_charge_Ah_factor.
+  Elvárás:
+    FAULT / MAX_CHARGE_AH_REACHED.
+
+
+3. HOTFIX-3 — BY550 u_drop / diode_power safety bekötése
+--------------------------------------------------------
+
+Cél:
+  A SafetyManager.check_series_drop() és check_diode_power() ne csak definiálva legyen,
+  hanem töltés közben fusson is.
+
+Javítás iránya:
+
+  CHARGE_CC és CHARGE_CV alatt:
+
+    u_drop_V = psu_readback_voltage_V - u_batt_V
+
+    result = safety.check_series_drop(u_drop_V)
+    if result.fault:
+        emergency_stop(...)
+
+    result = safety.check_diode_power(i_charge, u_drop_V)
+    if result.warning:
+        warning_flags/log event
+
+Fontos:
+  check_diode_power jelenlegi döntés szerint warning-only lehet, de check_series_drop
+  fault legyen.
+
+Teszt:
+  Mock PSU voltage = U_batt + 1.30 V.
+  Elvárás:
+    SERIES_DROP_TOO_HIGH fault.
+
+
+4. HOTFIX-4 — PSU current readback hiba ne legyen 0.0A
+------------------------------------------------------
+
+Cél:
+  Kommunikációs hiba ne nézzen ki taper áramnak.
+
+Jelenlegi veszély:
+  PSU readback exception → 0.0 A
+  0.0 A <= taper_current_A
+  TAPER_HOLD elindulhat
+  CHARGE_DONE hamisan létrejöhet
+
+Javítás:
+  _read_psu_current() exception esetén:
+
+    - _dmm_valid-hoz hasonlóan külön psu_current_valid flag
+    - vagy azonnali emergency_stop("PSU_COMM_LOST")
+    - semmiképp ne return 0.0
+
+Első hotfixként:
+  raise vagy emergency_stop PSU_COMM_LOST.
+
+Teszt:
+  MockPSU.measure_output_current() raises.
+  Elvárás:
+    FAULT, nem CHARGE_DONE.
+
+
+5. HOTFIX-5 — PRECHECK DMM hiba pontos fault
+--------------------------------------------
+
+Cél:
+  Ha DMM nem olvasható PRECHECK-ben, akkor ne DEEPLY_DISCHARGED legyen a hiba.
+
+Javítás:
+  PRECHECK előtt:
+
+    if not self._dmm_valid:
+        emergency_stop("DMM_FEEDBACK_LOST_AT_PRECHECK")
+
+vagy meglévő FaultCode hiányában:
+
+    DMM_FEEDBACK_LOST
+
+Teszt:
+  INIT/PRECHECK alatt DMM exception.
+  Elvárás:
+    DMM fault, nem mélykisült akku.
+
+
+6. HOTFIX-6 — checkpoint atomikus írás
+--------------------------------------
+
+Cél:
+  checkpoint.json ne sérüljön félbeíráskor.
+
+Javítás:
+
+  tmp_path = checkpoint_path.with_suffix(".json.tmp")
+  tmp_path.write_text(...)
+  os.replace(tmp_path, checkpoint_path)
+
+Windows alatt is jó irány.
+
+Teszt:
+  Minimum unit teszt:
+    write_checkpoint után valid JSON.
+  Kill-szimuláció nehezebb, de legalább az atomic write path legyen tesztelve.
+
+
+JAVASOLT JAVÍTÁSI CSOMAGOK
+==========================
+
+Én nem egy nagy patchben javítanám mindet, hanem 3 rövid taskban.
+
+Task A — Safety blocker hotfix
+------------------------------
+
+Tartalom:
+  - K2
+  - K3
+  - V1
+  - V4
+
+Miért:
+  Ezek közvetlenül töltés közbeni safety/done állapotot érintenek.
+
+Task B — Integrációs pontosság
+------------------------------
+
+Tartalom:
+  - K1
+  - V3 részben, mert dt_s és logger commit időzítés összefügg
+
+Miért:
+  Ez mérési pontosság és BQ learning szempontból kritikus.
+
+Task C — Recovery / infrastruktúra
+----------------------------------
+
+Tartalom:
+  - K4
+  - V2
+  - E5
+
+Miért:
+  Checkpoint, connect rollback, fájlhandle lezárás.
+
+
+MIT NE ENGEDJÜNK MÉG?
+=====================
+
+Amíg K1–K3 + V1 nincs javítva:
+
+  - ne induljon éles BQ_LEARNING_PHYSICAL
+  - ne induljon hosszú charge/discharge karakterizálás
+  - ne tekintsük az Ah/Wh riportot hitelesnek
+  - ne bízzunk a taper/CHARGE_DONE státuszban PSU readback hiba esetén
+
+
+MIT LEHET ADDIG?
+================
+
+Javíthatatlan állapotban is mehet:
+
+  - connection_test.py
+  - VISA resource discovery
+  - *IDN? teszt
+  - safe_off teszt
+  - DMM alap read
+  - GUI indítás
+  - mock tesztek
+
+De akkuval aktív töltés/kisütés még ne.
+
+
+KÜLÖN MEGJEGYZÉS A K3-RÓL
+=========================
+
+A korábbi döntésünk szerint a dióda hőteljesítmény ne legyen automatikus fault, csak
+warning. Ez rendben van.
+
+De a series_drop túl magas értéke más kategória.
+
+  diode_power_W magas:
+    warning elég
+
+  u_drop_V > fault_series_drop_V:
+    fault kell
+
+Ez ne keveredjen össze.
+
+
+KÜLÖN MEGJEGYZÉS A K1-RŐL
+=========================
+
+A K1 valóban nagyon fontos.
+
+Ha a ciklusidő 2.4 s, de 2.0 s-t integrálunk, akkor:
+
+  hiba = 1 - 2.0 / 2.4 = 16.7%
+
+Ez nem kis eltérés.
+
+BQ learning / kapacitás karakterizálás mellett ez blokkoló.
+
+
+ÖSSZEFOGLALÓ DÖNTÉS
+===================
+
+A review alapján én ezt mondanám:
+
+  A connection_test / preflight csomag mehet.
+  A teljes HW aktív futás még ne menjen.
+
+Kötelező javítás aktív akkus futás előtt:
+
+  1. K1 — valós dt_s integráció
+  2. K2 — charge limit check CV/TAPER alatt is
+  3. K3 — series_drop / diode_power safety check bekötése
+  4. V1 — PSU current readback failure → fault, nem 0.0A
+  5. V4 — PRECHECK DMM failure → DMM fault
+  6. K4 — atomikus checkpoint write
+
+Ha ezek javítva és tesztelve vannak, utána jöhet az első kisáramú HW próba.

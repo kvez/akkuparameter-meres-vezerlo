@@ -1,0 +1,139 @@
+  Embedded/laborautomatizálási kód review
+
+  1. KRITIKUS HIBÁK
+
+  ---
+  K1 — Ah/Wh integráció szisztematikus alulbecslése (~15%)
+  - Fájl: test_runner.py:209,233 — integrator.py:40–43
+  - Probléma: controller.advance(runner_tick_s) mindig a névleges 2.0s-t kapja dt_s-ként. A valódi ciklus = I/O idő (4 műszer × 10 NPLC DMM ≈ 300–500ms) + time.sleep(2.0) = ~2.3–2.5s. Az integrátor a névleges időt integrálja.
+  - Kockázat: 10 órás kisütési tesztnél 15% alulbecslés. BQ golden image előkészítésnél, ahol a pontos Ah-érték alapján dönt a BQ chip, ez közvetlenül rontja a SOC kalibrációt.
+  - Javítás: time.perf_counter() ciklus elejére és végére; a valódi dt_s = t1 - t0-t átadni advance()-nek. A time.sleep() az időmaradvány: sleep(max(0, runner_tick_s - elapsed)).
+  - Teszt: Mock instrumentekkel perf_counter() logolás; ellenőrizni, hogy az integrátor az I/O-val megnövelt dt-t kapja-e.
+
+  ---
+  K2 — max_charge_Ah és max_charge_time limit csak CC fázisban ellenőrzött
+  - Fájl: charge_controller.py:207–215 (van), _run_charge_cv() és _run_taper_hold() (hiányzik)
+  - Probléma: Mindkét safety limit — MAX_CHARGE_AH_REACHED és MAX_CHARGE_TIME_REACHED — kizárólag _run_charge_cc()-ben szerepel. CV és TAPER fázisban nincs ellenőrzés.
+  - Kockázat: Ha a CV szabályozás beragad (PSU stuck, DMM lassan változó readback), az akku CV fázisban korlátlanul tölthet a max_charge_time_s = 86400s-on túl is.
+  - Javítás: Mindkét limit ellenőrzése _run_charge_cv()-ben és _run_taper_hold()-ban is (copy elég, nincs new abstraction szükséges).
+  - Teszt: CC→CV átmenet után szimulált Ah > 1.20 × nominal → elvárás: FAULT. Jelenleg: nincs leállás.
+
+  ---
+  K3 — check_series_drop() és check_diode_power() definiált, de soha nem hívódik
+  - Fájl: safety.py:185–214 (definiált), charge_controller.py (hiányzik a hívás)
+  - Probléma: u_drop_V és diode_power_W kiszámítódik és naplózódik _build_sample()-ban, de a SafetyManager.check_series_drop() és check_diode_power() hívása hiányzik a charge controller futó ciklusából.
+  - Kockázat: SERIES_DROP_TOO_HIGH (>1.25V) és DIODE_POWER_TOO_HIGH fault soha nem triggerel futás közben. A BY550 mért karakterisztikája alapján @3A esés 0.85V — a 1.25V-os fault határ valós dióda anomáliánál (pl. laza kontakt, más dióda bedugva) nem védene.
+  - Javítás: _run_charge_cc() és _run_charge_cv() végére: ha u_batt és u_psu érvényes, meghívni mindkét check-et és emergency_stop()-ot triggerelni.
+  - Teszt: Mock PSU: measure_output_voltage() = u_batt + 1.30V → elvárás: SERIES_DROP_TOO_HIGH. Jelenleg: csak naplózódik.
+
+  ---
+  K4 — checkpoint.json write nem atomi (Windows)
+  - Fájl: logger.py:125–130
+  - Probléma: Path.write_text() nem atomi Windowson — a fájl truncate-elve van az írás megkezdésekor. Process kill vagy áramszünet mid-write esetén a checkpoint.json csonka/invalid JSON marad.
+  - Kockázat: BQ_LEARNING_PHYSICAL checkpoint-alapú session-folytatás nem lehetséges, ha a checkpoint korrupt. JSON parse error a folytatásnál.
+  - Javítás: write_text() → temp fájlba írás + os.replace(tmp, dst) (POSIX-on és Win32-n is atomi).
+  - Teszt: Write közben kill szimulálása; JSON validity ellenőrzés recovery-nél.
+
+  ---
+  2. VALÓS KOCKÁZATOK
+
+  ---
+  V1 — _read_psu_current() kommunikációs hiba esetén 0.0A-t returnál → hamis CHARGE_DONE
+  - Fájl: charge_controller.py:324–328
+  - Probléma: PSU readback timeout/exception esetén _i_charge = 0.0. A taper feltétel (0.0 <= effective_taper_A) azonnal igaz; ha ez CV fázisban beragad, 600s taper hold után CHARGE_DONE keletkezik.
+  - Kockázat: Alultöltött akku DONE státusszal, helytelen kapacitásriport. A PSU_COMM_LOST FaultCode definiált de soha nem triggerel.
+  - Javítás: Readback failure esetén emergency_stop("PSU_COMM_LOST") (a kód már létezik), ne return 0.0.
+  - Teszt: MockPSU: measure_output_current() raises → elvárás: fault, nem CHARGE_DONE.
+
+  ---
+  V2 — connect_all() részleges failure: nincs rollback, nincs disconnect_all()
+  - Fájl: instrument_manager.py:42–46
+  - Probléma: Ha PSU csatlakozik, de DMM_V nem, a connect_all() kivételt dob — a PSU connected marad. Nincs disconnect_all() metódus, ezért a hívó sem tud rollbacket végezni.
+  - Kockázat: Következő csatlakozási kísérletben already connected jellegű hiba, vagy resource leak (open VISA resource).
+  - Javítás: connect_all() try/except + lista az eddig connected eszközökről + iterált rollback, vagy disconnect_all() metódus.
+
+  ---
+  V3 — _elapsed_since_commit kumulatív elapsed_s-t gyűjt, nem delta-t
+  - Fájl: logger.py:110
+  - Probléma: self._elapsed_since_commit += sample.get("elapsed_s", 0) az összteszt-eltelt-időt adja össze. Első commit (~12s tesztnél, 3. minta) után reset, majd a következő mintánál elapsed_s = 14 >= 10 → azonnali újabb commit. Ezentúl minden mintánál commit történik.
+  - Kockázat: SQLite commit per-minta → ~30–50ms overhead, ami K1 integrációs hibát növeli (ciklus idő nő, de advance() még mindig 2.0s-t kap).
+  - Javítás: elapsed_s helyett dt_s-t összeadni (K1 fix után ez automatikusan rendelkezésre áll), vagy wall clock timer.
+
+  ---
+  V4 — PRECHECK-ben DMM failure esetén félrevezető hibaüzenet
+  - Fájl: charge_controller.py:182–193, discharge_controller.py:121–127
+  - Probléma: INIT állapotban _u_batt = 0.0 (inicializálva). Ha az első _read_dmm() hívás hibázik, _u_batt = 0.0 marad. A PRECHECK check_precheck_voltage(0.0) hívása DEEPLY_DISCHARGED_RECOVERY_NOT_IMPLEMENTED faultot ad. A valódi ok: DMM nem érhető el.
+  - Kockázat: Félrevezető diagnózis. Az operátor "mélykisültet" feltételez, holott csak a DMM-kapcsolat hibás.
+  - Javítás: PRECHECK elején explicit _dmm_valid ellenőrzés; ha False → emergency_stop("DMM_FEEDBACK_LOST_AT_PRECHECK").
+
+  ---
+  V5 — Nincs soft-start a Load bekapcsolásakor
+  - Fájl: discharge_controller.py:129–138
+  - Probléma: set_current(i_discharge) + input_on() azonnali full CC áramot alkalmaz (2380 default slew = 2.5 A/µs). 12V pack, 20Ah akku, C/5 = 4A → pillanatszerű 4A átmenet.
+  - Kockázat: DMM feszültségugrot mérhet → InstrumentInvalidReading jump detector trigger (2V/minta határ). Kisebb kapacitású akkuknál buszhiba.
+  - Javítás: set_mode_cc() után SOUR:CURR:SLEW 0.05 (lassú ramp), vagy ramp-up szoftveresen néhány lépésben.
+
+  ---
+  3. EDGE CASE-EK
+
+  ---
+  E1 — compensated_charge_voltage_V() definiált, de soha nem hívódik
+  - Fájl: battery_profile.py:122–127, charge_controller.py:_regulate_cv()
+  - _regulate_cv() mindig charge_voltage_pack_V-t (20°C-os fix érték) használja. Ha a temp_comp_mode ENABLED-re kerül, a hőkompenzáció még mindig nem fut — silent miss.
+
+  ---
+  E2 — check_precheck_voltage() holt változók
+  - Fájl: safety.py:121–124
+  - deep_discharge_min_V és normal_min_V kiszámítva de soha nem használva. A kód hardcoded 10.5/21.0V határokat alkalmaz. Jövőbeli karbantartásnál megtévesztő.
+
+  ---
+  E3 — check_psu_mode_compatibility() nem kezeli 7–11 cellás pack-ot
+  - Fájl: safety.py:89–107
+  - cell_count >= 12 és cell_count <= 6 között nincs ellenőrzés. Ha valaki 8 cellás (16V) pack-ot konfigurál, semmi nem figyelmeztet. A BatteryProfile 1–24 cellát enged. Nem aktuális, de defenzív validáció hiányzik.
+
+  ---
+  E4 — RelaxController INIT fázis DMM hiba → első valós mérés hamis dV/dt
+  - Fájl: relax_controller.py:51–56
+  - Ha az INIT mérés hibázik, _last_voltage = 0.0. Első sikeres mérés (pl. 12.6V) → dvdt = 12.6 / 2.0 = 6.3 V/s. Jelenleg dvdt_threshold = 0 (letiltva), de ha valaki engedélyezi, azonnali hamis korai kilépés.
+
+  ---
+  E5 — Logger.close() nincs meghívva leálláskor
+  - Fájl: test_runner.py:246–276, logger.py:136–141
+  - _emergency_stop() és _graceful_stop() flush_all()-t hív, de close()-t nem. Fájlhandle-ek a GC-re maradnak. Hosszú GUI session alatt repeated session esetén fájlhandle szivárgás.
+
+  ---
+  4. KARBANTARTHATÓSÁGI JAVASLATOK
+
+  ┌─────┬───────────────────────┬──────────────────────────────────────────────────────────────────────────────────┬─────────────────────────────────────────────────┐
+  │  #  │         Fájl          │                                     Probléma                                     │                      Irány                      │
+  ├─────┼───────────────────────┼──────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ M1  │ test_runner.py:182    │ steps.index(step) O(n) minden mintánál                                           │ step_index paraméterként átadva _run_step()-nek │
+  ├─────┼───────────────────────┼──────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ M2  │ safety.py:121–124     │ Dead változók (deep_discharge_min_V, normal_min_V)                               │ Törölni                                         │
+  ├─────┼───────────────────────┼──────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ M3  │ charge_controller.py  │ _run_charge_cv() és _run_taper_hold() nem rendelkeznek saját safety checkekkel   │ Ld. K2                                          │
+  ├─────┼───────────────────────┼──────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ M4  │ instrument_manager.py │ read_all() silent None-okat ad vissza — hívónak nincs jelzés melyik műszer hibás │ Opcionális failed_instruments key               │
+  └─────┴───────────────────────┴──────────────────────────────────────────────────────────────────────────────────┴─────────────────────────────────────────────────┘
+
+  ---
+  5. TESZTELÉSI JAVASLATOK
+
+  ┌─────┬────────────────────────────────────────────┬───────────────────────────────────────────────┬─────────────────────────────────────┐
+  │  #  │                   Teszt                    │                    Elvárás                    │        Jelenlegi viselkedés         │
+  ├─────┼────────────────────────────────────────────┼───────────────────────────────────────────────┼─────────────────────────────────────┤
+  │ T1  │ Valódi dt_s vs névleges mérés: I/O idő > 0 │ Integrátor a tényleges eltelt időt integrálja │ Mindig 2.0s-t integrál              │
+  ├─────┼────────────────────────────────────────────┼───────────────────────────────────────────────┼─────────────────────────────────────┤
+  │ T2  │ PSU readback raises CHARGE_CV-ben          │ PSU_COMM_LOST fault                           │ 0.0A → taper → CHARGE_DONE          │
+  ├─────┼────────────────────────────────────────────┼───────────────────────────────────────────────┼─────────────────────────────────────┤
+  │ T3  │ Ah > max_charge_Ah_factor CV fázisban      │ MAX_CHARGE_AH_REACHED fault                   │ Nincs leállás                       │
+  ├─────┼────────────────────────────────────────────┼───────────────────────────────────────────────┼─────────────────────────────────────┤
+  │ T4  │ u_drop_V > 1.25V töltés közben             │ SERIES_DROP_TOO_HIGH fault                    │ Csak naplózódik                     │
+  ├─────┼────────────────────────────────────────────┼───────────────────────────────────────────────┼─────────────────────────────────────┤
+  │ T5  │ checkpoint.json write közben kill          │ JSON valid marad                              │ Csonka JSON                         │
+  ├─────┼────────────────────────────────────────────┼───────────────────────────────────────────────┼─────────────────────────────────────┤
+  │ T6  │ DMM read hiba INIT-ben, majd sikeres mérés │ DMM_FEEDBACK_LOST_AT_PRECHECK                 │ DEEPLY_DISCHARGED félrevezető fault │
+  └─────┴────────────────────────────────────────────┴───────────────────────────────────────────────┴─────────────────────────────────────┘
+
+  ---
+  Összefoglaló: 4 kritikus + 5 valós kockázat + 4 edge case. A legsürgetőbb K1 (Ah pontatlanság), K2 (CV fázis limit hiány) és K3 (series_drop check nincs bekötve) — ezek safety szempontból a legjelentősebbek fizikai tesztnél.
