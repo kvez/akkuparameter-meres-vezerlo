@@ -936,3 +936,41 @@ class TestRealDtIntegration:
             f"Elvárt ~2.4s valós dt_s, kapott {recorded_dt[0]}s (nominális tick=1.0s)"
         )
         logger.close()
+
+
+class TestLoggerCloseOnTermination:
+    """E5: Logger.close() terminális állapotokban hívódik."""
+
+    def test_logger_close_called_on_done(self, tmp_path):
+        from unittest.mock import MagicMock
+        from Prog.src.logger import Logger, LogConfig
+
+        real_logger = Logger(tmp_path, LogConfig())
+        logger_mock = MagicMock(wraps=real_logger)
+
+        runner, _ = _make_runner(tmp_path / "unused", rc=_StubRelaxCtrl(steps_to_done=1))
+        runner._logger = logger_mock
+
+        step = TestStep(StepKind.RELAX, "relax")
+        plan = TestPlan(test_type=None, steps=(step,))
+        runner.run(plan)
+
+        logger_mock.close.assert_called()
+        real_logger.close()
+
+    def test_logger_close_called_on_fault(self, tmp_path):
+        from unittest.mock import MagicMock
+        from Prog.src.logger import Logger, LogConfig
+
+        real_logger = Logger(tmp_path, LogConfig())
+        logger_mock = MagicMock(wraps=real_logger)
+
+        fault_cc = _StubChargeCtrl(steps_to_done=5, fault_at_step=2)
+        runner, _ = _make_runner(tmp_path / "unused2", cc=fault_cc)
+        runner._logger = logger_mock
+
+        plan = TestPlan(test_type=None, steps=(TestStep(StepKind.CHARGE, "charge"),))
+        runner.run(plan)
+
+        logger_mock.close.assert_called()
+        real_logger.close()

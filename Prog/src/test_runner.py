@@ -170,6 +170,7 @@ class TestRunner:
             return self._emergency_stop(f"UNHANDLED_EXCEPTION: {exc}")
 
         self.status = "DONE"
+        self._logger.close()
         return TestResult(
             status="DONE",
             total_charge_ah=self._total_charge_ah,
@@ -255,7 +256,7 @@ class TestRunner:
         self._instruments.safe_all_off()
         self._logger.log_event("EMERGENCY_STOP", reason, is_critical=True)
         self._logger.write_checkpoint({"status": "FAULT", "reason": reason})
-        self._logger.flush_all()
+        self._logger.close()
         if self.on_event is not None:
             self.on_event({"event_code": "EMERGENCY_STOP", "event_message": reason})
         return TestResult(
@@ -271,7 +272,7 @@ class TestRunner:
         self._instruments.safe_all_off()
         self._logger.log_event("GRACEFUL_STOP", reason)
         self._logger.write_checkpoint({"status": "STOPPED", "reason": reason})
-        self._logger.flush_all()
+        self._logger.close()
         if self.on_event is not None:
             self.on_event({"event_code": "GRACEFUL_STOP", "event_message": reason})
         return TestResult(

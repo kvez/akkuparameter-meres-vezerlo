@@ -78,6 +78,7 @@ class Logger:
         self._config = config
         self._last_commit_wall_t: float = time.monotonic()
         self._pending_rows: list[tuple] = []
+        self._closed: bool = False
 
         # CSV
         self._csv_path = self._dir / "samples.csv"
@@ -137,6 +138,9 @@ class Logger:
         self._event_file.flush()
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         self.flush_all()
         self._csv_file.close()
         self._event_file.close()
