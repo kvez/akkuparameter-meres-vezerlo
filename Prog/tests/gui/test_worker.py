@@ -1,7 +1,5 @@
 """TestRunnerWorker unit tesztek — Mock TestRunner-rel."""
 from __future__ import annotations
-import pytest
-from PySide6.QtCore import QObject, Signal, QThread
 
 from Prog.gui.worker import TestRunnerWorker
 from Prog.src.test_runner import TestResult, TestPlan
@@ -124,12 +122,12 @@ class TestWorkerSignals:
 
     def test_runner_on_sample_wired(self, qapp):
         mock_runner = _MockRunner(TestResult(status="DONE"))
-        worker = TestRunnerWorker(mock_runner, TestPlan.characterization())
+        _worker = TestRunnerWorker(mock_runner, TestPlan.characterization())
         assert mock_runner.on_sample is not None
 
     def test_runner_on_event_wired(self, qapp):
         mock_runner = _MockRunner(TestResult(status="DONE"))
-        worker = TestRunnerWorker(mock_runner, TestPlan.characterization())
+        _worker = TestRunnerWorker(mock_runner, TestPlan.characterization())
         assert mock_runner.on_event is not None
 
     def test_worker_exception_emits_fault(self, qapp):

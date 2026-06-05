@@ -5,12 +5,10 @@ Keithley2380Load SCPI driver.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from Prog.src.exceptions import (
     InstrumentTimeoutError,
-    InstrumentConnectionLost,
-    InstrumentInvalidReading,
 )
 
 
@@ -19,7 +17,7 @@ class Keithley2380Load:
     timeout_ms: int = 5000
     max_retries: int = 3
 
-    _resource: object = field(default=None, init=False, repr=False)
+    _resource: Any = field(default=None, init=False, repr=False)
     _connected: bool = field(default=False, init=False, repr=False)
     _input_cmd: str = field(default="INP", init=False, repr=False)
     input_commanded_on: bool = field(default=False, init=False)

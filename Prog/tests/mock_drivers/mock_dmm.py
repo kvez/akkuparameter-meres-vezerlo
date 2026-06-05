@@ -3,7 +3,6 @@ MockDMM — determinisztikus szimulált DMM teszteléshez.
 Kezeli a DMM1 (feszültség) és DMM2 (hőmérséklet) szerepeket egyaránt.
 """
 from __future__ import annotations
-import math
 from dataclasses import dataclass, field
 from Prog.src.exceptions import InstrumentTimeoutError, InstrumentInvalidReading
 

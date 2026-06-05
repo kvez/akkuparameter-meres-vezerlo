@@ -4,7 +4,6 @@ Csak az állapotfüggetlen és konfigurálható policy-ket teszteli.
 A tényleges mérési ciklus safety (BATTERY_OVERVOLTAGE stb.) a charge_controller
 tesztjeinél kerül ellenőrzésre mock driverekkel.
 """
-import pytest
 from Prog.src.battery_profile import BatteryProfile
 from Prog.src.safety import (
     SafetyManager,
@@ -21,7 +20,7 @@ def make_12v_profile(**kwargs) -> BatteryProfile:
         nominal_capacity_Ah=7.0, cell_count=6, nominal_voltage_V=12.0,
     )
     defaults.update(kwargs)
-    return BatteryProfile(**defaults)
+    return BatteryProfile(**defaults)  # type: ignore[arg-type]
 
 
 def make_24v_profile(**kwargs) -> BatteryProfile:
@@ -30,7 +29,7 @@ def make_24v_profile(**kwargs) -> BatteryProfile:
         nominal_capacity_Ah=18.0, cell_count=12, nominal_voltage_V=24.0,
     )
     defaults.update(kwargs)
-    return BatteryProfile(**defaults)
+    return BatteryProfile(**defaults)  # type: ignore[arg-type]
 
 
 class TestPsuModeCompatibility:

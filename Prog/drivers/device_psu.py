@@ -4,16 +4,12 @@ Mód-agnosztikus output API [N7] — controller réteg CH1/CH2-t nem lát.
 [N9] output_commanded_on nyilvántartás.
 """
 from __future__ import annotations
-import math
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from Prog.src.safety import PsuMode
 from Prog.src.exceptions import (
     InstrumentTimeoutError,
-    InstrumentConnectionLost,
-    InstrumentCommandError,
-    InstrumentInvalidReading,
 )
 
 
@@ -23,7 +19,7 @@ class Keithley2220PSU:
     timeout_ms: int = 5000
     max_retries: int = 3
 
-    _resource: object = field(default=None, init=False, repr=False)
+    _resource: Any = field(default=None, init=False, repr=False)
     _connected: bool = field(default=False, init=False, repr=False)
     _output_cmd: str = field(default="OUTP", init=False, repr=False)
     output_commanded_on: bool = field(default=False, init=False)

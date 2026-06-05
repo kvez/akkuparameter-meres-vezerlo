@@ -7,7 +7,7 @@ TEMP mód: DMM2 (4-wire PT100, FRTD)
 from __future__ import annotations
 import math
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from Prog.src.exceptions import (
     InstrumentTimeoutError,
@@ -23,7 +23,7 @@ class Keysight34465ADMM:
     max_retries: int = 3
     max_voltage_jump_V: float = 2.0     # [N8] max megengedett ugrás mintánként
 
-    _resource: object = field(default=None, init=False, repr=False)
+    _resource: Any = field(default=None, init=False, repr=False)
     _connected: bool = field(default=False, init=False, repr=False)
     _last_valid_voltage: Optional[float] = field(default=None, init=False, repr=False)
 

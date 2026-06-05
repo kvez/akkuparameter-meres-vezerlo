@@ -4,7 +4,16 @@ SessionConfig: GUI által kitöltött paraméterek, validate() visszaadja a hib�
 Qt widget: Task 4-ben kerül ide.
 """
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import yaml
+from PySide6.QtWidgets import (
+    QWidget, QFormLayout, QLineEdit, QDoubleSpinBox, QComboBox,
+    QCheckBox, QGroupBox, QVBoxLayout, QPushButton, QLabel, QScrollArea,
+)
+from PySide6.QtCore import Signal
 
 
 @dataclass
@@ -57,18 +66,6 @@ class SessionConfig:
             errors.append("FIAMM_24V (24V pack) csak SERIES PSU módban indítható")
 
         return errors
-
-
-from pathlib import Path
-from typing import Any
-
-import yaml
-from PySide6.QtWidgets import (
-    QWidget, QFormLayout, QLineEdit, QDoubleSpinBox, QComboBox,
-    QCheckBox, QGroupBox, QVBoxLayout, QPushButton, QHBoxLayout,
-    QLabel, QScrollArea,
-)
-from PySide6.QtCore import Signal
 
 
 _PROFILE_DEFAULTS = {

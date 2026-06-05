@@ -1,7 +1,6 @@
 """
 Keysight34465ADMM unit tesztek — pyvisa resource mock-kal.
 """
-import math
 import pytest
 from unittest.mock import MagicMock
 from Prog.drivers.device_dmm import Keysight34465ADMM

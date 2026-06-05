@@ -1,7 +1,6 @@
 """
 Integrator unit tesztek — Ah/Wh numerikus integráló [R8, R14].
 """
-import pytest
 from Prog.src.integrator import Integrator
 
 

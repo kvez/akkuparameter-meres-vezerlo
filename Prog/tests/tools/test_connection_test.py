@@ -1,6 +1,4 @@
 """Prog/tools/connection_test.py pure funkcióinak tesztjei."""
-import pytest
-from pathlib import Path
 import yaml
 
 

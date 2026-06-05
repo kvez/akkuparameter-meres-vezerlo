@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional
 
@@ -118,17 +118,10 @@ class SafetyManager:
 
         24V pack: határok kétszerese (12.0 / 21.0 / batt_absolute_max_V).
         """
-        deep_discharge_min_V = self.profile.cell_count * 1.75
-        normal_min_V = self.profile.cell_count * 1.75 + (
-            self.profile.cell_count * 0.0
-        )
-
         if self.profile.cell_count == 6:
             deep_discharge_threshold_V = 10.5
-            absolute_low_V = 6.0
         else:
             deep_discharge_threshold_V = 21.0
-            absolute_low_V = 12.0
 
         if measured_voltage_V > self.profile.batt_absolute_max_V:
             return SafetyResult(

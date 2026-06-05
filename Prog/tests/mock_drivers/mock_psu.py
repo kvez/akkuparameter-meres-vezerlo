@@ -4,7 +4,6 @@ Minden hívás logolódik; az állapot programozható.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Optional
 from Prog.src.exceptions import InstrumentTimeoutError
 
 

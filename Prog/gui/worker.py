@@ -5,7 +5,7 @@ A TestRunner GUI-független marad; a worker fordítja signalokra a callback-eket
 from __future__ import annotations
 from PySide6.QtCore import QObject, Signal, Slot
 
-from Prog.src.test_runner import TestRunner, TestPlan
+from Prog.src.test_runner import TestPlan
 
 
 class TestRunnerWorker(QObject):

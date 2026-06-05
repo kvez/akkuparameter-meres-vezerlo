@@ -4,9 +4,7 @@ Logger unit tesztek — valós fájlrendszer, tmp_path fixture.
 import csv
 import json
 import sqlite3
-from pathlib import Path
 
-import pytest
 from Prog.src.logger import Logger, LogConfig, CSV_COLUMNS
 
 

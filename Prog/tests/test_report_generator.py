@@ -1,7 +1,6 @@
 """
 ReportGenerator unit tesztek — kötelező mezők és MEASUREMENT_LIMITATIONS.
 """
-import pytest
 from Prog.src.report_generator import ReportGenerator
 
 

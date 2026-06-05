@@ -4,7 +4,7 @@ Keithley2380Load unit tesztek — pyvisa resource mock-kal.
 import pytest
 from unittest.mock import MagicMock
 from Prog.drivers.device_load import Keithley2380Load
-from Prog.src.exceptions import InstrumentTimeoutError, InstrumentInvalidReading
+from Prog.src.exceptions import InstrumentTimeoutError
 
 
 def make_load() -> tuple[Keithley2380Load, MagicMock]:

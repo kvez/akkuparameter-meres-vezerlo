@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, Callable
+from typing import Callable, Optional
 
 from Prog.src.battery_profile import BatteryProfile
 from Prog.src.charge_controller import ChargeState
@@ -119,15 +119,15 @@ class TestRunner:
         self.emergency_stop_reason: str = ""
 
         self.status: str = "IDLE"
-        self.on_sample: "Callable[[dict], None] | None" = None
-        self.on_event: "Callable[[dict], None] | None" = None
-        self.current_step = None
+        self.on_sample: Optional[Callable[[dict], None]] = None
+        self.on_event: Optional[Callable[[dict], None]] = None
+        self.current_step: Optional[TestStep] = None
 
         self._total_charge_ah: float = 0.0
         self._total_discharge_ah: float = 0.0
-        self._start_time = None
-        self._active_plan = None
-        self.on_step_changed: "Callable[[dict], None] | None" = None
+        self._start_time: Optional[datetime] = None
+        self._active_plan: Optional[TestPlan] = None
+        self.on_step_changed: Optional[Callable[[dict], None]] = None
 
     def request_stop(self) -> None:
         self.stop_requested = True
@@ -284,6 +284,7 @@ class TestRunner:
 
     def _run_manual_checkpoint(self, step: TestStep) -> TestResult:
         """BQ kézi ellenőrzési pont — CHECKPOINT_STOPPED státusz, on_event hívással."""
+        assert self._active_plan is not None
         steps = self._active_plan.steps
         next_step_index = steps.index(step) + 1
         checkpoint_is_terminal = (next_step_index >= len(steps))

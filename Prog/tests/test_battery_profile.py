@@ -13,7 +13,7 @@ def make_profile(**kwargs) -> BatteryProfile:
         nominal_voltage_V=12.0,
     )
     defaults.update(kwargs)
-    return BatteryProfile(**defaults)
+    return BatteryProfile(**defaults)  # type: ignore[arg-type]
 
 
 class TestCRateCalculation:

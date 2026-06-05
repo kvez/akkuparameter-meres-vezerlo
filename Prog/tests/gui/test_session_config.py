@@ -1,5 +1,4 @@
 """SessionConfig validáció unit tesztek."""
-import pytest
 from Prog.gui.panels.config_panel import SessionConfig
 
 

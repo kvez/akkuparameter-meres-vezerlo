@@ -4,8 +4,6 @@ Ah/Wh numerikus integráló [R8, R14].
 [N5] SETPOINT_FALLBACK időkorlát és DEGRADED quality flag.
 """
 from dataclasses import dataclass, field
-from Prog.src.exceptions import CriticalSafetyFault
-from Prog.src.safety import FaultCode
 
 
 @dataclass

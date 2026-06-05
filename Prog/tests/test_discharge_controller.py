@@ -1,9 +1,8 @@
 """
 DischargeController unit tesztek.
 """
-import pytest
 from Prog.src.battery_profile import BatteryProfile
-from Prog.src.safety import SafetyManager, PsuMode, TempCompMode
+from Prog.src.safety import SafetyManager, PsuMode
 from Prog.src.discharge_controller import DischargeController, DischargeState, DischargeConfig
 from Prog.tests.mock_drivers.mock_psu import MockPSU
 from Prog.tests.mock_drivers.mock_load import MockLoad

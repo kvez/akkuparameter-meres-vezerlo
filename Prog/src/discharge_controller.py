@@ -6,13 +6,12 @@ DischargeController — CC kisütési állapotgép.
 [R8] Integráció forrása: LOAD_READBACK.
 """
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 from Prog.src.battery_profile import BatteryProfile
 from Prog.src.safety import SafetyManager
 from Prog.src.integrator import Integrator
-from Prog.src.exceptions import InstrumentError
 
 
 class DischargeState(Enum):

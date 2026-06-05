@@ -5,7 +5,6 @@ connect_all(), safe_all_off(), is_all_connected().
 from __future__ import annotations
 from dataclasses import dataclass
 
-from Prog.src.exceptions import InstrumentError
 
 
 @dataclass

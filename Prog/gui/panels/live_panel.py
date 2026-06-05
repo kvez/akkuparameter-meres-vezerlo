@@ -22,7 +22,7 @@ def _make_plot(title: str, y_label: str, color: str) -> tuple[pg.PlotWidget, pg.
     pw.setLabel("left", y_label)
     pw.showGrid(x=True, y=True, alpha=0.3)
     curve = pw.plot(pen=pg.mkPen(color=color, width=2))
-    pw.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+    pw.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)  # type: ignore[attr-defined]
     return pw, curve
 
 
@@ -118,7 +118,7 @@ class LivePanel(QWidget):
             pen=pg.mkPen(color="#4fc3f7", width=2), name="Charge Ah")
         self._curve_dch_ah = self._pw_ah.plot(
             pen=pg.mkPen(color="#ef9a9a", width=2), name="Discharge Ah")
-        self._pw_ah.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._pw_ah.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)  # type: ignore[attr-defined]
 
         for pw in (self._pw_ubatt, self._pw_isign, self._pw_temp,
                    self._pw_udrop, self._pw_ah):

@@ -209,7 +209,7 @@ class MainWindow(QMainWindow):
             manufacturer="FIAMM",
             model=cfg.battery_model,
             nominal_voltage_V=meta["nominal_voltage_V"],
-            cell_count=meta["cell_count"],
+            cell_count=int(meta["cell_count"]),
             nominal_capacity_Ah=cfg.nominal_capacity_ah,
         )
 

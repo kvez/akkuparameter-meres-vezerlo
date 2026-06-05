@@ -1,7 +1,6 @@
 """
 ChargeController unit tesztek — MockPSU/Load/DMM-mel, dt_s injection.
 """
-import pytest
 from Prog.src.battery_profile import BatteryProfile
 from Prog.src.safety import SafetyManager, PsuMode, TempCompMode
 from Prog.src.charge_controller import ChargeController, ChargeState, ChargeConfig

@@ -3,10 +3,10 @@ Keithley2220PSU unit tesztek — pyvisa resource mock-kal.
 Fizikai hardware nélkül futtatható.
 """
 import pytest
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 from Prog.drivers.device_psu import Keithley2220PSU
 from Prog.src.safety import PsuMode
-from Prog.src.exceptions import InstrumentTimeoutError, InstrumentInvalidReading
+from Prog.src.exceptions import InstrumentTimeoutError
 
 
 def make_psu(mode: PsuMode = PsuMode.INDEPENDENT) -> tuple[Keithley2220PSU, MagicMock]:
@@ -209,7 +209,6 @@ class TestRetryLogic:
     def test_write_retries_on_exception(self):
         psu, res = make_psu()
         call_count = 0
-        original_write = res.write.side_effect
 
         def flaky_write(cmd):
             nonlocal call_count
