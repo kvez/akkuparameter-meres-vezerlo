@@ -886,3 +886,53 @@ class TestStepChanged:
         assert calls[1]["step_kind"] == "RELAX"
         assert calls[2]["step_kind"] == "DISCHARGE"
         logger.close()
+
+
+class TestRealDtIntegration:
+    """K1: _run_step() valós dt_s-t ad az advance()-nek, nem nominálisát."""
+
+    def test_advance_receives_actual_elapsed_not_nominal(self, tmp_path):
+        from unittest.mock import patch, MagicMock
+
+        recorded_dt: list[float] = []
+
+        class DtRecordingRelax:
+            def __init__(self):
+                self._tick = 0
+
+            @property
+            def state(self) -> RelaxState:
+                return RelaxState.RELAX_DONE if self._tick >= 2 else RelaxState.RELAXING
+
+            def advance(self, dt_s: float) -> RelaxState:
+                recorded_dt.append(dt_s)
+                self._tick += 1
+                return self.state
+
+            def reset(self) -> None:
+                pass
+
+        runner, logger = _make_runner(tmp_path, rc=DtRecordingRelax())
+
+        # perf_counter: 0.0 → inicializálás, majd 2.4s-os I/O-val emulált tick
+        counter_values = [0.0, 2.4, 4.8, 7.2]
+        counter_idx = [0]
+
+        def mock_perf() -> float:
+            val = counter_values[min(counter_idx[0], len(counter_values) - 1)]
+            counter_idx[0] += 1
+            return val
+
+        step = TestStep(StepKind.RELAX, "relax_dt_test")
+        plan = TestPlan(test_type=None, steps=(step,))
+
+        with patch("Prog.src.test_runner.time") as mock_time:
+            mock_time.perf_counter.side_effect = mock_perf
+            mock_time.sleep = MagicMock()
+            runner.run(plan)
+
+        assert len(recorded_dt) >= 1
+        assert abs(recorded_dt[0] - 2.4) < 0.05, (
+            f"Elvárt ~2.4s valós dt_s, kapott {recorded_dt[0]}s (nominális tick=1.0s)"
+        )
+        logger.close()

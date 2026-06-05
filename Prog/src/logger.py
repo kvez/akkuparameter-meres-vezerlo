@@ -7,6 +7,7 @@ from __future__ import annotations
 import csv
 import json
 import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -74,7 +75,7 @@ class Logger:
         self._dir = Path(session_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
         self._config = config
-        self._elapsed_since_commit = 0.0
+        self._last_commit_wall_t: float = time.monotonic()
         self._pending_rows: list[tuple] = []
 
         # CSV
@@ -107,9 +108,8 @@ class Logger:
         row = {col: sample.get(col, "") for col in CSV_COLUMNS}
         self._csv_writer.writerow(row)
         self._pending_rows.append(tuple(str(row[c]) if row[c] is not None else "" for c in CSV_COLUMNS))
-        self._elapsed_since_commit += sample.get("elapsed_s", 0) or 0
 
-        if self._elapsed_since_commit >= self._config.sqlite_commit_interval_s:
+        if time.monotonic() - self._last_commit_wall_t >= self._config.sqlite_commit_interval_s:
             self._commit_sqlite()
 
     def log_event(self, event_code: str, message: str, is_critical: bool = False) -> None:
@@ -144,4 +144,4 @@ class Logger:
             self._conn.executemany(_SQLITE_INSERT, self._pending_rows)
             self._pending_rows.clear()
         self._conn.commit()
-        self._elapsed_since_commit = 0.0
+        self._last_commit_wall_t = time.monotonic()

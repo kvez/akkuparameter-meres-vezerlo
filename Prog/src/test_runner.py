@@ -199,6 +199,8 @@ class TestRunner:
         charge_ah_before = getattr(controller, "accumulated_charge_Ah", 0.0)
         discharge_ah_before = getattr(controller, "accumulated_discharge_Ah", 0.0)
 
+        _last_tick_t = time.perf_counter()
+
         while not self._is_finished(controller):
             if self.emergency_stop_requested:
                 return self._emergency_stop(self.emergency_stop_reason)
@@ -206,7 +208,10 @@ class TestRunner:
             if self.stop_requested and self._step_can_be_gracefully_interrupted(step):
                 return self._graceful_stop("USER_STOP_REQUESTED")
 
-            controller.advance(self._config.runner_tick_s)
+            _t_now = time.perf_counter()
+            actual_dt_s = _t_now - _last_tick_t
+            _last_tick_t = _t_now
+            controller.advance(actual_dt_s)
 
             sample = self._build_sample(step, controller)
             self._logger.log_sample(sample)
@@ -230,7 +235,8 @@ class TestRunner:
                 )
 
             if self._config.sleep_enabled:
-                time.sleep(self._config.runner_tick_s)
+                _elapsed = time.perf_counter() - _last_tick_t
+                time.sleep(max(0.0, self._config.runner_tick_s - _elapsed))
 
         if step.kind == StepKind.CHARGE:
             self._total_charge_ah += (

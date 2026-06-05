@@ -216,3 +216,28 @@ class TestCriticalFlush:
         count = conn.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
         conn.close()
         assert count == 3
+
+
+class TestLoggerCommitTiming:
+    """V3: Logger SQLite commit wall-clock alapú, nem kumulatív elapsed_s."""
+
+    def test_commit_not_triggered_on_every_sample_after_first(self, tmp_path):
+        cfg = LogConfig(sqlite_commit_interval_s=10.0)
+        logger = Logger(tmp_path, cfg)
+
+        commit_count = [0]
+        original_commit = logger._commit_sqlite
+        def counting_commit():
+            commit_count[0] += 1
+            original_commit()
+        logger._commit_sqlite = counting_commit
+
+        for i in range(5):
+            sample = {col: None for col in CSV_COLUMNS}
+            sample["elapsed_s"] = float((i + 1) * 3600)  # 1h, 2h, ...
+            logger.log_sample(sample)
+
+        # Régi kód: elapsed_s kumulatív → minden mintánál commit (5 db)
+        # Új kód: wall-clock alapú → 5 gyors hívás << 10s → 0 commit
+        assert commit_count[0] <= 1, f"Túl sok commit: {commit_count[0]}"
+        logger.close()
