@@ -142,6 +142,47 @@ class TestDmmFeedbackLost:
         assert psu.called("all_outputs_off")
 
 
+class TestCcToCvTransition:
+    """CC→CV belépésnél a PSU setpoint azonnal frissül (nem marad compliance-en)."""
+
+    def _advance_to_cc(self, dmm_voltage_V):
+        """CHARGE_CC állapotba hoz 3 advance()-szel."""
+        ctrl, psu, load, dmm = make_controller(dmm_voltage_V=dmm_voltage_V)
+        ctrl.advance(dt_s=1.0)  # INIT → PRECHECK
+        ctrl.advance(dt_s=1.0)  # PRECHECK → PSU_PRESET
+        ctrl.advance(dt_s=1.0)  # PSU_PRESET → CHARGE_CC
+        assert ctrl.state == ChargeState.CHARGE_CC
+        return ctrl, psu, load, dmm
+
+    def test_cv_entry_above_target_immediately_reduces_psu(self):
+        """u_batt > target-nél a PSU azonnal alacsonyabb értékre áll, nem marad compliance-en.
+
+        Valós eset: u_batt=14.545V, PSU compliance=15.30V → OV az 1. tickben.
+        Javítás: target + (psu - u_batt) = 14.40 + 0.75 = 15.15V azonnal.
+        """
+        ctrl, psu, load, dmm = self._advance_to_cc(dmm_voltage_V=14.50)
+        compliance_V = psu.voltage_V  # PSU_PRESET után: 14.40 + 0.90 = 15.30V
+
+        ctrl.advance(dt_s=1.0)  # CHARGE_CC → CHARGE_CV_DMM_CONTROL
+
+        assert ctrl.state == ChargeState.CHARGE_CV_DMM_CONTROL
+        # PSU-t azonnal csökkenteni kell: target + (compliance - u_batt) < compliance
+        expected_V = 14.40 + (compliance_V - 14.50)  # 14.40 + 0.80 = 15.20V
+        assert abs(psu.voltage_V - expected_V) < 0.001
+        assert psu.voltage_V < compliance_V - 0.05
+
+    def test_cv_entry_at_margin_keeps_compliance(self):
+        """u_batt = target - margin esetén a PSU max compliance-en marad (clamp)."""
+        ctrl, psu, load, dmm = self._advance_to_cc(dmm_voltage_V=14.30)
+        compliance_V = psu.voltage_V  # 15.30V
+
+        ctrl.advance(dt_s=1.0)  # CHARGE_CC → CHARGE_CV_DMM_CONTROL
+
+        assert ctrl.state == ChargeState.CHARGE_CV_DMM_CONTROL
+        # u_drop = 15.30 - 14.30 = 1.00V, target + drop = 15.40V → clamp → 15.30V
+        assert abs(psu.voltage_V - compliance_V) < 0.001
+
+
 class TestBatteryOvervoltage:
     def test_overvoltage_during_charging_causes_fault(self):
         ctrl, psu, load, dmm = make_controller(dmm_voltage_V=12.5)

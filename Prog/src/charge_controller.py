@@ -265,12 +265,21 @@ class ChargeController:
 
         target_V = self._effective_charge_target_V()
         if self._u_batt >= target_V - self._config.cv_entry_margin_V:
-            # PSU compliance feszültség (15.30V) helyett az aktuális PSU kimenetet
-            # vesszük alapnak — különben a CV szabályozó a 15.30V-ról indul, ami
-            # az áramcsökkentés hatására (dióda-esés csökken) OV-t okozhat.
             u_psu_now = self._read_psu_voltage()
             if u_psu_now is not None:
-                self._u_psu_set = u_psu_now
+                # CV belépési PSU preset = cél + aktuálisan mért esés (dióda + kábel).
+                # A PSU-t AZONNAL csökkentjük — különben marad a 15.30V compliance-en
+                # egy teljes tickig, ami elegendő OV-t okozni, ha u_batt már közel van
+                # a határhoz. Clamp: ha u_batt < target (normál belépés), ne menjük
+                # compliance fölé (target+drop > compliance lenne).
+                u_drop = max(u_psu_now - self._u_batt, 0.0)
+                self._u_psu_set = min(
+                    target_V + u_drop,
+                    target_V + self._config.max_expected_series_drop_V,
+                )
+            else:
+                self._u_psu_set = target_V + self._config.max_expected_series_drop_V
+            self._psu.set_output_voltage(self._u_psu_set)
             self._state = ChargeState.CHARGE_CV_DMM_CONTROL
 
     def _run_charge_cv(self, dt_s: float) -> None:
