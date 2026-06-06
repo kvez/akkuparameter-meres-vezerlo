@@ -6,11 +6,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from PySide6.QtCore import QThread
+from PySide6.QtCore import Qt, QThread
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QMainWindow, QTabWidget, QMessageBox, QStatusBar,
+    QLabel, QMainWindow, QTabWidget, QMessageBox, QStatusBar,
 )
 
+from Prog import app_paths
 from Prog.gui.panels.config_panel import ConfigPanel, SessionConfig
 from Prog.gui.panels.live_panel import LivePanel
 from Prog.gui.panels.checkpoint_panel import CheckpointPanel
@@ -52,6 +54,17 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self._status_bar)
         self._status_bar.showMessage(
             "Kész — konfiguráld a paramétereket és nyomj Start-ot.")
+
+        logo_path = app_paths.resources_dir() / "psnd.png"
+        if logo_path.exists():
+            self.setWindowIcon(QIcon(str(logo_path)))
+            pixmap = QPixmap(str(logo_path)).scaledToHeight(
+                24, Qt.TransformationMode.SmoothTransformation
+            )
+            logo_label = QLabel()
+            logo_label.setPixmap(pixmap)
+            logo_label.setContentsMargins(4, 0, 4, 0)
+            self._status_bar.addPermanentWidget(logo_label)
 
     # ------------------------------------------------------------------ #
     # Start / Stop                                                        #

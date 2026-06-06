@@ -16,6 +16,7 @@ a = Analysis(
         ("Prog/config/local_config.template.yaml",       "Prog/config"),
         ("Prog/config/battery_profiles/FIAMM_12V.yaml",  "Prog/config/battery_profiles"),
         ("Prog/config/battery_profiles/FIAMM_24V.yaml",  "Prog/config/battery_profiles"),
+        ("Prog/resources/psnd.png",                      "Prog/resources"),
         ("INSTALL.md",                                   "."),
     ] + pyqtgraph_datas,
     hiddenimports=[

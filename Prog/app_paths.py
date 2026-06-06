@@ -38,3 +38,8 @@ def local_config_template_path() -> Path:
 def default_config_path() -> Path:
     """Beágyazott default_config.yaml."""
     return bundle_dir() / "Prog" / "config" / "default_config.yaml"
+
+
+def resources_dir() -> Path:
+    """Beágyazott resources/ mappa (képek, ikonok)."""
+    return bundle_dir() / "Prog" / "resources"
