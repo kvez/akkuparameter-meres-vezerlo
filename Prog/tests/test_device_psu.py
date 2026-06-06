@@ -134,26 +134,45 @@ class TestMeasurement:
 
 
 class TestCombinationMode:
-    def test_set_mode_independent_sends_comb_off(self):
+    def test_set_mode_independent_sends_ser_off_and_par_off(self):
         psu, res = make_psu()
         psu.set_mode_independent()
-        assert any("COMB" in c and "OFF" in c for c in writes(res))
+        cmds = writes(res)
+        assert any("SOUR:OUTP:SER" in c and "OFF" in c for c in cmds)
+        assert any("SOUR:OUTP:PAR" in c and "OFF" in c for c in cmds)
 
-    def test_set_mode_series_sends_comb_ser(self):
+    def test_set_mode_series_sends_ser_on(self):
         psu, res = make_psu()
         psu.set_mode_series()
-        assert any("COMB" in c and "SER" in c for c in writes(res))
+        cmds = writes(res)
+        assert any("SOUR:OUTP:SER" in c and "ON" in c for c in cmds)
+        assert any("SOUR:OUTP:PAR" in c and "OFF" in c for c in cmds)
 
-    def test_set_mode_parallel_sends_comb_par(self):
+    def test_set_mode_parallel_sends_par_on(self):
         psu, res = make_psu()
         psu.set_mode_parallel()
-        assert any("COMB" in c and "PAR" in c for c in writes(res))
+        cmds = writes(res)
+        assert any("SOUR:OUTP:PAR" in c and "ON" in c for c in cmds)
+        assert any("SOUR:OUTP:SER" in c and "OFF" in c for c in cmds)
 
-    def test_query_combination_mode_queries_comb(self):
+    def test_query_combination_mode_independent_returns_off(self):
         psu, res = make_psu()
-        res.query.return_value = "NONE"
-        psu.query_combination_mode()
-        assert any("COMB" in q for q in queries(res))
+        res.query.return_value = "0"
+        result = psu.query_combination_mode()
+        assert any("SOUR:OUTP:SER?" in q for q in queries(res))
+        assert result == "OFF"
+
+    def test_query_combination_mode_series_returns_ser(self):
+        psu, res = make_psu()
+        res.query.side_effect = ["1", "0"]  # SER=1, PAR=0
+        result = psu.query_combination_mode()
+        assert result == "SER"
+
+    def test_query_combination_mode_parallel_returns_par(self):
+        psu, res = make_psu()
+        res.query.side_effect = ["0", "1"]  # SER=0, PAR=1
+        result = psu.query_combination_mode()
+        assert result == "PAR"
 
     def test_set_mode_updates_combination_mode(self):
         psu, res = make_psu()
@@ -164,6 +183,29 @@ class TestCombinationMode:
         psu, res = make_psu()
         psu.set_mode_parallel()
         assert psu.combination_mode == PsuMode.PARALLEL
+
+
+class TestLastCmdTracking:
+    def test_last_cmd_updated_after_write(self):
+        psu, res = make_psu()
+        psu.set_output_voltage(14.4)
+        assert "SOUR:VOLT" in psu._last_cmd
+
+    def test_check_error_includes_last_cmd(self):
+        psu, res = make_psu()
+        psu._last_cmd = "SOUR:VOLT 15.30"
+        res.query.return_value = '+170,"Invalid command"'
+        errors = psu.check_error()
+        assert len(errors) > 0
+        assert "last:" in errors[0]
+        assert "SOUR:VOLT" in errors[0]
+
+    def test_no_error_does_not_include_last_cmd(self):
+        psu, res = make_psu()
+        psu._last_cmd = "SOUR:VOLT 14.4"
+        res.query.return_value = '+0,"No error"'
+        errors = psu.check_error()
+        assert errors == []
 
 
 class TestBasicScpi:

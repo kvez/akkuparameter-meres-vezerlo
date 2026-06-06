@@ -269,7 +269,7 @@ class MainWindow(QMainWindow):
             psu.set_mode_series()
 
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        session_dir = Path("Mérések") / f"session_{cfg.battery_model}_{stamp}"
+        session_dir = Path("Mérések") / "Sessions" / f"session_{cfg.battery_model}_{stamp}"
         logger = Logger(session_dir, LogConfig())
 
         charge_ctrl = ChargeController(

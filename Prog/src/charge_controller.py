@@ -265,6 +265,12 @@ class ChargeController:
 
         target_V = self._effective_charge_target_V()
         if self._u_batt >= target_V - self._config.cv_entry_margin_V:
+            # PSU compliance feszültség (15.30V) helyett az aktuális PSU kimenetet
+            # vesszük alapnak — különben a CV szabályozó a 15.30V-ról indul, ami
+            # az áramcsökkentés hatására (dióda-esés csökken) OV-t okozhat.
+            u_psu_now = self._read_psu_voltage()
+            if u_psu_now is not None:
+                self._u_psu_set = u_psu_now
             self._state = ChargeState.CHARGE_CV_DMM_CONTROL
 
     def _run_charge_cv(self, dt_s: float) -> None:

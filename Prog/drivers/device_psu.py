@@ -22,6 +22,7 @@ class Keithley2220PSU:
     _resource: Any = field(default=None, init=False, repr=False)
     _connected: bool = field(default=False, init=False, repr=False)
     _output_cmd: str = field(default="OUTP", init=False, repr=False)
+    _last_cmd: str = field(default="", init=False, repr=False)
     output_commanded_on: bool = field(default=False, init=False)
 
     # ------------------------------------------------------------------ #
@@ -79,7 +80,7 @@ class Keithley2220PSU:
         resp = self._query("SYST:ERR?")
         if resp.startswith("+0") or resp.startswith("0,"):
             return []
-        return [resp.strip()]
+        return [f"{resp.strip()} [last: {self._last_cmd}]"]
 
     def safe_off(self) -> None:
         try:
@@ -130,21 +131,29 @@ class Keithley2220PSU:
     # ------------------------------------------------------------------ #
 
     def set_mode_independent(self) -> None:
-        self._write("INST:COMB:OFF")
+        # Fw 1.15-1.05: INST:COMB:OFF → error 170. Helyes: SOUR:OUTP:SER/PAR OFF/ON.
+        self._write("SOUR:OUTP:SER OFF")
+        self._write("SOUR:OUTP:PAR OFF")
         self.combination_mode = PsuMode.INDEPENDENT
 
     def set_mode_series(self) -> None:
-        self._write("INST:COMB:SER")
+        self._write("SOUR:OUTP:PAR OFF")
+        self._write("SOUR:OUTP:SER ON")
         self.combination_mode = PsuMode.SERIES
 
     def set_mode_parallel(self) -> None:
-        self._write("INST:COMB:PAR")
+        self._write("SOUR:OUTP:SER OFF")
+        self._write("SOUR:OUTP:PAR ON")
         self.combination_mode = PsuMode.PARALLEL
 
     def query_combination_mode(self) -> str:
-        # [FIRMWARE KORLÁT] INST:COMB? fw 1.15-1.05-ön "Invalid command" (170) hibát ad,
-        # bár a manual dokumentálja. A program a combination_mode attribútumot használja.
-        return self._query("INST:COMB?").strip()
+        ser = self._query("SOUR:OUTP:SER?").strip()
+        par = self._query("SOUR:OUTP:PAR?").strip()
+        if ser == "1":
+            return "SER"
+        if par == "1":
+            return "PAR"
+        return "OFF"
 
     # ------------------------------------------------------------------ #
     # Belső segédek                                                        #
@@ -154,6 +163,7 @@ class Keithley2220PSU:
         self._write("INST:SEL CH1")
 
     def _write(self, cmd: str) -> None:
+        self._last_cmd = cmd
         last_err: Optional[Exception] = None
         for _ in range(self.max_retries):
             try:

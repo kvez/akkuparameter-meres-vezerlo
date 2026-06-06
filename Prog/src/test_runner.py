@@ -89,6 +89,7 @@ class TestRunnerConfig:
     runner_tick_s: float = 2.0
     test_name: str = "unnamed"
     sleep_enabled: bool = True
+    device_error_poll_interval_s: float = 60.0
 
 
 class TestRunner:
@@ -127,6 +128,7 @@ class TestRunner:
         self._total_charge_ah: float = 0.0
         self._total_discharge_ah: float = 0.0
         self._start_time: Optional[datetime] = None
+        self._last_device_error_poll_t: float = -1e9  # első tick azonnal pollol
         self._active_plan: Optional[TestPlan] = None
         self.on_step_changed: Optional[Callable[[dict], None]] = None
 
@@ -225,7 +227,8 @@ class TestRunner:
             if self.on_sample is not None:
                 self.on_sample(sample)
 
-            self._poll_device_errors()
+            if self._should_poll_device_errors():
+                self._poll_device_errors()
 
             self._logger.flush_all()
             self._logger.write_checkpoint({
@@ -237,6 +240,9 @@ class TestRunner:
             })
 
             if self._controller_faulted(controller):
+                # Forced poll fault esetén — a hibát okozó SCPI parancs kontextusa
+                # még az error queue-ban lehet.
+                self._poll_device_errors()
                 return TestResult(
                     status="FAULT",
                     reason=getattr(controller, "fault_reason", "CONTROLLER_FAULT"),
@@ -259,7 +265,12 @@ class TestRunner:
 
         return TestResult(status="DONE")
 
+    def _should_poll_device_errors(self) -> bool:
+        return (time.monotonic() - self._last_device_error_poll_t
+                >= self._config.device_error_poll_interval_s)
+
     def _poll_device_errors(self) -> None:
+        self._last_device_error_poll_t = time.monotonic()
         errors = self._instruments.poll_device_errors()
         for err in errors:
             ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
