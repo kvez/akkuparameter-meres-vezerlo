@@ -5,7 +5,6 @@ Qt widget: Task 4-ben kerül ide.
 """
 from __future__ import annotations
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import yaml
@@ -75,8 +74,6 @@ _PROFILE_DEFAULTS = {
                   "battery_name": "FIAMM AGM 24V", "manufacturer": "FIAMM"},
 }
 
-_DEFAULT_CONFIG_PATH = Path(__file__).parents[2] / "config" / "default_config.yaml"
-_LOCAL_CONFIG_PATH = Path(__file__).parents[2] / "config" / "local_config.yaml"
 
 
 class ConfigPanel(QWidget):
@@ -146,6 +143,10 @@ class ConfigPanel(QWidget):
         self._dmm_t_res_edit = QLineEdit()
         self._dmm_t_res_edit.setPlaceholderText("TCPIP0::192.168.x.x::inst0::INSTR")
         instr_form.addRow("DMM hőmérséklet:", self._dmm_t_res_edit)
+
+        search_btn = QPushButton("Eszközök keresése…")
+        search_btn.clicked.connect(self._open_device_search)
+        instr_form.addRow("", search_btn)
 
         save_btn = QPushButton("Resource stringek mentése (local_config.yaml)")
         save_btn.clicked.connect(self._save_local_config)
@@ -226,8 +227,9 @@ class ConfigPanel(QWidget):
         self._psu_mode_info_label.setText(info.get(mode, ""))
 
     def _load_yaml(self) -> None:
+        from Prog import app_paths
         cfg: dict[str, Any] = {}
-        for path in (_DEFAULT_CONFIG_PATH, _LOCAL_CONFIG_PATH):
+        for path in (app_paths.default_config_path(), app_paths.local_config_path()):
             if path.exists():
                 with path.open(encoding="utf-8") as f:
                     loaded = yaml.safe_load(f) or {}
@@ -258,6 +260,7 @@ class ConfigPanel(QWidget):
             self._temp_comp_combo.setCurrentIndex(idx)
 
     def _save_local_config(self) -> None:
+        from Prog import app_paths
         data = {
             "instruments": {
                 "psu":             {"resource": self._psu_res_edit.text()},
@@ -266,9 +269,15 @@ class ConfigPanel(QWidget):
                 "dmm_temperature": {"resource": self._dmm_t_res_edit.text()},
             }
         }
-        _LOCAL_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with _LOCAL_CONFIG_PATH.open("w", encoding="utf-8") as f:
+        path = app_paths.local_config_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as f:
             yaml.dump(data, f, allow_unicode=True)
+
+    def _open_device_search(self) -> None:
+        from Prog.gui.panels.device_search_dialog import DeviceSearchDialog
+        dlg = DeviceSearchDialog(self)
+        dlg.exec()
 
     def get_session_config(self) -> SessionConfig:
         return SessionConfig(
