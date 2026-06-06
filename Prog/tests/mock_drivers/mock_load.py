@@ -24,6 +24,7 @@ class MockLoad:
     voltage_discharge_slope_V_per_Ah: float = 0.5
 
     calls: list[str] = field(default_factory=list)
+    pending_errors: list[str] = field(default_factory=list)
 
     def connect(self, resource: str) -> None:
         self.calls.append(f"connect({resource!r})")
@@ -45,6 +46,8 @@ class MockLoad:
 
     def check_error(self) -> list[str]:
         self.calls.append("check_error()")
+        if self.pending_errors:
+            return [self.pending_errors.pop(0)]
         return []
 
     def is_connected(self) -> bool:

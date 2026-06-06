@@ -11,6 +11,7 @@ from Prog.src.test_runner import TestPlan
 class TestRunnerWorker(QObject):
     sample_ready       = Signal(dict)
     event_ready        = Signal(dict)
+    device_error_ready = Signal(dict)
     status_changed     = Signal(str)
     checkpoint_reached = Signal(dict)
     finished           = Signal(object)
@@ -23,6 +24,7 @@ class TestRunnerWorker(QObject):
         self._test_plan = test_plan
         self._runner.on_sample = self.sample_ready.emit
         self._runner.on_event = self._handle_event
+        self._runner.on_device_error = self.device_error_ready.emit
         self._runner.on_step_changed = self.step_changed.emit
         self._checkpoint_next_step_index: int | None = None
 

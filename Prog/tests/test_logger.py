@@ -157,6 +157,42 @@ class TestSqlite:
         assert len(rows) >= 1
 
 
+class TestDeviceErrorLog:
+    """device_errors.csv — SCPI error queue napló."""
+
+    def test_device_errors_csv_created(self, tmp_path):
+        logger = Logger(session_dir=tmp_path, config=LogConfig())
+        logger.close()
+        assert (tmp_path / "device_errors.csv").exists()
+
+    def test_device_error_written(self, tmp_path):
+        logger = Logger(session_dir=tmp_path, config=LogConfig())
+        logger.log_device_error("PSU", '+222,"Data out of range"')
+        logger.close()
+        rows = list(csv.DictReader((tmp_path / "device_errors.csv").open()))
+        assert len(rows) == 1
+        assert rows[0]["device"] == "PSU"
+        assert "222" in rows[0]["error_message"]
+
+    def test_multiple_device_errors(self, tmp_path):
+        logger = Logger(session_dir=tmp_path, config=LogConfig())
+        logger.log_device_error("PSU", "err1")
+        logger.log_device_error("Load", "err2")
+        logger.log_device_error("DMM_V", "err3")
+        logger.close()
+        rows = list(csv.DictReader((tmp_path / "device_errors.csv").open()))
+        assert len(rows) == 3
+        devices = [r["device"] for r in rows]
+        assert "PSU" in devices and "Load" in devices and "DMM_V" in devices
+
+    def test_device_error_has_timestamp(self, tmp_path):
+        logger = Logger(session_dir=tmp_path, config=LogConfig())
+        logger.log_device_error("DMM_T", "test error")
+        logger.close()
+        rows = list(csv.DictReader((tmp_path / "device_errors.csv").open()))
+        assert rows[0]["timestamp_iso"] != ""
+
+
 class TestCheckpoint:
     def test_checkpoint_file_created_on_write(self, tmp_path):
         logger = Logger(session_dir=tmp_path, config=LogConfig())

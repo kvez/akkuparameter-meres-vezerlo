@@ -42,3 +42,49 @@ class TestConnectAllRollback:
         im.disconnect_all()
         for inst in (psu, load, dmm_v, dmm_t):
             assert inst.called("disconnect"), f"{inst.__class__.__name__} disconnect nem hívódott"
+
+
+class TestPollDeviceErrors:
+    """poll_device_errors() — SCPI error queue drain minden eszközre."""
+
+    def _make_im(self, psu=None, load=None, dmm_v=None, dmm_t=None):
+        return InstrumentManager(
+            psu or MockPSU(),
+            load or MockLoad(),
+            dmm_v or MockDMM(),
+            dmm_t or MockDMM(),
+        )
+
+    def test_no_errors_returns_empty(self):
+        im = self._make_im()
+        assert im.poll_device_errors() == []
+
+    def test_psu_single_error_returned(self):
+        psu = MockPSU(pending_errors=['222,"Data out of range"'])
+        im = self._make_im(psu=psu)
+        errors = im.poll_device_errors()
+        assert len(errors) == 1
+        assert errors[0]["device"] == "PSU"
+        assert "222" in errors[0]["error"]
+
+    def test_load_error_labeled_correctly(self):
+        load = MockLoad(pending_errors=['+350,"Queue overflow"'])
+        im = self._make_im(load=load)
+        errors = im.poll_device_errors()
+        assert errors[0]["device"] == "Load"
+
+    def test_multiple_errors_drained(self):
+        """Egy eszközön több hiba → mind visszajön egy tick alatt."""
+        psu = MockPSU(pending_errors=['err1', 'err2', 'err3'])
+        im = self._make_im(psu=psu)
+        errors = im.poll_device_errors()
+        assert len(errors) == 3
+
+    def test_errors_from_multiple_devices(self):
+        """PSU és Load is hibával → mind visszajön."""
+        psu = MockPSU(pending_errors=['psu_err'])
+        load = MockLoad(pending_errors=['load_err'])
+        im = self._make_im(psu=psu, load=load)
+        errors = im.poll_device_errors()
+        devices = {e["device"] for e in errors}
+        assert "PSU" in devices and "Load" in devices

@@ -33,7 +33,9 @@ class ChargeConfig:
     # CV szabályozás
     deadband_V: float = 0.010
     max_step_up_V: float = 0.050
-    max_step_down_V: float = 0.050
+    # Aszimmetrikus: lefelé gyors (dióda-esés csökkenésekor az akku felkúszik,
+    # a 2s tick alatt 50mV lassú volt — 500mV elegendő reakció a 150mV headroomhoz)
+    max_step_down_V: float = 0.500
     cv_entry_margin_V: float = 0.100
     max_expected_series_drop_V: float = 0.90
 
@@ -224,7 +226,16 @@ class ChargeController:
         # mert az akkufeszültségnél magasabb preset szükséges az áramfolyáshoz.
         self._u_psu_set = target_V + self._config.max_expected_series_drop_V
         self._psu.set_output_voltage(self._u_psu_set)
-        self._psu.set_output_current(self._profile.effective_max_charge_A)
+        # Keithley 2220-30-1 hardver limit: INDEPENDENT/SERIES → 1.5A/csatorna,
+        # PARALLEL → 3.0A. Ha a kiszámított töltőáram meghaladja ezt, a PSU
+        # visszautasítja a parancsot (nem clampel!) és az előző érték marad érvényes.
+        psu_hw_max_A = {
+            PsuMode.INDEPENDENT: 1.5,
+            PsuMode.PARALLEL: 3.0,
+            PsuMode.SERIES: 1.5,
+        }.get(self._safety.psu_mode, 1.5)
+        charge_A = min(self._profile.effective_max_charge_A, psu_hw_max_A)
+        self._psu.set_output_current(charge_A)
         self._psu.output_on()
         self._state = ChargeState.CHARGE_CC
 

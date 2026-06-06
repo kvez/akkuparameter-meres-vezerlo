@@ -80,6 +80,29 @@ class InstrumentManager:
             for i in (self._psu, self._load, self._dmm_v, self._dmm_t)
         )
 
+    def poll_device_errors(self) -> list[dict]:
+        """Minden eszköz SYST:ERR? queue-ját leolvassa (destruktív FIFO).
+        Addig hívja check_error()-t, amíg az üres listát nem ad vissza.
+        Visszatér: [{"device": name, "error": error_str}, ...]
+        """
+        result: list[dict] = []
+        for name, device in [
+            ("PSU",   self._psu),
+            ("Load",  self._load),
+            ("DMM_V", self._dmm_v),
+            ("DMM_T", self._dmm_t),
+        ]:
+            try:
+                for _ in range(32):  # max 32 hiba/eszköz/tick — védelem végtelen loop ellen
+                    errors = device.check_error()
+                    if not errors:
+                        break
+                    for err in errors:
+                        result.append({"device": name, "error": err})
+            except Exception:
+                pass
+        return result
+
     def read_all(self) -> dict:
         """Egyszerre olvas minden csatornából; hibás érték None."""
         result = {}

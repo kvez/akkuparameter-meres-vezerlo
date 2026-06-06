@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from Prog import app_paths
 from Prog.gui.panels.config_panel import ConfigPanel, SessionConfig
+from Prog.gui.panels.device_error_panel import DeviceErrorPanel
 from Prog.gui.panels.live_panel import LivePanel
 from Prog.gui.panels.checkpoint_panel import CheckpointPanel
 from Prog.gui.worker import TestRunnerWorker
@@ -34,6 +35,7 @@ class MainWindow(QMainWindow):
         self._config_panel = ConfigPanel()
         self._live_panel = LivePanel()
         self._checkpoint_panel = CheckpointPanel()
+        self._device_error_panel = DeviceErrorPanel()
 
         self._tabs.addTab(self._config_panel, "Konfiguráció")
         self._tabs.addTab(self._live_panel, "Élő mérés")
@@ -41,6 +43,7 @@ class MainWindow(QMainWindow):
             self._checkpoint_panel, "BQ Checkpoint"
         )
         self._tabs.setTabEnabled(self._checkpoint_tab_index, False)
+        self._tabs.addTab(self._device_error_panel, "Eszköz hibák")
 
         self._live_panel.start_requested.connect(self._start_test)
         self._live_panel.stop_requested.connect(self._stop_test)
@@ -102,6 +105,9 @@ class MainWindow(QMainWindow):
 
         self._tabs.setTabEnabled(self._checkpoint_tab_index, False)   # reset
         self._worker.event_ready.connect(self._live_panel.append_event)
+        self._worker.device_error_ready.connect(
+            self._device_error_panel.append_device_error
+        )
         self._worker.step_changed.connect(self._on_step_changed)
         self._worker.checkpoint_reached.connect(
             self._checkpoint_panel.show_checkpoint

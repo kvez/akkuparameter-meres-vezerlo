@@ -22,6 +22,7 @@ class MockDMM:
     voltage_slope_V_per_sample: float = 0.0
 
     calls: list[str] = field(default_factory=list)
+    pending_errors: list[str] = field(default_factory=list)
     _sample_count: int = field(default=0, init=False, repr=False)
 
     def connect(self, resource: str) -> None:
@@ -42,6 +43,8 @@ class MockDMM:
 
     def check_error(self) -> list[str]:
         self.calls.append("check_error()")
+        if self.pending_errors:
+            return [self.pending_errors.pop(0)]
         return []
 
     def is_connected(self) -> bool:

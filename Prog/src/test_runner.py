@@ -121,6 +121,7 @@ class TestRunner:
         self.status: str = "IDLE"
         self.on_sample: Optional[Callable[[dict], None]] = None
         self.on_event: Optional[Callable[[dict], None]] = None
+        self.on_device_error: Optional[Callable[[dict], None]] = None
         self.current_step: Optional[TestStep] = None
 
         self._total_charge_ah: float = 0.0
@@ -223,6 +224,9 @@ class TestRunner:
             self._logger.log_sample(sample)
             if self.on_sample is not None:
                 self.on_sample(sample)
+
+            self._poll_device_errors()
+
             self._logger.flush_all()
             self._logger.write_checkpoint({
                 "status": "RUNNING",
@@ -254,6 +258,18 @@ class TestRunner:
             )
 
         return TestResult(status="DONE")
+
+    def _poll_device_errors(self) -> None:
+        errors = self._instruments.poll_device_errors()
+        for err in errors:
+            ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+            self._logger.log_device_error(err["device"], err["error"])
+            if self.on_device_error is not None:
+                self.on_device_error({
+                    "timestamp_iso": ts,
+                    "device": err["device"],
+                    "error": err["error"],
+                })
 
     def _emergency_stop(self, reason: str) -> TestResult:
         """Vészleállítás — FAULT státusz, biztonságos leállítás."""

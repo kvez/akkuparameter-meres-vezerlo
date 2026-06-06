@@ -104,6 +104,18 @@ class Logger:
         self._event_writer.writeheader()
         self._event_file.flush()
 
+        # Device errors
+        self._device_error_path = self._dir / "device_errors.csv"
+        self._device_error_file = self._device_error_path.open(
+            "w", newline="", encoding="utf-8"
+        )
+        self._device_error_writer = csv.DictWriter(
+            self._device_error_file,
+            fieldnames=["timestamp_iso", "device", "error_message"],
+        )
+        self._device_error_writer.writeheader()
+        self._device_error_file.flush()
+
         # Checkpoint
         self._checkpoint_path = self._dir / "checkpoint.json"
 
@@ -125,6 +137,14 @@ class Logger:
         if is_critical or event_code in _CRITICAL_EVENTS:
             self.flush_all()
 
+    def log_device_error(self, device: str, error: str) -> None:
+        self._device_error_writer.writerow({
+            "timestamp_iso": datetime.now().isoformat(timespec="milliseconds"),
+            "device": device,
+            "error_message": error,
+        })
+        self._device_error_file.flush()
+
     def write_checkpoint(self, state: dict) -> None:
         tmp = self._checkpoint_path.with_suffix(".json.tmp")
         tmp.write_text(
@@ -137,6 +157,7 @@ class Logger:
         self._csv_file.flush()
         self._commit_sqlite()
         self._event_file.flush()
+        self._device_error_file.flush()
 
     def close(self) -> None:
         if self._closed:
@@ -145,6 +166,7 @@ class Logger:
         self.flush_all()
         self._csv_file.close()
         self._event_file.close()
+        self._device_error_file.close()
         self._conn.close()
 
     def _commit_sqlite(self) -> None:

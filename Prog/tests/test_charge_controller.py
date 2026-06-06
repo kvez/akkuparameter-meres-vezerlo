@@ -1,6 +1,7 @@
 """
 ChargeController unit tesztek — MockPSU/Load/DMM-mel, dt_s injection.
 """
+import pytest
 from Prog.src.battery_profile import BatteryProfile
 from Prog.src.safety import SafetyManager, PsuMode, TempCompMode
 from Prog.src.charge_controller import ChargeController, ChargeState, ChargeConfig
@@ -571,3 +572,40 @@ class TestConcurrentPsuLoadCharge:
         assert ctrl.state == ChargeState.CHARGE_CC
         assert psu.output_commanded_on is True
         assert load.input_commanded_on is False
+
+
+class TestPsuCurrentClamping:
+    """K5: PSU hardver áramlimit clampolás PSU_PRESET-ben.
+
+    Keithley 2220-30-1: INDEPENDENT/SERIES → 1.5A/csatorna, PARALLEL → 3.0A.
+    Ha a kiszámított töltőáram meghaladja ezt, a PSU visszautasítja a parancsot
+    és az előző értéken marad — ezért szoftveresen kell clampolni.
+    """
+
+    def _advance_to_cc(self, profile, psu_mode=PsuMode.INDEPENDENT, dmm_V=12.5):
+        ctrl, psu, load, dmm = make_controller(
+            profile=profile, psu_mode=psu_mode, dmm_voltage_V=dmm_V
+        )
+        ctrl.advance(dt_s=1.0)  # INIT → PRECHECK
+        ctrl.advance(dt_s=1.0)  # PRECHECK → PSU_PRESET
+        ctrl.advance(dt_s=1.0)  # PSU_PRESET → CHARGE_CC
+        assert ctrl.state == ChargeState.CHARGE_CC
+        return psu
+
+    def test_current_clamped_when_above_independent_limit(self):
+        """7.0Ah → 1.75A computed, INDEPENDENT max 1.5A → PSU kap 1.5A."""
+        profile = make_12v_profile(capacity_Ah=7.0)  # effective = 1.75A
+        psu = self._advance_to_cc(profile, psu_mode=PsuMode.INDEPENDENT)
+        assert psu.current_A == pytest.approx(1.5, abs=0.001)
+
+    def test_current_not_clamped_when_below_independent_limit(self):
+        """4.0Ah → 1.0A computed < 1.5A limit → PSU kap 1.0A."""
+        profile = make_12v_profile(capacity_Ah=4.0)  # effective = 1.0A
+        psu = self._advance_to_cc(profile, psu_mode=PsuMode.INDEPENDENT)
+        assert psu.current_A == pytest.approx(1.0, abs=0.001)
+
+    def test_current_not_clamped_in_parallel_mode(self):
+        """7.0Ah → 1.75A computed, PARALLEL max 3.0A → PSU kap 1.75A."""
+        profile = make_12v_profile(capacity_Ah=7.0)  # effective = 1.75A
+        psu = self._advance_to_cc(profile, psu_mode=PsuMode.PARALLEL)
+        assert psu.current_A == pytest.approx(1.75, abs=0.001)
