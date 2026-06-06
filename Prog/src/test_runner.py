@@ -342,7 +342,7 @@ class TestRunner:
         return False
 
     def _step_can_be_gracefully_interrupted(self, step: TestStep) -> bool:
-        return step.kind in (StepKind.RELAX, StepKind.MANUAL_CHECKPOINT)
+        return True
 
     def _controller_for_step(self, step: TestStep):
         if step.kind == StepKind.CHARGE:

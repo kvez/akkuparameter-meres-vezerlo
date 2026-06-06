@@ -346,16 +346,16 @@ class TestHelperPredicates:
         assert runner._step_can_be_gracefully_interrupted(step) is True
         logger.close()
 
-    def test_step_cannot_interrupt_charge(self, tmp_path):
+    def test_step_can_interrupt_charge(self, tmp_path):
         runner, logger = _make_runner(tmp_path)
         step = TestStep(StepKind.CHARGE, "charge")
-        assert runner._step_can_be_gracefully_interrupted(step) is False
+        assert runner._step_can_be_gracefully_interrupted(step) is True
         logger.close()
 
-    def test_step_cannot_interrupt_discharge(self, tmp_path):
+    def test_step_can_interrupt_discharge(self, tmp_path):
         runner, logger = _make_runner(tmp_path)
         step = TestStep(StepKind.DISCHARGE, "discharge")
-        assert runner._step_can_be_gracefully_interrupted(step) is False
+        assert runner._step_can_be_gracefully_interrupted(step) is True
         logger.close()
 
     def test_controller_for_charge_step(self, tmp_path):
@@ -635,24 +635,22 @@ class TestRunStep:
         assert "USER_EMSTOP" in result.reason
         logger.close()
 
-    def test_stop_request_does_not_interrupt_charge(self, tmp_path):
-        runner, logger = _make_runner(tmp_path, cc=_StubChargeCtrl(steps_to_done=3))
+    def test_stop_request_interrupts_charge(self, tmp_path):
+        runner, logger = _make_runner(tmp_path, cc=_StubChargeCtrl(steps_to_done=100))
         runner._start_time = datetime.now(timezone.utc)
         runner.stop_requested = True
         step = TestStep(StepKind.CHARGE, "charge")
         result = runner._run_step(0, step)
-        # CHARGE nem szakítható meg graceful stop-pal — végigfut DONE-ig
-        assert result.status == "DONE"
+        assert result.status == "STOPPED"
         logger.close()
 
-    def test_stop_request_does_not_interrupt_discharge(self, tmp_path):
-        runner, logger = _make_runner(tmp_path, dc=_StubDischargeCtrl(steps_to_done=3))
+    def test_stop_request_interrupts_discharge(self, tmp_path):
+        runner, logger = _make_runner(tmp_path, dc=_StubDischargeCtrl(steps_to_done=100))
         runner._start_time = datetime.now(timezone.utc)
         runner.stop_requested = True
         step = TestStep(StepKind.DISCHARGE, "discharge")
         result = runner._run_step(0, step)
-        # DISCHARGE nem szakítható meg graceful stop-pal — végigfut DONE-ig
-        assert result.status == "DONE"
+        assert result.status == "STOPPED"
         logger.close()
 
     def test_stop_request_interrupts_relax(self, tmp_path):

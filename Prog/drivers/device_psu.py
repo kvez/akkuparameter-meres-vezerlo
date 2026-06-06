@@ -102,6 +102,10 @@ class Keithley2220PSU:
         self._write(f"SOUR:CURR {i:.6g}")
 
     def output_on(self) -> None:
+        self._select_ch1()
+        # OUTP:ENAB ON: csatorna-szintű engedélyezés — szükséges, ha CH1 korábban
+        # front panel "Channel Enable" menüből volt tiltva (OUTP ON önmagában nem elég).
+        self._write("OUTP:ENAB ON")
         self._write(f"{self._output_cmd} ON")
         self.output_commanded_on = True
 
