@@ -62,12 +62,13 @@ class MainWindow(QMainWindow):
         if logo_path.exists():
             self.setWindowIcon(QIcon(str(logo_path)))
             pixmap = QPixmap(str(logo_path)).scaledToHeight(
-                24, Qt.TransformationMode.SmoothTransformation
+                48, Qt.TransformationMode.SmoothTransformation
             )
             logo_label = QLabel()
             logo_label.setPixmap(pixmap)
-            logo_label.setContentsMargins(4, 0, 4, 0)
-            self._status_bar.addPermanentWidget(logo_label)
+            logo_label.setContentsMargins(8, 2, 8, 2)
+            logo_label.setToolTip("PSND Elektronika")
+            self._tabs.setCornerWidget(logo_label, Qt.Corner.TopRightCorner)
 
     # ------------------------------------------------------------------ #
     # Start / Stop                                                        #
