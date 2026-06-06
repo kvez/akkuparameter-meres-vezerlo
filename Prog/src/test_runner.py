@@ -17,6 +17,7 @@ from Prog.src.charge_controller import ChargeState
 from Prog.src.discharge_controller import DischargeState
 from Prog.src.instrument_manager import InstrumentManager
 from Prog.src.logger import Logger, CSV_COLUMNS
+from Prog.src.ocv_soc_controller import OcvSocState
 from Prog.src.relax_controller import RelaxState
 from Prog.src.safety import SafetyManager
 
@@ -24,6 +25,7 @@ from Prog.src.safety import SafetyManager
 class TestType(Enum):
     CHARACTERIZATION = "CHARACTERIZATION"
     BQ_LEARNING_PHYSICAL = "BQ_LEARNING_PHYSICAL"
+    OCV_SOC_CHARACTERIZATION = "OCV_SOC_CHARACTERIZATION"
 
 
 class StepKind(Enum):
@@ -31,6 +33,7 @@ class StepKind(Enum):
     DISCHARGE = "DISCHARGE"
     RELAX = "RELAX"
     MANUAL_CHECKPOINT = "MANUAL_CHECKPOINT"
+    OCV_SOC = "OCV_SOC"
 
 
 @dataclass(frozen=True)
@@ -73,6 +76,15 @@ class TestPlan:
             ),
         )
 
+    @staticmethod
+    def ocv_soc_characterization() -> "TestPlan":
+        return TestPlan(
+            test_type=TestType.OCV_SOC_CHARACTERIZATION,
+            steps=(
+                TestStep(StepKind.OCV_SOC, "ocv_soc"),
+            ),
+        )
+
 
 @dataclass
 class TestResult:
@@ -105,6 +117,7 @@ class TestRunner:
         charge_controller,
         discharge_controller,
         relax_controller,
+        ocv_soc_controller=None,
     ) -> None:
         self._instruments = instrument_manager
         self._safety = safety
@@ -114,6 +127,7 @@ class TestRunner:
         self._charge_ctrl = charge_controller
         self._discharge_ctrl = discharge_controller
         self._relax_ctrl = relax_controller
+        self._ocv_soc_ctrl = ocv_soc_controller
 
         self.stop_requested: bool = False
         self.emergency_stop_requested: bool = False
@@ -358,6 +372,8 @@ class TestRunner:
             return state in (DischargeState.DISCHARGE_DONE, DischargeState.FAULT, DischargeState.SAFE_OFF)
         if isinstance(state, RelaxState):
             return state == RelaxState.RELAX_DONE
+        if isinstance(state, OcvSocState):
+            return state in (OcvSocState.DONE, OcvSocState.FAULT)
         return True
 
     def _controller_faulted(self, controller) -> bool:
@@ -366,6 +382,8 @@ class TestRunner:
             return state in (ChargeState.FAULT, ChargeState.SAFE_OFF)
         if isinstance(state, DischargeState):
             return state in (DischargeState.FAULT, DischargeState.SAFE_OFF)
+        if isinstance(state, OcvSocState):
+            return state == OcvSocState.FAULT
         return False
 
     def _step_can_be_gracefully_interrupted(self, step: TestStep) -> bool:
@@ -378,6 +396,10 @@ class TestRunner:
             return self._discharge_ctrl
         if step.kind == StepKind.RELAX:
             return self._relax_ctrl
+        if step.kind == StepKind.OCV_SOC:
+            if self._ocv_soc_ctrl is None:
+                raise ValueError("OCV_SOC step requires ocv_soc_controller")
+            return self._ocv_soc_ctrl
         raise ValueError(f"No controller for step kind: {step.kind}")
 
     def _build_sample(self, step: TestStep, controller) -> dict:

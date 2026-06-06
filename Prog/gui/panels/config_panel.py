@@ -37,6 +37,8 @@ class SessionConfig:
     test_type: str = "CHARACTERIZATION"
     runner_tick_s: float = 2.0
     taper_hold_s: float = 600.0
+    discharge_rate_divisor: int = 5
+    ocv_soc_step_percent: float = 5.0
 
     # Hőkompenzáció
     temperature_compensation_mode: str = "MONITOR_ONLY"
@@ -177,7 +179,9 @@ class ConfigPanel(QWidget):
         test_form = QFormLayout(test_box)
 
         self._test_type_combo = QComboBox()
-        self._test_type_combo.addItems(["CHARACTERIZATION", "BQ_LEARNING_PHYSICAL"])
+        self._test_type_combo.addItems(
+            ["CHARACTERIZATION", "BQ_LEARNING_PHYSICAL", "OCV_SOC_CHARACTERIZATION"]
+        )
         test_form.addRow("Teszttípus:", self._test_type_combo)
 
         self._tick_spin = QDoubleSpinBox()
@@ -193,6 +197,17 @@ class ConfigPanel(QWidget):
         self._taper_spin.setValue(600.0)
         self._taper_spin.setSuffix(" s")
         test_form.addRow("Taper hold:", self._taper_spin)
+
+        self._discharge_rate_combo = QComboBox()
+        self._discharge_rate_combo.addItems(["C/5 (gyors)", "C/10 (közepes)", "C/20 (lassú)"])
+        test_form.addRow("Kisütési ráta:", self._discharge_rate_combo)
+
+        self._ocv_soc_step_spin = QDoubleSpinBox()
+        self._ocv_soc_step_spin.setRange(1.0, 20.0)
+        self._ocv_soc_step_spin.setDecimals(1)
+        self._ocv_soc_step_spin.setValue(5.0)
+        self._ocv_soc_step_spin.setSuffix(" %")
+        test_form.addRow("OCV-SOC lépés:", self._ocv_soc_step_spin)
 
         root.addWidget(test_box)
 
@@ -280,6 +295,14 @@ class ConfigPanel(QWidget):
         dlg.exec()
 
     def get_session_config(self) -> SessionConfig:
+        discharge_rate_map = {
+            "C/5 (gyors)": 5,
+            "C/10 (közepes)": 10,
+            "C/20 (lassú)": 20,
+        }
+        discharge_divisor = discharge_rate_map.get(
+            self._discharge_rate_combo.currentText(), 5
+        )
         return SessionConfig(
             battery_profile_name=self._profile_combo.currentText(),
             battery_model=self._model_edit.text().strip(),
@@ -294,5 +317,7 @@ class ConfigPanel(QWidget):
             test_type=self._test_type_combo.currentText(),
             runner_tick_s=self._tick_spin.value(),
             taper_hold_s=self._taper_spin.value(),
+            discharge_rate_divisor=discharge_divisor,
+            ocv_soc_step_percent=self._ocv_soc_step_spin.value(),
             temperature_compensation_mode=self._temp_comp_combo.currentText(),
         )

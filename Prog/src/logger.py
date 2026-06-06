@@ -37,6 +37,12 @@ CSV_COLUMNS: list[str] = [
     "event_code", "event_message",
 ]
 
+OCV_SOC_COLUMNS: list[str] = [
+    "timestamp_iso", "soc_percent", "removed_Ah_total", "ocv_V",
+    "rb_1s_ohm", "rb_10s_ohm", "rb_30s_ohm",
+    "impulse_current_A", "temperature_C", "relax_duration_s",
+]
+
 _CRITICAL_EVENTS = frozenset({
     "EMERGENCY_STOP",
     "DMM_FEEDBACK_LOST",
@@ -119,6 +125,15 @@ class Logger:
         # Checkpoint
         self._checkpoint_path = self._dir / "checkpoint.json"
 
+        # OCV-SOC táblázat
+        self._ocv_soc_path = self._dir / "ocv_soc_table.csv"
+        self._ocv_soc_file = self._ocv_soc_path.open("w", newline="", encoding="utf-8")
+        self._ocv_soc_writer = csv.DictWriter(
+            self._ocv_soc_file, fieldnames=OCV_SOC_COLUMNS
+        )
+        self._ocv_soc_writer.writeheader()
+        self._ocv_soc_file.flush()
+
     def log_sample(self, sample: dict) -> None:
         row = {col: sample.get(col, "") for col in CSV_COLUMNS}
         self._csv_writer.writerow(row)
@@ -136,6 +151,14 @@ class Logger:
         })
         if is_critical or event_code in _CRITICAL_EVENTS:
             self.flush_all()
+
+    def log_ocv_soc_point(self, data: dict) -> None:
+        """OCV-SOC lépési eredmény rögzítése ocv_soc_table.csv-be."""
+        row = {col: data.get(col, "") for col in OCV_SOC_COLUMNS}
+        row["timestamp_iso"] = datetime.now().isoformat(timespec="milliseconds")
+        # impulse_current_A opcionális — ha nincs az adatban, üresen marad
+        self._ocv_soc_writer.writerow(row)
+        self._ocv_soc_file.flush()
 
     def log_device_error(self, device: str, error: str) -> None:
         self._device_error_writer.writerow({
@@ -158,6 +181,7 @@ class Logger:
         self._commit_sqlite()
         self._event_file.flush()
         self._device_error_file.flush()
+        self._ocv_soc_file.flush()
 
     def close(self) -> None:
         if self._closed:
@@ -167,6 +191,7 @@ class Logger:
         self._csv_file.close()
         self._event_file.close()
         self._device_error_file.close()
+        self._ocv_soc_file.close()
         self._conn.close()
 
     def _commit_sqlite(self) -> None:

@@ -214,6 +214,7 @@ class MainWindow(QMainWindow):
         from Prog.src.charge_controller import ChargeController, ChargeConfig
         from Prog.src.discharge_controller import DischargeController, DischargeConfig
         from Prog.src.relax_controller import RelaxController, RelaxConfig
+        from Prog.src.ocv_soc_controller import OcvSocController, OcvSocConfig
         from Prog.src.test_runner import TestRunner, TestRunnerConfig, TestPlan
         from Prog.drivers.device_psu import Keithley2220PSU
         from Prog.drivers.device_load import Keithley2380Load
@@ -276,10 +277,21 @@ class MainWindow(QMainWindow):
             psu, load, dmm_v, dmm_t, profile, safety,
             ChargeConfig(taper_hold_s=cfg.taper_hold_s),
         )
+        discharge_A = profile.nominal_capacity_Ah / cfg.discharge_rate_divisor
         discharge_ctrl = DischargeController(
-            psu, load, dmm_v, dmm_t, profile, safety, DischargeConfig(),
+            psu, load, dmm_v, dmm_t, profile, safety,
+            DischargeConfig(discharge_current_A=discharge_A),
         )
         relax_ctrl = RelaxController(dmm_v, RelaxConfig())
+
+        ocv_soc_config = OcvSocConfig(
+            discharge_rate_divisor=cfg.discharge_rate_divisor,
+            step_percent=cfg.ocv_soc_step_percent,
+        )
+        ocv_soc_ctrl = OcvSocController(
+            psu, load, dmm_v, dmm_t, profile, safety, ocv_soc_config
+        )
+        ocv_soc_ctrl.on_soc_point = lambda data: logger.log_ocv_soc_point(data)
 
         runner = TestRunner(
             instrument_manager=instruments,
@@ -294,11 +306,13 @@ class MainWindow(QMainWindow):
             charge_controller=charge_ctrl,
             discharge_controller=discharge_ctrl,
             relax_controller=relax_ctrl,
+            ocv_soc_controller=ocv_soc_ctrl,
         )
 
-        test_plan = (
-            TestPlan.characterization()
-            if cfg.test_type == "CHARACTERIZATION"
-            else TestPlan.bq_learning_physical()
-        )
+        if cfg.test_type == "CHARACTERIZATION":
+            test_plan = TestPlan.characterization()
+        elif cfg.test_type == "OCV_SOC_CHARACTERIZATION":
+            test_plan = TestPlan.ocv_soc_characterization()
+        else:
+            test_plan = TestPlan.bq_learning_physical()
         return runner, test_plan
