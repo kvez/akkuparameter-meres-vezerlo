@@ -467,6 +467,9 @@ class TestTempDmmFault:
         ctrl, *_ = make_controller(dmm_voltage_V=12.5)
         for _ in range(3):
             ctrl.advance(dt_s=1.0)
+        # PSU_PRESET a compliance voltage-ot állítja be; CC módban a valós readback
+        # ≈ u_batt + dióda-esés — a MockPSU-t erre kell állítani a series check miatt.
+        ctrl._psu.voltage_V = 13.0
         assert ctrl.state == ChargeState.CHARGE_CC
         return ctrl
 
@@ -560,8 +563,11 @@ class TestConcurrentPsuLoadCharge:
     def test_no_fault_when_only_psu_on(self):
         """Normál töltés: PSU ON, Load OFF → nincs concurrent fault."""
         ctrl, psu, load, dmm = make_controller(dmm_voltage_V=12.5)
-        for _ in range(4):
-            ctrl.advance(dt_s=1.0)
+        for _ in range(3):
+            ctrl.advance(dt_s=1.0)  # INIT → PRECHECK → PSU_PRESET → CHARGE_CC
+        assert ctrl.state == ChargeState.CHARGE_CC
+        psu.voltage_V = 13.0  # reális CC readback: u_batt(12.5) + dióda-esés(~0.5)
+        ctrl.advance(dt_s=1.0)  # CHARGE_CC marad: series check OK, concurrent OK
         assert ctrl.state == ChargeState.CHARGE_CC
         assert psu.output_commanded_on is True
         assert load.input_commanded_on is False

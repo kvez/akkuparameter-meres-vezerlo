@@ -219,7 +219,10 @@ class ChargeController:
 
     def _run_psu_preset(self) -> None:
         target_V = self._effective_charge_target_V()
-        self._u_psu_set = target_V * 0.9  # induljon alacsonyabban
+        # PSU compliance voltage = akkucél + max dióda-esés
+        # A PSU áramkorlátozva indul (CC mód) — a 0.9 faktor nem kell,
+        # mert az akkufeszültségnél magasabb preset szükséges az áramfolyáshoz.
+        self._u_psu_set = target_V + self._config.max_expected_series_drop_V
         self._psu.set_output_voltage(self._u_psu_set)
         self._psu.set_output_current(self._profile.effective_max_charge_A)
         self._psu.output_on()
