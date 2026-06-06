@@ -18,7 +18,8 @@ def exe_dir() -> Path:
 def bundle_dir() -> Path:
     """Beágyazott (read-only) fájlok gyökere — sys._MEIPASS exe-ben, projekt gyökér devben."""
     if _is_frozen():
-        return Path(getattr(sys, "_MEIPASS", str(exe_dir())))
+        meipass = getattr(sys, "_MEIPASS", None)
+        return Path(meipass) if meipass else exe_dir()
     return Path(__file__).parent.parent  # <project>/
 
 

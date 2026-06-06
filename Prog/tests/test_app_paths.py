@@ -45,3 +45,25 @@ def test_default_config_path_exists_in_dev_mode(monkeypatch):
     from Prog import app_paths
     importlib.reload(app_paths)
     assert app_paths.default_config_path().exists()
+
+
+def test_bundle_dir_exe_mode_uses_meipass(monkeypatch, tmp_path):
+    fake_meipass = tmp_path / "_internal"
+    fake_meipass.mkdir()
+    fake_exe = tmp_path / "akkuteszter.exe"
+    fake_exe.touch()
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(fake_exe))
+    monkeypatch.setattr(sys, "_MEIPASS", str(fake_meipass), raising=False)
+    from Prog import app_paths
+    importlib.reload(app_paths)
+    assert app_paths.bundle_dir() == fake_meipass
+
+
+def test_local_config_template_path_dev_mode(monkeypatch):
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    from Prog import app_paths
+    importlib.reload(app_paths)
+    result = app_paths.local_config_template_path()
+    assert result.name == "local_config.template.yaml"
+    assert "Prog" in str(result) and "config" in str(result)
