@@ -67,3 +67,37 @@ def test_local_config_template_path_dev_mode(monkeypatch):
     result = app_paths.local_config_template_path()
     assert result.name == "local_config.template.yaml"
     assert "Prog" in str(result) and "config" in str(result)
+
+
+def test_ensure_local_config_copies_template(monkeypatch, tmp_path):
+    config_path = tmp_path / "local_config.yaml"
+    template_path = tmp_path / "local_config.template.yaml"
+    template_path.write_text("instruments:\n  psu:\n    resource: PLACEHOLDER\n")
+
+    import Prog.app_paths as ap
+    monkeypatch.setattr(ap, "local_config_path", lambda: config_path)
+    monkeypatch.setattr(ap, "local_config_template_path", lambda: template_path)
+
+    import Prog.main as main_mod
+    importlib.reload(main_mod)
+    main_mod._ensure_local_config()
+
+    assert config_path.exists()
+    assert "PLACEHOLDER" in config_path.read_text()
+
+
+def test_ensure_local_config_does_not_overwrite_existing(monkeypatch, tmp_path):
+    config_path = tmp_path / "local_config.yaml"
+    config_path.write_text("my_custom_config: true\n")
+    template_path = tmp_path / "local_config.template.yaml"
+    template_path.write_text("instruments:\n  psu:\n    resource: PLACEHOLDER\n")
+
+    import Prog.app_paths as ap
+    monkeypatch.setattr(ap, "local_config_path", lambda: config_path)
+    monkeypatch.setattr(ap, "local_config_template_path", lambda: template_path)
+
+    import Prog.main as main_mod
+    importlib.reload(main_mod)
+    main_mod._ensure_local_config()
+
+    assert "my_custom_config" in config_path.read_text()
