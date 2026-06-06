@@ -538,3 +538,30 @@ class TestTempCompensation:
         """MONITOR_ONLY: target = charge_voltage_pack_V, hőmérséklet-független"""
         ctrl, *_ = make_controller(dmm_voltage_V=12.5)
         assert ctrl._effective_charge_target_V() == ctrl._profile.charge_voltage_pack_V
+
+
+class TestConcurrentPsuLoadCharge:
+    """Töltés közben Load ON → CONCURRENT_PSU_LOAD_ON fault."""
+
+    def test_concurrent_load_during_cc_triggers_fault(self):
+        ctrl, psu, load, dmm = make_controller(dmm_voltage_V=12.5)
+        # INIT → PRECHECK → PSU_PRESET → CHARGE_CC
+        for _ in range(3):
+            ctrl.advance(dt_s=1.0)
+        assert ctrl.state == ChargeState.CHARGE_CC
+
+        # Hardware conflict: Load is also commanded on during charging
+        load.input_commanded_on = True
+        ctrl.advance(dt_s=1.0)
+
+        assert ctrl.state == ChargeState.FAULT
+        assert "CONCURRENT" in ctrl.fault_reason
+
+    def test_no_fault_when_only_psu_on(self):
+        """Normál töltés: PSU ON, Load OFF → nincs concurrent fault."""
+        ctrl, psu, load, dmm = make_controller(dmm_voltage_V=12.5)
+        for _ in range(4):
+            ctrl.advance(dt_s=1.0)
+        assert ctrl.state == ChargeState.CHARGE_CC
+        assert psu.output_commanded_on is True
+        assert load.input_commanded_on is False

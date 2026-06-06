@@ -134,6 +134,14 @@ class ChargeController:
             ChargeState.CHARGE_CV_DMM_CONTROL,
             ChargeState.TAPER_HOLD,
         ):
+            concurrent_result = self._safety.check_concurrent_psu_load(
+                psu_commanded_on=self._psu.output_commanded_on,
+                load_commanded_on=self._load.input_commanded_on,
+            )
+            if concurrent_result.fault is not None:
+                self.emergency_stop(concurrent_result.fault.name)
+                return self._state
+
             if not self._dmm_valid:
                 self.emergency_stop("DMM_FEEDBACK_LOST")
                 return self._state

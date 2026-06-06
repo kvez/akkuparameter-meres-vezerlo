@@ -167,6 +167,8 @@ class TestRunner:
                     return self._emergency_stop(step_result.reason or "STEP_FAULT")
 
                 if step_result.status in ("STOPPED", "CHECKPOINT_STOPPED"):
+                    if step_result.status == "CHECKPOINT_STOPPED" and not step_result.resume_possible:
+                        self._logger.close()
                     return step_result
 
         except Exception as exc:

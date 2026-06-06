@@ -13,6 +13,7 @@ class MockLoad:
     current_A: float = 0.0
     power_W: float = 0.0
     _input_is_on: bool = False           # NEM input_on — névütközés elkerülése
+    input_commanded_on: bool = False    # tükrözi a valós driver attribútumát
     simulate_timeout: bool = False
     simulate_current_readback_failure: bool = False
     simulate_power_limit: bool = False
@@ -68,11 +69,13 @@ class MockLoad:
     def input_on(self) -> None:
         self.calls.append("input_on()")
         self._input_is_on = True
+        self.input_commanded_on = True
         self.power_W = self.voltage_V * self.current_A
 
     def input_off(self) -> None:
         self.calls.append("input_off()")
         self._input_is_on = False
+        self.input_commanded_on = False
         self.power_W = 0.0
 
     def measure_voltage(self) -> float:

@@ -548,6 +548,15 @@ class TestCheckpointTerminal:
         assert events[0]["checkpoint_is_terminal"] is True
         logger.close()
 
+    def test_terminal_checkpoint_auto_closes_logger(self, tmp_path):
+        """Terminális checkpoint után run() automatikusan zárja a logger-t."""
+        runner, logger = _make_runner(tmp_path)
+        result = runner.run(TestPlan.bq_learning_physical())
+        assert result.status == "CHECKPOINT_STOPPED"
+        assert result.resume_possible is False
+        assert logger._closed is True
+        logger.close()  # idempotens — nem dob hibát
+
     def test_run_with_start_step_index_skips_steps(self, tmp_path):
         runner, logger = _make_runner(tmp_path)
         calls = []

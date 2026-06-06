@@ -218,6 +218,34 @@ class TestBatteryOvervoltage:
         assert result.fault == FaultCode.BATTERY_OVERVOLTAGE
 
 
+class TestConcurrentPsuLoad:
+    """CONCURRENT_PSU_LOAD_ON: PSU ON + Load ON egyszerre → FAULT."""
+
+    def test_both_off_is_ok(self):
+        profile = make_12v_profile()
+        sm = SafetyManager(profile=profile, psu_mode=PsuMode.INDEPENDENT)
+        result = sm.check_concurrent_psu_load(psu_commanded_on=False, load_commanded_on=False)
+        assert result.fault is None
+
+    def test_only_psu_on_is_ok(self):
+        profile = make_12v_profile()
+        sm = SafetyManager(profile=profile, psu_mode=PsuMode.INDEPENDENT)
+        result = sm.check_concurrent_psu_load(psu_commanded_on=True, load_commanded_on=False)
+        assert result.fault is None
+
+    def test_only_load_on_is_ok(self):
+        profile = make_12v_profile()
+        sm = SafetyManager(profile=profile, psu_mode=PsuMode.INDEPENDENT)
+        result = sm.check_concurrent_psu_load(psu_commanded_on=False, load_commanded_on=True)
+        assert result.fault is None
+
+    def test_both_on_is_fault(self):
+        profile = make_12v_profile()
+        sm = SafetyManager(profile=profile, psu_mode=PsuMode.INDEPENDENT)
+        result = sm.check_concurrent_psu_load(psu_commanded_on=True, load_commanded_on=True)
+        assert result.fault == FaultCode.CONCURRENT_PSU_LOAD_ON
+
+
 class TestDiodePowerWarning:
     """[BY550] Dióda disszipáció ellenőrzés"""
 

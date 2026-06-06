@@ -154,3 +154,30 @@ class TestLoadCommLost:
         load.simulate_current_readback_failure = True
         ctrl.advance(dt_s=1.0)
         assert load.called("input_off")
+
+
+class TestConcurrentPsuLoadDischarge:
+    """Kisütés közben PSU ON → CONCURRENT_PSU_LOAD_ON fault."""
+
+    def test_concurrent_psu_during_discharge_triggers_fault(self):
+        ctrl, psu, load, dmm = make_discharge_controller(dmm_voltage_V=12.5)
+        # INIT → PRECHECK → DISCHARGE_CC_SETUP → DISCHARGE_CC_RUN
+        for _ in range(3):
+            ctrl.advance(dt_s=1.0)
+        assert ctrl.state == DischargeState.DISCHARGE_CC_RUN
+
+        # Hardware conflict: PSU is also commanded on during discharging
+        psu.output_commanded_on = True
+        ctrl.advance(dt_s=1.0)
+
+        assert ctrl.state == DischargeState.FAULT
+        assert "CONCURRENT" in ctrl.fault_reason
+
+    def test_no_fault_when_only_load_on(self):
+        """Normál kisütés: Load ON, PSU OFF → nincs concurrent fault."""
+        ctrl, psu, load, dmm = make_discharge_controller(dmm_voltage_V=12.5)
+        for _ in range(4):
+            ctrl.advance(dt_s=1.0)
+        assert ctrl.state == DischargeState.DISCHARGE_CC_RUN
+        assert load.input_commanded_on is True
+        assert psu.output_commanded_on is False

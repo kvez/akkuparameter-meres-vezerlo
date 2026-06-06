@@ -197,6 +197,17 @@ class SafetyManager:
             )
         return SafetyResult()
 
+    def check_concurrent_psu_load(
+        self, psu_commanded_on: bool, load_commanded_on: bool
+    ) -> SafetyResult:
+        """PSU ON + Load ON egyszerre nem megengedett — hardware conflict detektálás."""
+        if psu_commanded_on and load_commanded_on:
+            return SafetyResult(
+                fault=FaultCode.CONCURRENT_PSU_LOAD_ON,
+                message="PSU és Load egyszerre aktív — hardware conflict!"
+            )
+        return SafetyResult()
+
     def check_series_drop(self, u_drop_V: float) -> SafetyResult:
         """[BY550] Soros dióda feszültségesés kétszintű ellenőrzés."""
         if u_drop_V > self.fault_series_drop_V:
