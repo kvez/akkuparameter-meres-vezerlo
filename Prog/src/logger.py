@@ -88,7 +88,9 @@ class Logger:
 
         # SQLite
         self._sqlite_path = self._dir / "session.db"
-        self._conn = sqlite3.connect(str(self._sqlite_path))
+        # check_same_thread=False: a Logger a főszálon jön létre, de a TestRunner
+        # QThread-ben írja — egyetlen szál ír egyszerre, így biztonságos.
+        self._conn = sqlite3.connect(str(self._sqlite_path), check_same_thread=False)
         self._conn.execute(_SQLITE_CREATE)
         self._conn.commit()
 
