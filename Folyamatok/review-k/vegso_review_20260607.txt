@@ -1,0 +1,752 @@
+================================================================================
+VÉGSŐ REVIEW — AKKUTESZTER PROJEKT
+Éles használatot megelőző átvilágítás
+================================================================================
+Dátum:        2026-06-07
+Verzió:       commit 37a14e1 (master) + 2026-06-07 session-bővítések
+Review scope: teljes kódbázis (src/, drivers/, gui/, tools/, config/)
+Módszerek:    batrev, bq-review, embedded-review, chk1, chk2, hwrev/review
+Reviewer:     Claude Sonnet 4.6 (automated + tervdokumentum alapján)
+
+
+================================================================================
+1. VEZETŐI ÖSSZEFOGLALÓ
+================================================================================
+
+DÖNTÉS: FELTÉTELESEN KÉSZ
+
+Az alap töltési/kisütési/relaxációs folyamat (CHARACTERIZATION és BQ_LEARNING_PHYSICAL
+módok) implementáltan, tesztelten (467 teszt zöld), és élesben validálva van.
+A safety réteg, DMM-kompenzáció, PSU mód kezelés és logging helyesen működik.
+
+Három súlyossági szinten összesen 11 találat:
+
+  BLOCKER    — 2 db  (éles használat ELŐTT kötelező javítás)
+  CRITICAL   — 1 db  (éles használat ELŐTT erősen ajánlott)
+  MAJOR      — 4 db  (méréstani/üzemeltetési korlát, dokumentálni kell)
+  MINOR/INFO — 4 db  (következő fejlesztési körben)
+
+TOP 5 KOCKÁZAT:
+
+  1. [BLOCKER] MainWindow.closeEvent() hiányzik: ablak bezáráskor PSU output ON
+     maradhat. Labor safety kockázat.
+
+  2. [BLOCKER] OcvSocController._run_impulse_on(): 30 másodperces blocking sleep
+     a worker threadben — emergency_stop nem ellenőrzött, terminate voltage nem
+     figyelt az impulzus alatt.
+
+  3. [CRITICAL] INTEGRATION_FALLBACK_TOO_LONG FaultCode létezik, de soha nem vált
+     ki. A "SETPOINT_FALLBACK" integrációs forrás sosem kerül átadásra —
+     az integrator fallback ága dead code.
+
+  4. [MAJOR] NPLC relax/OCV fázisban nem vált 100-ra: a config tartalmazza
+     (nplc_relax: 100), de a kód soha nem alkalmazza. Az OCV mérés
+     NPLC=10-es pontossággal történik.
+
+  5. [MAJOR] RelaxController DMM kiesés silent: kivétel → pass, nincs hiba,
+     nincs jelzés. A relax végén a OCV mérés érvénytelen lehet.
+
+Módok szerinti minősítés:
+
+  CHARACTERIZATION:         KÉSZ (B1 javítással)
+  BQ_LEARNING_PHYSICAL:     KÉSZ (B1 javítással)
+  OCV_SOC_CHARACTERIZATION: NEM KÉSZ (B1 + B2 javítással)
+
+
+================================================================================
+2. KRITIKUS HIBÁK
+================================================================================
+
+------------------------------------------------------------------------
+B1. [BLOCKER] MainWindow.closeEvent() hiányzik
+------------------------------------------------------------------------
+Fájl:      Prog/gui/main_window.py — nincs closeEvent() implementáció
+Súlyosság: BLOCKER — labor safety
+
+Probléma:
+  Ha a felhasználó a Windows X gombbal zárja be az ablakot futó mérés
+  közben, a QMainWindow.closeEvent() nincs override-olva. A Qt alapértelmezés
+  szerint bezárja az ablakot és az alkalmazás leáll. A QThread quit()/wait()
+  nem kerül meghívásra, a PSU output és Load input maradhatnak aktív állapotban.
+
+Miért veszélyes:
+  PSU output ON + ablak bezárva = töltési áram folyik, nincs szoftver felügyelet.
+  Az akku kezelő nincs az asztal közelében — nem látja.
+
+Javítási irány:
+  Prog/gui/main_window.py-ba:
+
+    def closeEvent(self, event) -> None:
+        if self._worker is not None and self._thread is not None:
+            self._worker.request_emergency_stop("GUI_WINDOW_CLOSED")
+            self._thread.quit()
+            if not self._thread.wait(8000):
+                self._thread.terminate()
+        event.accept()
+
+Teszt:
+  - Futó CHARGE_CC alatt bezárás → PSU output OFF, Load input OFF ellenőrzés.
+  - Futó DISCHARGE_CC_RUN alatt bezárás → Load input OFF ellenőrzés.
+  - Nincs aktív mérés + bezárás → normál kilépés.
+
+------------------------------------------------------------------------
+B2. [BLOCKER] OcvSocController._run_impulse_on(): blocking sleep az
+    állapotgépben, emergency_stop nem ellenőrzött
+------------------------------------------------------------------------
+Fájl:      Prog/src/ocv_soc_controller.py:337-344
+Súlyosság: BLOCKER — labor safety + helyességi hiba
+
+Probléma:
+  ```python
+  time.sleep(1.0)   # ← worker thread blokkolva
+  v_1s = self._dmm_v.read_voltage()
+  time.sleep(9.0)   # ← 9 másodperc blokkolás
+  v_10s = self._dmm_v.read_voltage()
+  time.sleep(20.0)  # ← 20 másodperc blokkolás
+  v_30s = self._dmm_v.read_voltage()
+  ```
+  A teljes 30 másodperces impulzus alatt:
+    - A TestRunner tick-ciklusa NEM fut
+    - emergency_stop_requested flag NEM ellenőrzött
+    - battery voltage NEM ellenőrzött (OV, terminate)
+    - DMM_FEEDBACK_LOST NEM detektálható
+
+Miért veszélyes:
+  - Ha a terhelés bekapcsol és a feszültség a terminate_V alá esik, nincs leállítás
+  - Ha az akkuhoz valaki hozzányúl és emergency_stop-ot nyom, a gomb nem reagál
+    30 másodpercig
+
+Javítási irány (két lehetséges megközelítés):
+
+  1. EGYSZERŰ: A sleep-ek közé emergency_stop + OV ellenőrzés beiktatása:
+     ```python
+     for wait_s, attr in [(1.0, "_v_1s_buf"), (9.0, "_v_10s_buf"), (20.0, "_v_30s_buf")]:
+         time.sleep(wait_s)
+         if self._safety.check_battery_voltage(self._u_batt).fault:
+             self._load.input_off()
+             self.emergency_stop("OV_DURING_IMPULSE")
+             return
+         ...
+     ```
+
+  2. HELYES: Az IMPULSE_ON állapotot a normál advance() ciklus mintájára kell
+     megvalósítani, belső időmérővel (time.perf_counter alapú).
+     Az állapotgép lép át IMPULSE_MEASURE_1S → IMPULSE_MEASURE_10S → stb.
+     Minden advance() tick ellenőrzi az emergency_stop-ot és az OV-t.
+
+Teszt:
+  - Emergency Stop gomb IMPULSE_ON állapot alatt → < 2s alatt PSU+Load OFF.
+  - Akkufeszültség szimulált OV az impulzus közben → azonnali leállítás.
+
+------------------------------------------------------------------------
+C1. [CRITICAL] INTEGRATION_FALLBACK_TOO_LONG fault dead code
+------------------------------------------------------------------------
+Fájl:      Prog/src/integrator.py:43-48, Prog/src/charge_controller.py:459-462,
+           Prog/src/discharge_controller.py:252-255
+Súlyosság: CRITICAL — méréstani helyesség
+
+Probléma:
+  A `FaultCode.INTEGRATION_FALLBACK_TOO_LONG` és az integrator.py
+  `integration_valid`/`capacity_result_quality` mezői léteznek, de a
+  controllerek soha nem adnak át "SETPOINT_FALLBACK" source-t az
+  add_sample() hívásban. Az integrálás forrása mindig
+  "PSU_READBACK" vagy "LOAD_READBACK". Ha a PSU/Load readback sikertelen,
+  az emergency_stop() azonnali FAULT-ot okoz — tehát a fallback ág
+  soha nem aktiválódik.
+
+  Következmény:
+    - integrator.integration_valid soha nem lesz False
+    - capacity_result_quality soha nem lesz "DEGRADED" a kódban
+    - A terv [N5] "30s fallback → FAULT" előírás nem teljesül (bár az
+      azonnali FAULT emergency_stop-on keresztül megvalósul)
+    - A terv_vs_implementacio_osszehasonlitas.txt [RÉSZLEGES] N5 pontja
+      2026-06-06 óta nem frissült
+
+  Ez NEM safety kockázat (a PSU COMM LOST azonnali FAULT-ot okoz), de
+  a kód szándéka és a tervdokumentum ellentmond egymásnak, és a DEGRADED
+  quality path soha nem tesztelődik.
+
+Javítási irány:
+  - Döntés: vagy a tervtől való eltérést dokumentálni (d13.txt?), vagy
+    a fallback path-t implementálni (pl. DMM readback timeout esetén
+    setpoint-alapú integrálás 30s-ig)
+  - A FaultCode.INTEGRATION_FALLBACK_TOO_LONG-t, ha sosem használjuk,
+    törölni vagy FELTÉTELEZÉS-ként jelölni
+
+Teszt:
+  - PSU comm lost: emergency_stop("PSU_COMM_LOST") tesztelése ✓ (van teszt)
+  - SETPOINT_FALLBACK ág: NEM TESZTELVE (dead code)
+
+
+================================================================================
+3. MAJOR HIBÁK / METROLÓGIAI KORLÁTOK
+================================================================================
+
+------------------------------------------------------------------------
+M1. [MAJOR] NPLC relax/OCV fázisban nem vált 100-ra
+------------------------------------------------------------------------
+Fájl:      Prog/gui/main_window.py:261 (connect után egyszer NPLC=10)
+           Prog/config/default_config.yaml (nplc_relax: 100 van, de nincs alkalmazva)
+Súlyosság: MAJOR — méréstani korlát
+
+Probléma:
+  A main_window.py _build_runner()-ben:
+    `dmm_v.configure_dcv(range_V=100, nplc=10)`
+  Ez egyszer fut, connect után. A relaxációs fázisban és OCV mérésnél
+  az NPLC=100 nem kerül beállításra, holott a config dokumentálja
+  (nplc_relax: 100, nplc_ocv: 100).
+  NPLC=10 vs. NPLC=100: 50 Hz-en NPLC=10 → 200ms mérési idő,
+  NPLC=100 → 2000ms. A pontosság NPLC=100-on kb. 3-5× jobb.
+  BQ golden image előkészítésnél az OCV pontossága kritikus.
+
+Javítási irány:
+  - A RelaxController és OcvSocController advance() metódusa (vagy
+    a TestRunner step-belépésnél) hívjon dmm_v.set_nplc(100)-at
+  - Kilépésnél visszaállítás dmm_v.set_nplc(10)-re
+  - Alternatíva: jelezni a riportban, hogy az OCV NPLC=10-es pontossággal
+    mért (FELTÉTELEZÉS-ként dokumentálni)
+
+Teszt:
+  - NPLC=100 beállítása és egy RELAX fázis: SCPI log ellenőrzése
+
+------------------------------------------------------------------------
+M2. [MAJOR] RelaxController DMM kiesés silent — OCV érvénytelen lehet
+------------------------------------------------------------------------
+Fájl:      Prog/src/relax_controller.py:62-66
+Súlyosság: MAJOR — méréstani korlát + BQ-review
+
+Probléma:
+  ```python
+  try:
+      v = self._dmm_v.read_voltage()
+      ...
+  except Exception:
+      pass  # ← DMM kiesés silent
+  ```
+  Ha a DMM kiesik a relaxációs fázisban:
+    - Az időzítő folytatódik
+    - RELAX_DONE állapot elérhető érvényes OCV mérés nélkül
+    - A TestRunner BQ_LEARNING_PHYSICAL flow-ban folytatja a következő
+      lépéssel (pl. CHARGE), anélkül hogy a kezelő tudna a DMM hibáról
+    - A samples.csv-ben a relax minták battery_voltage_V = None
+
+  BQ golden image előkészítésnél a töltés utáni és kisütés utáni OCV
+  mérés kulcs adat — érvénytelen OCV → hibás BQ adatbázis.
+
+Javítási irány (két szint):
+  1. MINIMUM: RelaxController visszaadjon egy `dmm_valid` flag-et,
+     amit a TestRunner log-ba ír. Kezelői figyelmeztetés, de nem FAULT.
+  2. AJÁNLOTT: RelaxController.advance() visszatérhessen "FAULT" állapotba
+     ha a DMM > N másodperc kiesik (pl. 120s), és a TestRunner kezelje.
+
+Teszt:
+  - DMM disconnect relax fázis közben → RELAX_DONE-ig fut, de events.csv
+    tartalmaz-e DMM_LOST eseményt?
+
+------------------------------------------------------------------------
+M3. [MAJOR] Rb mérés set_current alapú (nem load readback)
+------------------------------------------------------------------------
+Fájl:      Prog/src/discharge_controller.py:209-217
+Súlyosság: MAJOR — méréstani korlát, dokumentálni kell
+
+Probléma:
+  ```python
+  if self._u_batt_pre_load is not None and self._i_discharge_set > 0.01:
+      delta_v = self._u_batt_pre_load - self._u_batt
+      ...
+      self._rb_1s_mohm = delta_v / self._i_discharge_set * 1000.0
+  ```
+  Az Rb számítás `_i_discharge_set`-et (beállított áramot) használja,
+  nem a `_load.measure_current()` readback értéket.
+
+  Következmény:
+    - Ha a 2380 tényleges terhelési árama eltér a set_current értéktől
+      (pl. akkufeszültség > belső határ, slew rate), az Rb pontatlan
+    - A terhelés bekapcsolásától számított 1s/10s/30s időzítése az
+      advance() ciklus soros végrehajtásától függ, nem real-time
+      perf_counter-től: a tick ideje 2s → az 1s/10s/30s minta ténylegesen
+      a legközelebbi 2s múltán vesz
+
+  A kisebb FIAMM FG akkuknál (pl. FG20121, 1.09Ah) az Rb akár 500-1000 mΩ,
+  ahol a 2% áramhiba 10-20 mΩ eltérést okozhat.
+
+Javítási irány:
+  - Az Rb számításban `i_load = self._read_load_current()` readback értéket
+    használni, vagy a mérési korlátot a riportban dokumentálni
+  - A tick időzítés korlátját (1s minta ténylegesen 2s körül) dokumentálni
+
+Teszt:
+  - 2380 tényleges áram readback összevetése a set_current értékkel
+
+------------------------------------------------------------------------
+M4. [MAJOR] Riport nem generálódik automatikusan session végén
+------------------------------------------------------------------------
+Fájl:      Prog/gui/main_window.py:137-155 (_on_finished()),
+           Prog/src/report_generator.py
+Súlyosság: MAJOR — üzemeltetési hiány (terv_vs_implementacio HIÁNY pont)
+
+Probléma:
+  A main_window.py `_on_finished()` kiszámolja a Töltve/Kisütve összegzést
+  és QMessageBox-ban megjeleníti, de NEM hívja:
+    - report_generator.generate()
+    - logger.log_ocv_soc_point() összefoglaló
+  Az összefoglaló JSON riport soha nem kerül fájlba.
+
+  A session_meta (program verzió, test_type, profil, PSU mód, dioda
+  paraméterek) nem gyűlik össze és nem kerül session_meta.json-ba.
+
+Javítási irány:
+  - `_on_finished()` hozzon létre session_meta dict-et és hívja
+    `report_generator.generate(session_meta)` → JSON fájlba mentés
+  - Logger-ben session_meta.json írás connect után (program verzió,
+    config paraméterek, akkuprofil)
+
+Teszt:
+  - DONE státuszú mérés után: Mérések/Sessions/.../summary_report.json
+    létezik és tartalmazza a mérési limitációkat
+
+
+================================================================================
+4. MINOR / INFO PONTOK
+================================================================================
+
+------------------------------------------------------------------------
+I1. [INFO] CONCURRENT_PSU_LOAD_ON csak commanded_on szinten ellenőrzött
+------------------------------------------------------------------------
+Fájl:      Prog/src/charge_controller.py:143-149,
+           Prog/src/discharge_controller.py:121-127
+Súlyosság: INFO — terv vs. implementáció eltérés (N9)
+
+A terv szerint a confirmed_on (tényleges output/input állapot readback)
+is szükséges lenne. Implementálva csak commanded_on. Ha a PSU/Load
+belső állapota eltér a commanded-tól (pl. output protect trip után),
+a concurrent check hamis negatívot adhat.
+
+Ajánlás: dokumentálni tervtől való eltérésként (d-sorozat), vagy
+PSU_OUTPUT_STATE_UNCERTAIN warning implementálása, ha a PSU output ON
+volt commanded, de a readback 0A-t mutat N ticken keresztül.
+
+------------------------------------------------------------------------
+I2. [INFO] OCV-SOC terminate voltage elér: relax + impulzus kihagyódik
+------------------------------------------------------------------------
+Fájl:      Prog/src/ocv_soc_controller.py:289-298
+Súlyosság: INFO — BQ-review megjegyzés
+
+Ha az akku eléri a terminate_voltage-t egy step közben, az állapotgép
+közvetlenül LOG_SOC_POINT-ba ugrik (relax és impulzus nélkül). Az utolsó
+0% SOC ponton nincs 5h relaxáció és nincs Rb impulzus mérés.
+BQ Impedance Track szempontjából az utolsó pont kevésbé megbízható OCV
+és nincs Rb adat.
+
+Ajánlás: dokumentálni a mérési összefoglalóban; opcionálisan: ha
+terminate_voltage-nál ér véget, legalább 2h relax után log-olni az OCV-t.
+
+------------------------------------------------------------------------
+I3. [INFO] float_voltage_per_cell_V nincs validálva BatteryProfile-ban
+------------------------------------------------------------------------
+Fájl:      Prog/src/battery_profile.py
+Súlyosság: INFO — metrológiai korlát
+
+A BatteryProfile._validate() nem ellenőrzi float_voltage_per_cell_V
+tartományát. Default 2.27 (helyes FIAMM AGM), de nincs clamp. A
+compensated_charge_voltage_V() clampeli [2.30, 2.425]-re, de maga a
+float_voltage_per_cell_V szabadon maradhat ésszerűtlen értéken.
+
+Ajánlás: validátor kiegészítése:
+  if not (2.10 <= self.float_voltage_per_cell_V <= 2.40):
+      raise ProfileValidationError(...)
+
+------------------------------------------------------------------------
+I4. [INFO] check_error() SYST:ERR? "0," ellenőrzés nem teljes
+------------------------------------------------------------------------
+Fájl:      Prog/drivers/device_psu.py:81, device_load.py:72, device_dmm.py:69
+Súlyosság: INFO — diagnosztikai robusztusság
+
+SCPI standard: "+0,\"No error\"" — a "+0" prefix ellenőrzés helyes.
+De "0,\"No error\"" (plus jel nélkül) nem kerülne üresnek felismerve,
+és "0\n" sem — ez egyes eszköz-firmware verziókban előfordulhat.
+
+Ajánlás: `resp.strip().startswith(("0,", "+0"))` feltétel kiegészítése.
+
+
+================================================================================
+5. TERV vs. IMPLEMENTÁCIÓ — AKTUÁLIS ÁLLAPOT (2026-06-07)
+================================================================================
+
+Az összehasonlítás alapja: terv_vs_implementacio_osszehasonlitas.txt (ref: d2a647c)
+Jelen review verziója: commit 37a14e1 + 2026-06-07 session módosítások
+
+Legutóbbi összehasonlítás óta teljesített tervpontok:
+
+  [ÚJ OK] OCV-SOC lépcsős teszt mód (PHASE 6) — OcvSocController implementálva
+           commit 37a14e1, 467 teszt zöld
+  [ÚJ OK] Rb mérés (PHASE 7) — DischargeController + OcvSocController IMPULSE_ON
+           (BLOCKER B2 miatt az OCV_SOC mód nem éles-kész!)
+  [ÚJ OK] TAPER_HOLD OV védelme — _regulate_cv(up_allowed=False)
+  [ÚJ OK] PSU set voltage kijelzés állapotsorban
+  [ÚJ OK] Load set current kijelzés állapotsorban
+  [ÚJ OK] dV/dt kijelzés állapotsorban
+
+Fennmaradó hiányok (terv_vs_implementacio_osszehasonlitas kategória):
+
+  [RÉSZLEGES] N5 — INTEGRATION_FALLBACK_TOO_LONG fault (ld. C1)
+  [RÉSZLEGES] N9 — confirmed_on hiányzik (ld. I1)
+  [RÉSZLEGES] N10 — NPLC fázisfüggő konfiguráció (ld. M1)
+  [RÉSZLEGES] Riport összefoglalás (ld. M4)
+  [RÉSZLEGES] Relax idők fázisonkénti konfigurálása (2h charge vs. 5h discharge)
+  [HIÁNY]     Ambient temperature kézi bevitel (GUI-ban nincs mező)
+  [HIÁNY]     Pihentetett OCV értékek a végeredményben (riport)
+  [HIÁNY]     C/20 kapacitásteszt (alacsony prioritás)
+  [HIÁNY]     dV/dt alapú korai relax kilépés (config van, GUI nem)
+
+Tervtől való bővítések (helyes döntések):
+  [BŐVÍTÉS OK] CC→CV azonnali PSU clamp (OV-megelőzés)
+  [BŐVÍTÉS OK] TAPER_HOLD down-only CV (_regulate_cv up_allowed=False)
+  [BŐVÍTÉS OK] Device error poll + forced poll fault esetén
+  [BŐVÍTÉS OK] PSU/Load mód szerinti hw limit figyelembevétel
+
+Relax idők megjegyzés:
+  A RelaxConfig.min_relax_s = 7200s (2h) minden fázisban van beállítva.
+  A terv szerint kisütés utáni relax 5h kellene (BQ learning), de a
+  TestRunner-ben nincs külön relax konfiguráció töltés utáni vs.
+  kisütés utáni fázisra. Az OcvSocController saját keypoint logikával
+  (18000s = 5h) kezeli a kulcspontokat — ez helyes.
+  A CHARACTERIZATION és BQ_LEARNING_PHYSICAL flow-ban viszont minden
+  relax 2h — a kisütés utáni relax is csak 2h, a terv 5h-jával szemben.
+  Ez nem safety kockázat, de a BQ learning pontosságát befolyásolhatja.
+
+
+================================================================================
+6. BATREV (FIAMM FG AGM VRLA) VALIDÁCIÓ
+================================================================================
+
+BatteryProfile paraméterek ellenőrzése — FIAMM AGM Engineering Manual alapján:
+
+  Paraméter                       | Implementált           | Elvárt           | OK?
+  --------------------------------|------------------------|------------------|-----
+  float_voltage_per_cell_V        | 2.27 V/cell @ 20°C     | 2.27 V/cell      | ✓
+  charge_voltage_per_cell_V       | 2.40 V/cell @ 20°C     | 2.40 V/cell      | ✓
+  temp_comp_mV_per_cell_per_degC  | -2.5 mV/cell/°C        | -2.5 mV/cell/°C  | ✓
+  effective_max_charge_A          | 0.25 × nominal_Ah      | 0.25 × C10       | ⚠
+  effective_taper_A               | 0.03 × nominal_Ah      | 0.03 × C10       | ⚠
+  terminate_voltage_per_cell_V    | 1.80 V/cell            | 1.80 V/cell C10  | ✓
+  batt_absolute_max_V_per_cell    | 2.425 V/cell           | (d döntés alapján)| ✓
+  compensated_charge_V clamp      | [2.30, 2.425] V/cell   | FIAMM alapján    | ✓
+  cell_count 12V pack             | 6                      | 6                | ✓
+
+Megjegyzés az ⚠ sorokhoz:
+  Az effective_max_charge_A = 0.25 × nominal_capacity_Ah.
+  Ha a felhasználó C10 kapacitást ad meg (helyes), ez pontos.
+  Ha C20 kapacitást ad meg (ami nagyobb!), a töltőáram nagyobb lesz
+  a tényleges C10 limitnél. A BatteryProfile-ban a nominal_capacity_Ah
+  nem jelöli meg egyértelműen, hogy C10 vagy C20.
+
+  Példa FG20121: C10=1.09Ah, C20=1.2Ah.
+  Ha C20-at adnak meg: boost_max = 0.25 × 1.2 = 0.30A vs. helyes 0.27A.
+  Különbség: +11% — FIAMM tolerancián belül, de dokumentálni kell.
+
+Ajánlás:
+  A ConfigPanel GUI-ban és a BatteryProfile dataclass docstring-jében
+  egyértelműen jelölni: "nominal_capacity_Ah = C10 érték (10 órás kisütés
+  1.80V/cell végpontig)".
+
+C-ráta számítás:
+  C5_discharge_current_A = nominal / 5     → BQ learning flow
+  C10_discharge_current_A = nominal / 10   → OCV-SOC default
+  C20_discharge_current_A = nominal / 20   → (nem default)
+  A discharge_rate_divisor konfigurálható → helyes
+
+
+================================================================================
+7. BQ-REVIEW EREDMÉNY
+================================================================================
+
+Fizikai labor folyamat — BQ34Z110/BQ34Z100 golden image előkészítéshez:
+
+BQ_LEARNING_PHYSICAL sorrend:
+  charge_1 → relax → discharge_1 → relax →
+  charge_2 → relax → discharge_2 → relax →
+  MANUAL_CHECKPOINT (kézi BQ műveletek)
+
+Értékelés:
+
+  [OK]  A fizikai ciklusok sorrendje megfelel a TI Impedance Track learning
+        követelményeinek (C/5 kisütés, teljes töltés, stabil relax).
+
+  [OK]  MANUAL_CHECKPOINT megfelelő helyen van — a 2. ciklus utáni relax
+        lejárta után áll meg, jelzi a GUI-ban és resume-ol.
+
+  [OK]  Az Ah/Wh integrálás Load readback alapú — a tényleges kisütött
+        kapacitás mérhető, ami a BQ Initial Full Charge Capacity adatbázis
+        frissítéséhez szükséges.
+
+  [OK]  A sorozat dióda OCV torzítása dokumentált a riportban:
+        "BY550 fordított szivárgás ~10µA @25°C — FELTÉTELEZÉS".
+
+  [HIÁNY] A kisütés utáni relax csak 2h (terv: 5h BQ learning esetén).
+          A BQ Impedance Track Qmax kalibrációhoz az akkumulátornak
+          elegendő ideje kell a belső feszültség kiegyenlítésére.
+          2h elképzelhető, hogy nem elegendő 7Ah+ akkuknál.
+
+  [HIÁNY] Az OCV mérés NPLC=10 pontossággal történik (M1 pont).
+          A BQ OCV → SOC lookup táblában 10mV OCV hiba ~2-5% SOC hibát okozhat.
+
+  [NEM IGAZOLHATÓ] A BY550 reverse leakage hatása az OCV mérésre fizikailag
+          mérve nincs. A 10µA leakage 12V-on 120kΩ szintre mutat — elhanyagolható
+          ha a DMM bemeneti impedancia > 10MΩ (34465A: 10GΩ) → OK.
+
+  [NEM IGAZOLHATÓ] A 2380 terhelési áram readback pontossága külső shunt
+          nélkül nem ismert. A BQ kapacitásmérés pontossága korrelál az
+          áramintegráló pontosságával.
+
+BQ review összefoglalása:
+  FELTÉTELESEN ELFOGADHATÓ — a kisütés utáni relax 5h-ra javítandó,
+  az NPLC=100 OCV mérés implementálandó, és az M3 (Rb set_current alapú)
+  korlátot dokumentálni kell a BQ parameterizáláshoz leadott riportban.
+
+
+================================================================================
+8. EMBEDDED-REVIEW EREDMÉNY
+================================================================================
+
+8.1 BLOCKER SZINTŰ PROBLÉMÁK
+
+  [E1] OcvSocController IMPULSE_ON: time.sleep() az állapotgép közben
+       → ld. B2 részletesen
+
+8.2 VALÓS KOCKÁZATOK
+
+  [E2] advance() első tick: actual_dt_s ≈ 0 (perf_counter delta az INIT
+       állapot előtt). Az integráció dt_s=0-val fut az első tickben — nem
+       okoz hibát (0 × i = 0 Ah integrálódik), de a terv megjegyzi
+       "Első tickben actual_dt_s ≈ 0 (INIT/PRECHECK fázis, integráció nem fut)".
+       Ez valóban helyes — az INIT és PRECHECK fázisban a PSU még OFF.
+
+  [E3] PSU measure_output_voltage() exception → None → _check_series_safety()
+       skip. Az IMPULSE során (és CC/CV alatt) ha a PSU voltage readback
+       sikertelen, a series drop ellenőrzés kihagyódik.
+       KOCKÁZAT: SERIES_DROP_TOO_HIGH fault nem detektálódik ha a PSU
+       nem tud válaszolni. Mérsékelt kockázat (a DMM_FEEDBACK_LOST
+       már leállítja a mérést ha az akku DMM hibásodik).
+
+  [E4] DischargeController._run_cc(): Rb időzítés advance() tick alapú.
+       A load_on_elapsed_s += dt_s szummázódik, de a dt_s az actual_dt_s
+       (perf_counter alapú). 2s-os tick esetén az 1s minta a 2s ticknél
+       jelenik meg — rendszeresen késve. Ez dokumentálható korlát.
+
+  [E5] TestRunner._run_step(): a `while not self._is_finished(controller):`
+       ciklusban az advance() és a sleep() közötti tényleges idő:
+       ```python
+       _elapsed = time.perf_counter() - _last_tick_t
+       time.sleep(max(0.0, self._config.runner_tick_s - _elapsed))
+       ```
+       Ha az advance() + log + checkpoint > runner_tick_s (2s), sleep = 0.
+       Normál esetben nem probléma, de hosszú SCPI timeoutnál (3×5000ms =
+       15s) ez 15 másodpercet jelent tick nélkül. A timeout_ms = 5000ms
+       és max_retries = 3 → worst case 15s/tick.
+       AJÁNLÁS: SCPI timeoutot csökkenteni (pl. 2000ms), vagy a max_retries-t
+       1-re venni és az exception alapján azonnali FAULT-ot kiadni.
+
+8.3 EDGE CASE-EK
+
+  [E6] BatteryProfile.compensated_charge_voltage_V():
+       clamp: max(2.30, min(2.425, corrected)) × cell_count.
+       Ha cell_count = 12 és 40°C-on a kompenzált érték 2.30V/cell →
+       12 × 2.30 = 27.6V. A PSU SERIES módban max 60V → OK.
+       De ha temp_comp_mode = MONITOR_ONLY (default), a kompenzáció
+       nem fut → nincs OV kockázat hőmérséklet miatt.
+
+  [E7] InstrumentManager.safe_all_off() sorrendje:
+       Load → PSU → DMM_V → DMM_T. A LOAD OFF → PSU OFF sorrend helyes.
+       DMM safe_off() = no-op → OK.
+
+  [E8] Logger.write_checkpoint() atomikus (tmp + os.replace()) → helyes.
+       SQLite check_same_thread=False + egyetlen worker thread →
+       nem okoz race conditiont, de dokumentálni kellene miért biztonságos.
+
+  [E9] OcvSocController._run_step_discharge() nem ellenőrzi a
+       max_discharge_Ah_factort. Egy lépésben elvben tetszőleges mennyiséget
+       kisüthet ha a terminate voltage-ig nem ér. A terminate voltage védi
+       az akkut, de az OCV-SOC módban egy lépés elvben kisüthet 30-40%-ot
+       is ha az előző lépés alatt kevesebb Ah fogyott (pl. régi akku).
+
+8.4 KARBANTARTHATÓSÁGI MEGJEGYZÉSEK
+
+  [E10] OcvSocController _rb_1s/_rb_10s/_rb_30s mező Ohm-ban van (nem mΩ),
+        a DischargeController rb_1s_mohm mΩ-ban. A különböző módszerekhez
+        különböző táblák logolódnak (ocv_soc_table.csv vs. samples.csv),
+        tehát a keveredés kockázata mérsékelt, de a névkonvenciót egységesíteni
+        érdemes (rb_1s_mohm vs. rb_1s_ohm → dokumentáció szükséges).
+
+  [E11] RelaxController nem tartja nyilván a DMM valid állapotát; a TestRunner
+        nem tud a relax közbeni DMM kiesésről. → ld. M2.
+
+
+================================================================================
+9. KONFIGURÁCIÓ / REPO HIGIÉNIA
+================================================================================
+
+  [OK]  local_config.yaml .gitignore-ban van → valódi VISA resource stringek
+        nem kerülnek a repositoryba.
+
+  [OK]  default_config.yaml: minden érték PLACEHOLDER → biztonságos.
+
+  [OK]  local_config.template.yaml létezik.
+
+  [OK]  .gitignore: __pycache__, *.pyc, .pytest_cache, local_config.yaml,
+        Mérések/ → helyes.
+
+  [OK]  build/dist/ .gitignore-ban → exe nem verziókövetve.
+
+  [HIÁNY] .gitignore tartalmazza-e a *.db fájlokat? → igen, `*.db` sor megvan.
+
+  [HIÁNY] session_dir = Path("Mérések") / "Sessions" / ...
+          Ez relatív elérési út. Ha az exe nem a projekt gyökéréből fut
+          (pl. Windows Start Menu shortcut), a mérési mappa más könyvtárban
+          keletkezik. AJÁNLÁS: `app_paths` modult is alkalmazni a session_dir-re.
+
+  [INFO]  requirements.txt vagy pyproject.toml nem volt látható a review-ban.
+          Függőségek (PySide6, pyqtgraph, pyvisa, PyYAML, pytest) dokumentálása
+          szükséges éles üzemhez.
+
+
+================================================================================
+10. TESZTEK ÉS TESZTFEDÉS
+================================================================================
+
+Aktuális teszt állapot: 467 teszt PASS (2026-06-07).
+
+Tesztelt területek (OK):
+  - SafetyManager unit tesztek (check_* metódusok)
+  - ChargeController fault tesztek (DMM_FEEDBACK_LOST, PSU_COMM_LOST, OV stb.)
+  - DischargeController fault tesztek
+  - Integrator add_sample logika
+  - BatteryProfile validáció
+  - Logger + checkpoint atomiság
+  - PSU/Load/DMM driver mock tesztek
+
+Hiányzó vagy nem igazolható tesztek:
+
+  [HIÁNY] closeEvent() viselkedése futó mérés közben — NEM tesztelt
+  [HIÁNY] OcvSocController IMPULSE_ON emergency_stop tesztelése — NEM tesztelt
+  [HIÁNY] SETPOINT_FALLBACK integráció — dead code, teszt nincs, nem is futhat
+  [HIÁNY] RelaxController DMM kiesés silent path — nincs teszt arra, hogy
+          RELAX_DONE keletkezik érvénytelen OCV esetén
+  [HIÁNY] NPLC fázisfüggő váltás — nincs implementálva, nincs teszt
+  [HIÁNY] Rb mérés pontatlanság set_current vs. readback — nincs összehasonlítás
+  [HIÁNY] OcvSocController teljes flow integráció teszt
+          (PRECHARGE → PRECHARGE_RELAX → STEP_DISCHARGE × 20 → DONE)
+
+Hiba-injektálás minimálisan szükséges tesztek (before live):
+  1. DMM timeout töltés közben → DMM_FEEDBACK_LOST → PSU OFF
+  2. DMM timeout kisütés közben → DMM_FEEDBACK_LOST → Load OFF
+  3. PSU readback exception CC fázisban → PSU_COMM_LOST → PSU OFF
+  4. Load readback exception kisütés közben → LOAD_COMM_LOST → Load OFF
+  5. Akku OV szimulálás → BATTERY_OVERVOLTAGE → azonnali leállítás
+  6. Emergency Stop CC/CV/TAPER/DISCHARGE/RELAX alatt
+  7. GUI ablak bezárása futó mérés alatt (closeEvent teszt)
+  8. IMPULSE_ON emergency_stop (OcvSocController)
+
+
+================================================================================
+11. JAVÍTÁSI PRIORITÁSI LISTA
+================================================================================
+
+ÉLES HASZNÁLAT ELŐTT KÖTELEZŐ:
+
+  P1. [BLOCKER] MainWindow.closeEvent() implementálása
+      Fájl: Prog/gui/main_window.py
+      Munka: ~10 sor
+      Teszt: futó mérés + ablak bezárás → PSU OFF
+
+  P2. [BLOCKER] OcvSocController._run_impulse_on(): time.sleep() eltávolítása,
+      emergency_stop + OV ellenőrzés beiktatása a sleep-ek közé (gyors fix),
+      vagy az impulzus logika átírása advance() ciklus mintájára (helyes megoldás)
+      Fájl: Prog/src/ocv_soc_controller.py:326-365
+      Megjegyzés: P2 csak az OCV_SOC_CHARACTERIZATION módot érinti.
+      CHARACTERIZATION és BQ_LEARNING_PHYSICAL módokban nem fut IMPULSE_ON.
+
+ÉLES HASZNÁLAT ELŐTT ERŐSEN AJÁNLOTT:
+
+  P3. [CRITICAL] INTEGRATION_FALLBACK_TOO_LONG — döntés dokumentálása
+      Opció A: tervtől való eltérést rögzíteni (d13.txt)
+      Opció B: a FaultCode.INTEGRATION_FALLBACK_TOO_LONG-t aktív fault-tá tenni
+
+  P4. [MAJOR] RelaxController DMM kiesés jelzése — legalább event log + sample
+      `dmm_voltage_valid = False` az érintett relax mintákban, kezelői
+      figyelmeztetés a relax végén ha DMM kiesett
+
+  P5. [MAJOR] Rb mérési forrás dokumentálása — a riportban és a GUI-ban
+      jelezni: "Rb számítás beállított áram alapú (nem kalibált shunt)"
+
+KÖVETKEZŐ FEJLESZTÉSI KÖRBEN:
+
+  P6. [MAJOR] NPLC fázisfüggő váltás — relax/OCV fázisban NPLC=100
+
+  P7. [MAJOR] Riport automatikus generálása + session_meta.json mentése
+      session végén
+
+  P8. [INFO] BatteryProfile nominal_capacity_Ah C10 jelölése
+
+  P9. [INFO] session_dir abszolút útvonalra váltás (app_paths alapján)
+
+  P10. [INFO] Relax idők fázisonkénti konfigurálása (2h charge, 5h discharge)
+       BQ_LEARNING_PHYSICAL-hoz releváns
+
+
+================================================================================
+12. NYITOTT KÉRDÉSEK
+================================================================================
+
+  1. A BY550 variánsa (BY550-200 / -400 / stb.) nem azonosított — melyik
+     feszültségosztályú dióda van bekötve? Befolyásolja a warning/fault
+     küszöbök ésszerűségét.
+
+  2. A 2380 INPUT ON vs INP ON firmware check igazolt. A _detect_input_command()
+     csak "INP"-et állít be; van-e fizikai tesztjegyzőkönyv erre?
+     (terv_vs_implementacio.txt [NYITOTT] pont)
+
+  3. A 34465A FRTD PT100 hőmérséklet mérés fizikailag tesztelve van-e?
+     Konkrétan: PT100 szenzor kivezetés, Kelvin-mérési pont.
+
+  4. A parallel/series módban az OCV mérés megbízható-e? A BY550 az akku
+     és a PSU között van — PSU output OFF esetén a PSU visszirányú szivárgása
+     okozhat-e torzítást? (FELTÉTELEZÉS szint, nem mért)
+
+  5. Ambient temperature mérése (N14 terv) mikor lesz szükséges? Ha a labor
+     hőmérséklete meghaladja 25°C, és a temp_comp_mode = MONITOR_ONLY,
+     az akkumulátor feltöltési feszültsége nincs kompenzálva → figyelembe
+     vett-e ez az üzemeltetési procedúrában?
+
+  6. A local_config.yaml verziókövetve nem-e valahol? A git status üzenet
+     szerint "?? Riportok/r1.png" — nincs untracked local_config. OK.
+
+
+================================================================================
+13. KONKLÚZIÓ
+================================================================================
+
+A Akkuteszter projekt a CHARACTERIZATION és BQ_LEARNING_PHYSICAL módokban
+FELTÉTELESEN KÉSZ éles laborhasználatra, a P1 (closeEvent) azonnali javítás
+után.
+
+Az OCV_SOC_CHARACTERIZATION mód NEM KÉSZ a P2 (blocking sleep) javítás nélkül.
+
+A projekt technikai minősége magas:
+  - Az állapotgépek helyesek és jól dokumentáltak
+  - A safety réteg teljes (DMM feedback lost, OV, sorozat dióda, hőmérséklet)
+  - A logging réteg robusztus (CSV + SQLite + atomic checkpoint)
+  - A GUI thread modell helyes (worker QThread, signal/slot)
+  - A TAPER_HOLD down-only CV megoldás elegáns és korrekt
+  - A tesztelési kultúra jó (467 teszt)
+
+Legfontosabb teendők (prioritás szerint):
+  1. closeEvent() — 10 sor, 1 nap → CHARACTERIZATION élesre kész
+  2. OcvSocController IMPULSE_ON sleep fix → OCV_SOC élesre kész
+  3. RelaxController DMM silent log → BQ-review feltétel
+  4. NPLC váltás fázisonként → pontosabb OCV
+  5. Riport automatikus mentése → teljeskörű session dokumentáció
+
+================================================================================
+END OF REVIEW — vegso_review_20260607.txt
+================================================================================

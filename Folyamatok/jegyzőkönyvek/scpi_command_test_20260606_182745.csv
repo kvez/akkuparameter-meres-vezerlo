@@ -1,0 +1,57 @@
+timestamp;instrument;kind;command;description;status;response;err_after;expected_error_ok;risky;exception
+2026-06-06T18:27:45.725;load;write;INP OFF;Startup safe-off: load input off;OK;;"0,""No error""";False;False;
+2026-06-06T18:27:45.782;psu;write;OUTP OFF;Startup safe-off: PSU output off;OK;;"0, ""No error""";False;False;
+2026-06-06T18:27:45.836;psu;write;OUTP:ENAB OFF;Startup safe-off: PSU channel disable/off;OK;;"0, ""No error""";False;False;
+2026-06-06T18:27:45.905;dmm_voltage;query;*IDN?;DMM VOLT identification;OK;Keysight Technologies,34465A,MY60016569,A.03.03-03.15-03.03-00.52-05-02;"+0,""No error""";False;False;
+2026-06-06T18:27:45.959;dmm_voltage;write;*CLS;DMM VOLT clear status;OK;;"+0,""No error""";False;False;
+2026-06-06T18:27:46.012;dmm_voltage;write;CONF:VOLT:DC 100;DMM VOLT configure DCV range;OK;;"+0,""No error""";False;False;
+2026-06-06T18:27:46.093;dmm_voltage;write;VOLT:DC:NPLC 1;DMM VOLT NPLC;OK;;"+0,""No error""";False;False;
+2026-06-06T18:27:46.146;dmm_voltage;write;VOLT:DC:RANG 100;DMM VOLT fixed range;OK;;"+0,""No error""";False;False;
+2026-06-06T18:27:46.200;dmm_voltage;write;VOLT:DC:RANG:AUTO OFF;DMM VOLT autorange off;OK;;"+0,""No error""";False;False;
+2026-06-06T18:27:46.300;dmm_voltage;query;READ?;DMM VOLT reading;OK;+1.34540878E+01;"+0,""No error""";False;False;
+2026-06-06T18:27:46.369;dmm_temperature;query;*IDN?;DMM TEMP identification;OK;Keysight Technologies,34465A,MY59021376,A.03.03-03.15-03.03-00.52-05-02;"+0,""No error""";False;False;
+2026-06-06T18:27:46.424;dmm_temperature;write;*CLS;DMM TEMP clear status;OK;;"+0,""No error""";False;False;
+2026-06-06T18:27:46.478;dmm_temperature;write;CONF:TEMP FRTD,85;DMM TEMP configure 4-wire PT100 IEC751;OK;;"+0,""No error""";False;False;
+2026-06-06T18:27:46.543;dmm_temperature;write;SENS:TEMP:TRAN:FRTD:RES 100;DMM TEMP PT100 R0;OK;;"+0,""No error""";False;False;
+2026-06-06T18:27:46.596;dmm_temperature;write;SENS:TEMP:NPLC 1;DMM TEMP NPLC;OK;;"+0,""No error""";False;False;
+2026-06-06T18:27:46.651;dmm_temperature;write;UNIT:TEMP C;DMM TEMP Celsius;OK;;"+0,""No error""";False;False;
+2026-06-06T18:27:46.751;dmm_temperature;query;READ?;DMM TEMP reading;OK;+2.35195889E+01;"+0,""No error""";False;False;
+2026-06-06T18:27:46.818;load;query;*IDN?;Load identification;OK;Keithley, 2380-120-60, 802436052777870003, 1.00-1.00;"0,""No error""";False;False;
+2026-06-06T18:27:46.880;load;write;*CLS;Load clear status;OK;;"0,""No error""";False;False;
+2026-06-06T18:27:46.942;load;write;INP OFF;Load input off before setup;OK;;"0,""No error""";False;False;
+2026-06-06T18:27:47.002;load;write;SOUR:FUNC CURR;Load CC mode;OK;;"0,""No error""";False;False;
+2026-06-06T18:27:47.063;load;write;SOUR:CURR 0.1;Load current limit/setpoint;OK;;"0,""No error""";False;False;
+2026-06-06T18:27:47.127;load;query;MEAS:VOLT?;Load voltage measurement;OK;13.4538;"0,""No error""";False;False;
+2026-06-06T18:27:47.190;load;query;MEAS:CURR?;Load current measurement;OK;0;"0,""No error""";False;False;
+2026-06-06T18:27:47.256;load;query;MEAS:POW?;Load power measurement;OK;0;"0,""No error""";False;False;
+2026-06-06T18:27:47.316;load;write;INP ON;Load input on after 0.1 A max setpoint;OK;;"0,""No error""";False;True;
+2026-06-06T18:27:47.380;load;query;MEAS:CURR?;Load current measurement while input on;OK;0;"0,""No error""";False;False;
+2026-06-06T18:27:47.446;load;query;MEAS:POW?;Load power measurement while input on;OK;0;"0,""No error""";False;False;
+2026-06-06T18:27:47.507;load;write;INP OFF;Load input off after test;OK;;"0,""No error""";False;False;
+2026-06-06T18:27:47.564;psu;query;*IDN?;PSU identification;OK;Keithley instruments, 2220-30-1, 9204604, 1.15-1.05;"0, ""No error""";False;False;
+2026-06-06T18:27:47.620;psu;write;*CLS;PSU clear status;OK;;"0, ""No error""";False;False;
+2026-06-06T18:27:47.676;psu;write;OUTP OFF;PSU output off before setup;OK;;"0, ""No error""";False;False;
+2026-06-06T18:27:47.731;psu;write;OUTP:ENAB OFF;PSU channel enable off before setup;OK;;"0, ""No error""";False;False;
+2026-06-06T18:27:47.786;psu;write;INST:SEL CH1;PSU select CH1;OK;;"0, ""No error""";False;False;
+2026-06-06T18:27:47.841;psu;write;SOUR:VOLT 14.4;PSU voltage setpoint, safety limited;OK;;"0, ""No error""";False;False;
+2026-06-06T18:27:47.895;psu;write;SOUR:CURR 0.1;PSU current limit, safety limited;OK;;"0, ""No error""";False;False;
+2026-06-06T18:27:48.456;psu;query;MEAS:VOLT? CH1;PSU voltage measurement before output on;OK;0.000656128;"0, ""No error""";False;False;
+2026-06-06T18:27:49.172;psu;query;MEAS:CURR? CH1;PSU current measurement before output on;OK;9.05991e-05;"0, ""No error""";False;False;
+2026-06-06T18:27:49.297;psu;write;OUTP:ENAB ON;PSU channel enable on after safe limits;OK;;"0, ""No error""";False;True;
+2026-06-06T18:27:49.351;psu;write;OUTP ON;PSU output on after safe limits;OK;;"0, ""No error""";False;True;
+2026-06-06T18:27:49.916;psu;query;MEAS:VOLT? CH1;PSU voltage measurement while output on;OK;14.1444;"0, ""No error""";False;False;
+2026-06-06T18:27:50.632;psu;query;MEAS:CURR? CH1;PSU current measurement while output on;OK;0.0998392;"0, ""No error""";False;False;
+2026-06-06T18:27:50.689;psu;write;OUTP OFF;PSU output off after test;OK;;"0, ""No error""";False;False;
+2026-06-06T18:27:50.744;psu;write;OUTP OFF;PSU output off before combination mode test;OK;;"0, ""No error""";False;False;
+2026-06-06T18:27:50.799;psu;write;INST:COMB:OFF;PSU independent combination mode;ERR;;"170, ""Invalid command""";False;True;
+2026-06-06T18:28:07.822;psu;query;INST:COMB?;"PSU combination mode query; known firmware may error";EXCEPTION;;<ERROR QUERY FAILED: VisaIOError: VI_ERROR_SYSTEM_ERROR (-1073807360): Unknown system error (miscellaneous error).>;True;False;VisaIOError: VI_ERROR_TMO (-1073807339): Timeout expired before operation completed.
+2026-06-06T18:28:07.879;psu;write;OUTP OFF;PSU output off before series mode;ERR;;"-410, ""Query INTERRUPTED""";False;False;
+2026-06-06T18:28:07.935;psu;write;INST:COMB:SER;PSU series combination mode;ERR;;"170, ""Invalid command""";False;True;
+2026-06-06T18:28:24.949;psu;query;INST:COMB?;"PSU combination mode query; known firmware may error";EXCEPTION;;<ERROR QUERY FAILED: VisaIOError: VI_ERROR_SYSTEM_ERROR (-1073807360): Unknown system error (miscellaneous error).>;True;False;VisaIOError: VI_ERROR_TMO (-1073807339): Timeout expired before operation completed.
+2026-06-06T18:28:25.006;psu;write;OUTP OFF;PSU output off before parallel mode;ERR;;"-410, ""Query INTERRUPTED""";False;False;
+2026-06-06T18:28:25.061;psu;write;INST:COMB:PAR;PSU parallel combination mode;ERR;;"170, ""Invalid command""";False;True;
+2026-06-06T18:28:42.083;psu;query;INST:COMB?;"PSU combination mode query; known firmware may error";EXCEPTION;;<ERROR QUERY FAILED: VisaIOError: VI_ERROR_SYSTEM_ERROR (-1073807360): Unknown system error (miscellaneous error).>;True;False;VisaIOError: VI_ERROR_TMO (-1073807339): Timeout expired before operation completed.
+2026-06-06T18:28:42.140;psu;write;OUTP OFF;PSU output off after combination tests;ERR;;"-410, ""Query INTERRUPTED""";False;False;
+2026-06-06T18:28:42.195;psu;write;INST:COMB:OFF;Return PSU to independent mode;ERR;;"170, ""Invalid command""";False;True;
+2026-06-06T18:28:42.255;load;write;INP OFF;Shutdown safe-off: load input off;OK;;"0,""No error""";False;False;
+2026-06-06T18:28:42.308;psu;write;OUTP OFF;Shutdown safe-off: PSU output off;OK;;"0, ""No error""";False;False;

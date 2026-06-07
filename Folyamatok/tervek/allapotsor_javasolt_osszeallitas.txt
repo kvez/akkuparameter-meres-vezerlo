@@ -1,0 +1,589 @@
+JAVASOLT ÁLLAPOTSOR ÖSSZEÁLLÍTÁS
+Akkuteszter / akku parametrizáló programhoz
+================================================
+
+
+1. Cél
+======
+
+Az állapotsor célja nem az, hogy minden adatot megjelenítsen, hanem hogy futás közben
+azonnal látható legyen:
+
+  - milyen fő állapotban van a program,
+  - melyik workflow lépés fut,
+  - nem ugrott-e át lépést,
+  - biztonságos-e a hardverállapot,
+  - van-e élő mérési kapcsolat,
+  - az akku fő mérési értékei normálisak-e,
+  - fault esetén miért állt meg a rendszer.
+
+A részletes adatok maradjanak a Live panelen, Event logban és riportban.
+
+
+2. Javasolt alap formátum
+=========================
+
+Általános forma:
+
+  [MAIN_STATUS] | [PHASE] | [STEP] | [TIME] | [UBAT] | [IBAT] | [TBAT] | [AH] | [HW] | [SAFETY]
+
+Példa:
+
+  RUNNING | CHARGE CV | step 2/8 charge_1 | step 00:18:42 total 01:04:11 | Ubat=13.621V | Ichg=0.084A | Tbat=24.8°C | Chg=1.23Ah | HW OK | SAFE
+
+
+3. Megjelenítendő mezők
+=======================
+
+
+3.1 Main status
+---------------
+
+Ez legyen a legelső mező.
+
+Lehetséges értékek:
+
+  IDLE
+  PRECHECK
+  RUNNING
+  STOPPING
+  MANUAL CHECKPOINT
+  DONE
+  FAULT
+  EMERGENCY STOP
+
+Javaslat:
+
+  - FAULT és EMERGENCY STOP esetén az állapotsor teljes szövege ennek megfelelően legyen feltűnő.
+  - IDLE állapotban ne jelenjen meg régi mérési adat félrevezetően.
+  - DONE állapotban maradhat az utolsó összefoglaló adat, de legyen egyértelmű, hogy a mérés már nem fut.
+
+
+3.2 Phase / controller állapot
+------------------------------
+
+Ez mutassa, hogy a program ténylegesen mit csinál.
+
+Javasolt értékek:
+
+  CHARGE INIT
+  CHARGE PRECHECK
+  CHARGE CC
+  CHARGE CV
+  CHARGE TAPER HOLD
+  DISCHARGE
+  RELAX
+  OCV-SOC LOG
+  IMPULSE PREP
+  IMPULSE ON
+  BQ MANUAL CHECKPOINT
+  REPORT GENERATION
+  FAULT HANDLING
+
+Példa:
+
+  RUNNING | CHARGE CV | ...
+
+
+3.3 Workflow step
+-----------------
+
+Többciklusos módoknál kritikus, mert ebből látszik, hogy nem ugrott-e át lépést.
+
+Formátum:
+
+  step X/Y: step_label
+
+Példák:
+
+  step 1/8: charge_1
+  step 3/8: discharge_1
+  step 5/8: relax_after_discharge_1
+  step 9/14: charge_2
+
+Javaslat:
+
+  - Mindig jelenjen meg a step index és a step label is.
+  - A step label legyen azonos az events.csv-ben és riportban szereplő névvel.
+  - Ha nincs aktív step, akkor:
+      step -/-
+
+
+3.4 Idő
+-------
+
+Két idő hasznos:
+
+  - aktuális step eltelt ideje,
+  - teljes session eltelt ideje.
+
+Formátum:
+
+  step 00:18:42 total 01:04:11
+
+Relax vagy fix idejű várakozás esetén jobb:
+
+  step 02:14:33/05:00:00 total 07:12:44
+
+Javaslat:
+
+  - A step idő mindig valódi elapsed/perf_counter alapú legyen.
+  - Ne névleges tickből számolt idő legyen.
+  - Ha a lépésnek van célideje, jelenjen meg a célidő is.
+
+
+3.5 Akkufeszültség
+------------------
+
+Mindig az akkukapcson mért DMM feszültség jelenjen meg, ha elérhető.
+
+Formátum:
+
+  Ubat=13.621V
+
+Hiba esetén:
+
+  Ubat=INVALID
+  Ubat=OVLD
+  Ubat=NO DMM
+
+Javaslat:
+
+  - Ne PSU setpoint legyen itt.
+  - A PSU setpoint csak tooltipben vagy részletes panelen jelenjen meg.
+  - Ha a DMM feszültségmérés érvénytelen, az legyen látható, ne 0.000V.
+
+
+3.6 Áram
+--------
+
+Töltésnél:
+
+  Ichg=0.084A
+
+Kisütésnél:
+
+  Idis=0.500A
+
+Alternatív előjeles forma:
+
+  Ibat=+0.084A
+  Ibat=-0.500A
+
+Javaslat:
+
+  - Ha a programban külön PSU readback és Load readback van, akkor a megnevezés is ezt tükrözze:
+      Ichg = PSU readback
+      Idis = Load readback
+  - Readback hiba esetén ne legyen 0.000A.
+  - Helyette:
+      Ichg=INVALID
+      Idis=INVALID
+
+
+3.7 Akkuhőmérséklet
+-------------------
+
+Formátum:
+
+  Tbat=24.8°C
+
+Hiba esetén:
+
+  Tbat=INVALID
+  Tbat=NO SENSOR
+  Tbat=OVLD
+
+Javaslat:
+
+  - Ha nincs hőmérsékletmérés, ne jelenjen meg 0.0°C.
+  - Ha a hőmérséklet csak warning szintű, az állapotsorban is látszódjon:
+      Tbat=38.2°C WARN
+  - Ha a hőmérséklet safety faultot okoz, a SAFETY mezőben is jelenjen meg.
+
+
+3.8 Ah / Wh számláló
+--------------------
+
+Állapotsorba elég az aktuális irányhoz tartozó Ah.
+
+Töltésnél:
+
+  Chg=1.23Ah
+
+Kisütésnél:
+
+  Dis=0.87Ah
+
+Ha van hely, megjelenhet Wh is:
+
+  Chg=1.23Ah/16.7Wh
+  Dis=0.87Ah/10.5Wh
+
+Javaslat:
+
+  - Az Ah legyen step vagy session szerint egyértelmű.
+  - Rövid állapotsorban elég az aktuális step Ah.
+  - Részletes panelen legyen:
+      step_charge_Ah
+      total_charge_Ah
+      step_discharge_Ah
+      total_discharge_Ah
+
+
+3.9 Műszerállapot
+-----------------
+
+Állapotsorban összesített érték:
+
+  HW OK
+  HW WARN
+  HW LOST
+
+Hiba esetén konkrétan:
+
+  HW LOST: DMM_V
+  HW LOST: PSU
+  HW LOST: LOAD
+  HW WARN: DMM_T
+
+Javaslat:
+
+  - Normál esetben ne zsúfolja tele az állapotsort.
+  - Tooltipben vagy részletes panelen látszódhat:
+      PSU OK | LOAD OK | DMM_V OK | DMM_T OK
+  - Ha egy kötelező műszer kiesik, az állapotsorban azonnal legyen látható.
+
+
+3.10 Safety állapot
+-------------------
+
+Mindig legyen utolsó mezőként.
+
+Lehetséges értékek:
+
+  SAFE
+  WARNING
+  INTERLOCK
+  FAULT
+  OUTPUTS OFF
+
+Példák:
+
+  SAFE
+  WARNING: TEMP HIGH
+  FAULT: BATTERY_OVERVOLTAGE
+  FAULT: PSU_READBACK_LOST
+  OUTPUTS OFF
+
+Javaslat:
+
+  - FAULT esetén a konkrét ok is jelenjen meg.
+  - Emergency stop után egyértelműen jelenjen meg:
+      EMERGENCY STOP | OUTPUTS OFF
+  - Safety státusz ne legyen csak ikon, legyen szöveg is.
+
+
+4. Üzemmód-specifikus állapotsorok
+==================================
+
+
+4.1 Normál töltés
+-----------------
+
+  RUNNING | CHARGE CV | step 2/8 charge_1 | step 00:18:42 total 01:04:11 | Ubat=13.621V | Ichg=0.084A | Tbat=24.8°C | Chg=1.23Ah | HW OK | SAFE
+
+
+4.2 Kisütés
+-----------
+
+  RUNNING | DISCHARGE | step 4/8 discharge_1 | step 00:37:15 total 02:10:08 | Ubat=12.104V | Idis=0.500A | Tbat=25.1°C | Dis=0.31Ah | HW OK | SAFE
+
+
+4.3 Relaxáció
+-------------
+
+  RUNNING | RELAX | step 5/8 relax_after_discharge | step 02:14:33/05:00:00 total 07:12:44 | Ubat=12.456V | Tbat=24.9°C | dVdt=0.04mV/min | HW OK | SAFE
+
+Megjegyzés:
+
+  Relax alatt az áram általában nem fontos, mert PSU és Load OFF.
+  Ilyenkor hasznosabb a dV/dt és a relax idő.
+
+
+4.4 OCV-SOC mód
+---------------
+
+OCV-SOC karakterizációnál különösen fontos a SOC pont kijelzése.
+
+Példa 100% pontnál:
+
+  RUNNING | OCV-SOC LOG | step 2/24 log_100 | SOC=100% | relax 05:00:00/05:00:00 | Ubat=12.842V | Tbat=24.7°C | HW OK | SAFE
+
+Példa 95% pontnál:
+
+  RUNNING | OCV-SOC LOG | step 5/24 log_95 | SOC=95% | Ubat=12.721V | dVdt=0.03mV/min | Tbat=24.8°C | HW OK | SAFE
+
+Javaslat:
+
+  - SOC=100%, 95%, 90% stb. látható legyen.
+  - A logolt SOC egyezzen a tényleges relaxált mérési állapottal.
+  - A 100% pont ne hiányozzon.
+  - A 0% pont is kapjon külön logolást.
+
+
+4.5 BQ learning mód
+-------------------
+
+Példa futás közben:
+
+  RUNNING | BQ_LEARNING | cycle 1/2 | step 3/12 discharge_1 | Ubat=12.104V | Idis=0.500A | Tbat=25.1°C | Dis=0.31Ah | HW OK | SAFE
+
+Manual checkpoint esetén:
+
+  BQ CHECKPOINT | manual operation required | step 6/12 | PSU OFF | LOAD OFF | resume allowed | not power-loss recovery
+
+Javaslat:
+
+  - Egyértelműen jelenjen meg, hogy ez kézi BQ checkpoint.
+  - Ne szerepeljen félrevezetően power-loss recoveryként.
+  - A resume csak manual checkpoint esetén legyen megengedett.
+
+
+4.6 Fault állapot
+-----------------
+
+Példa:
+
+  FAULT | CHARGE CV | step 2/8 charge_1 | Ubat=14.92V | Ichg=INVALID | Tbat=25.0°C | HW LOST: PSU | SAFETY: PSU_READBACK_LOST | OUTPUTS OFF
+
+Javaslat:
+
+  - A fault ok legyen röviden látható.
+  - Az outputs off állapot legyen külön kiírva.
+  - Ne kelljen az event logban keresni az elsődleges okot.
+
+
+4.7 Emergency stop
+------------------
+
+Példa:
+
+  EMERGENCY STOP | OUTPUTS OFF | step 4/8 discharge_1 | Ubat=12.38V | HW OK | manual reset required
+
+Javaslat:
+
+  - Azonnal látható legyen, hogy a kimenetek le vannak kapcsolva.
+  - Ne folytatható állapotnak tűnjön.
+  - Szükség esetén kézi reset / új session legyen előírva.
+
+
+5. Rövid és hosszú nézet
+========================
+
+Érdemes két állapotsor-szintet kezelni.
+
+
+5.1 Rövid nézet
+---------------
+
+Kisebb ablakhoz:
+
+  RUNNING | CHARGE CV | step 2/8 | U=13.621V | I=0.084A | T=24.8°C | SAFE
+
+Ez legyen az alap, ha nincs elég hely.
+
+
+5.2 Részletes nézet
+-------------------
+
+Nagyobb ablakhoz:
+
+  RUNNING | CHARGE CV | step 2/8 charge_1 | step 00:18:42 total 01:04:11 | Ubat=13.621V | Ichg=0.084A | Tbat=24.8°C | Chg=1.23Ah | HW OK | SAFE
+
+A részletes nézet mutathat extra mezőket:
+
+  - total elapsed
+  - dV/dt
+  - SOC point
+  - cycle index
+  - checkpoint state
+  - next action
+
+
+6. Tooltip / részletes háttéradatok
+===================================
+
+Az állapotsor mezőihez tooltipben érdemes részleteket adni.
+
+Példák:
+
+Ubat tooltip:
+
+  Source: DMM_V
+  Range: DCV
+  NPLC: 1
+  Last valid sample age: 0.8 s
+
+I tooltip:
+
+  Source charge: PSU readback
+  Source discharge: Load readback
+  External calibrated shunt: not used
+
+HW tooltip:
+
+  PSU: OK
+  Load: OK
+  DMM_V: OK
+  DMM_T: OK
+
+Safety tooltip:
+
+  Last safety check: 0.4 s ago
+  PSU output: OFF/ON
+  Load input: OFF/ON
+  Interlock: OK
+
+
+7. Amit nem javasolt az állapotsorba tenni
+==========================================
+
+Nem javasolt állandóan megjeleníteni:
+
+  - VISA resource stringek
+  - DMM NPLC
+  - PSU setpoint részletesen
+  - Load setpoint részletesen
+  - teljes fault history
+  - teljes event log
+  - minden reléállapot
+  - config fájl útvonala
+  - debug számlálók
+  - túl sok tizedesjegy
+  - minden nyers mérési csatorna
+
+Ezek maradjanak:
+
+  - Live panelen,
+  - Diagnostics panelen,
+  - Event logban,
+  - riportban,
+  - tooltipben.
+
+
+8. Formázási javaslat
+=====================
+
+Mértékegységek:
+
+  Feszültség:
+    13.621V vagy 13.62V
+    metrológiai nézetben 3 tizedes hasznos
+
+  Áram:
+    0.084A
+    kis áramnál 84mA is jobb lehet, de legyen egységes
+
+  Hőmérséklet:
+    24.8°C
+
+  Ah:
+    1.234Ah vagy 1.23Ah
+
+  dV/dt:
+    0.04mV/min
+
+Ajánlott tizedesek:
+
+  Ubat:
+    3 tizedes 12V akkunál
+
+  I:
+    3 tizedes A-ban, vagy automatikus mA kis áramnál
+
+  T:
+    1 tizedes
+
+  Ah:
+    3 tizedes kis akkuknál, 2 tizedes nagyobbaknál
+
+  dV/dt:
+    2 tizedes mV/min
+
+
+9. Hibás / invalid értékek kezelése
+===================================
+
+Nagyon fontos, hogy invalid adat ne jelenjen meg érvényes számként.
+
+Tilos példák:
+
+  Ubat=0.000V
+  I=0.000A
+  T=0.0°C
+
+ha valójában mérési hiba van.
+
+Helyes példák:
+
+  Ubat=INVALID
+  Ichg=INVALID
+  Tbat=NO SENSOR
+  HW LOST: DMM_V
+  SAFETY: DMM_V_LOST
+
+Ez különösen fontos, mert:
+
+  - 0.000A hamis taper feltételt okozhatna,
+  - 0.000V hamis deep-discharge következtetéshez vezethet,
+  - 0.0°C hamis hőkompenzációt okozhat.
+
+
+10. Minimum ajánlott végleges készlet
+=====================================
+
+Ha csak egy végleges, nem túlzsúfolt állapotsort szeretnénk, akkor ezt javaslom:
+
+  MainStatus | Phase | Step | StepTime/TotalTime | Ubat | Ibat | Tbat | Ah | HW | Safety
+
+Példa:
+
+  RUNNING | CHARGE CV | step 2/8 charge_1 | 00:18:42/01:04:11 | Ubat=13.621V | Ichg=0.084A | Tbat=24.8°C | Chg=1.23Ah | HW OK | SAFE
+
+
+11. Elfogadási kritériumok
+==========================
+
+Az állapotsor akkor tekinthető késznek, ha:
+
+  - minden fő futási állapot egyértelműen látszik,
+  - FAULT esetén az elsődleges ok látszik,
+  - emergency stop után az OUTPUTS OFF látszik,
+  - invalid mérés nem jelenik meg 0 értékként,
+  - OCV-SOC módban látszik az aktuális SOC pont,
+  - BQ checkpoint esetén látszik, hogy nem power-loss recovery,
+  - többciklusos workflow-ban látszik a step index és step label,
+  - műszerkapcsolat hiba azonnal felismerhető,
+  - safety állapot mindig látható,
+  - az állapotsor nem helyettesíti, hanem kiegészíti a Live panelt és Event logot.
+
+
+12. Rövid összegzés
+===================
+
+A legjobb gyakorlati állapotsor:
+
+  RUNNING | CHARGE CV | step 2/8 charge_1 | step 00:18:42 total 01:04:11 | Ubat=13.621V | Ichg=0.084A | Tbat=24.8°C | Chg=1.23Ah | HW OK | SAFE
+
+OCV-SOC módban:
+
+  RUNNING | OCV-SOC LOG | SOC=95% | relax 05:00:00/05:00:00 | Ubat=12.721V | dVdt=0.03mV/min | Tbat=24.8°C | HW OK | SAFE
+
+BQ checkpointnál:
+
+  BQ CHECKPOINT | manual operation required | PSU OFF | LOAD OFF | resume allowed | not power-loss recovery
+
+Fault esetén:
+
+  FAULT | CHARGE CV | Ubat=14.92V | Ichg=INVALID | SAFETY: PSU_READBACK_LOST | OUTPUTS OFF
