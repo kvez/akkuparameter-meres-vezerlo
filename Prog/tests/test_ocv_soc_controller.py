@@ -53,7 +53,6 @@ def make_ocv_soc_controller(
         relax_keypoint_s=18000.0,
         impulse_current_rate_divisor=5,
         impulse_duration_s=30.0,
-        impulse_measure_times_s=(1.0, 10.0, 30.0),
     )
     ctrl = OcvSocController(
         psu, load, dmm_v, dmm_t, profile, safety, cfg,
@@ -124,22 +123,12 @@ class TestOcvSocInit:
 
 class TestOcvSocStepDischarge:
     def _setup_in_step_discharge(self) -> tuple[OcvSocController, MockLoad]:
-        """Gyorsan STEP_DISCHARGE állapotba juttat."""
+        """Direktbe STEP_DISCHARGE állapotba: state + begin_step_discharge()."""
         ctrl, psu, load, dmm_v, dmm_t = make_ocv_soc_controller(
             dmm_voltage_V=12.5, capacity_Ah=7.0
         )
-        # INIT → PRECHARGE
-        ctrl.advance(0.0)
-        # Belső ChargeController force-DONE
-        from Prog.src.charge_controller import ChargeState
-        assert ctrl._charge_ctrl is not None
-        ctrl._charge_ctrl._state = ChargeState.CHARGE_DONE
-        # PRECHARGE → PRECHARGE_RELAX
-        ctrl.advance(1.0)
-        assert ctrl.state == OcvSocState.PRECHARGE_RELAX
-        # Teljes relax idő lejárat (18000s)
-        ctrl.advance(18000.0)
-        assert ctrl.state == OcvSocState.STEP_DISCHARGE
+        ctrl._state = OcvSocState.STEP_DISCHARGE
+        ctrl._begin_step_discharge()
         return ctrl, load
 
     def test_step_discharge_stops_at_step_ah(self):
@@ -147,26 +136,19 @@ class TestOcvSocStepDischarge:
         ctrl, load = self._setup_in_step_discharge()
         # step_Ah = 7.0 * 5% / 100 = 0.35 Ah
         # Kisütési ráta: C/10 = 7.0/10 = 0.7A
-        # A MockLoad measure_current() visszaadja a set current-t ha input_on
         # dt_s = 1800s → 0.7A * 1800s / 3600 = 0.35 Ah → pontosan step_Ah
-        # Viszont az integráció signed: -i_load, accumulated_discharge_Ah = abs
         assert load.input_commanded_on  # terhelés be van kapcsolva
-
-        # Adunk elég dt-t a step_Ah-hoz
-        # step_Ah = 0.35 Ah, i_load = 0.7A → t = 0.35/0.7 * 3600 = 1800s
         ctrl.advance(1800.0)
         assert ctrl.state == OcvSocState.STEP_RELAX
         assert not load.input_commanded_on  # terhelés le van kapcsolva
 
     def test_step_discharge_stops_at_terminate_voltage(self):
-        """Terminate voltage elérésekor LOG_SOC_POINT-ba (majd DONE irányba) kell lépni."""
+        """Terminate voltage elérésekor STEP_RELAX-ba kell lépni (relax+impulzus után 0% log)."""
         ctrl, load = self._setup_in_step_discharge()
-        # Csökkentjük a DMM feszültséget a terminate alá (6 × 1.80V = 10.8V)
         ctrl._dmm_v.voltage_V = 10.5  # type: ignore[attr-defined]
-        # Kis dt, de a feszültség már terminate alatt van
         ctrl.advance(1.0)
-        # Terminate voltage esetén LOG_SOC_POINT állapotba kell kerülni
-        assert ctrl.state == OcvSocState.LOG_SOC_POINT
+        # Terminate voltage → STEP_RELAX (nem LOG_SOC_POINT; relax+impulzus után logolunk)
+        assert ctrl.state == OcvSocState.STEP_RELAX
         assert not load.input_commanded_on
 
 
@@ -189,28 +171,26 @@ class TestOcvSocRelax:
         assert ctrl._current_relax_s == pytest.approx(18000.0)
 
     def test_non_keypoint_uses_short_relax(self):
-        """Nem keypoint SOC-on (pl. 95%) → 7200s relax."""
+        """Nem keypoint SOC-on (95%) → 7200s relax.
+
+        Az első STEP_DISCHARGE soc_index=95%-ra dolgozik (100% után LOG-ban dekrementált).
+        soc_after_step = 95% - 5% = 90% → nem keypoint → default relax 7200s.
+        """
         ctrl, psu, load, dmm_v, dmm_t = make_ocv_soc_controller(
             dmm_voltage_V=12.5, capacity_Ah=7.0
         )
-        # INIT → PRECHARGE → PRECHARGE_RELAX → lejár 18000s → STEP_DISCHARGE
-        ctrl.advance(0.0)
-        from Prog.src.charge_controller import ChargeState
-        assert ctrl._charge_ctrl is not None
-        ctrl._charge_ctrl._state = ChargeState.CHARGE_DONE
-        ctrl.advance(1.0)
-        ctrl.advance(18000.0)
-        # Most 100%-on voltunk, STEP_DISCHARGE indult
-        assert ctrl.state == OcvSocState.STEP_DISCHARGE
-        # Gyorsan lépjük a step_Ah-t → STEP_RELAX (soc_index most 100%, következő: 95%)
+        # 100% LOG után soc_index = 95%, indítsuk az első STEP_DISCHARGE-t
+        ctrl._state = OcvSocState.STEP_DISCHARGE
+        ctrl._soc_index = 95.0
+        ctrl._begin_step_discharge()
+        # step_Ah = 7.0 * 5% = 0.35 Ah → 0.7A * 1800s = 0.35 Ah
         ctrl.advance(1800.0)
-        # STEP_RELAX-ban vagyunk, soc_index még 100% (csak LOG_SOC_POINT-ban csökken)
         assert ctrl.state == OcvSocState.STEP_RELAX
-        # 95% nem keypoint → default relax
+        # 90% nem keypoint → default relax
         assert ctrl._current_relax_s == pytest.approx(7200.0)
 
-    def test_precharge_relax_transitions_to_step_discharge(self):
-        """PRECHARGE_RELAX lejárta után STEP_DISCHARGE kezdődik."""
+    def test_precharge_relax_transitions_to_impulse_prep(self):
+        """PRECHARGE_RELAX lejárta után IMPULSE_PREP kezdődik (100% OCV rögzítéséhez)."""
         ctrl, psu, load, dmm_v, dmm_t = make_ocv_soc_controller()
         ctrl.advance(0.0)
         from Prog.src.charge_controller import ChargeState
@@ -219,22 +199,16 @@ class TestOcvSocRelax:
         ctrl.advance(1.0)
         assert ctrl.state == OcvSocState.PRECHARGE_RELAX
         ctrl.advance(18000.0)
-        assert ctrl.state == OcvSocState.STEP_DISCHARGE
+        assert ctrl.state == OcvSocState.IMPULSE_PREP
 
     def test_step_relax_transitions_to_impulse_prep(self):
         """STEP_RELAX lejárta után IMPULSE_PREP következik."""
         ctrl, psu, load, dmm_v, dmm_t = make_ocv_soc_controller(
             dmm_voltage_V=12.5, capacity_Ah=7.0
         )
-        ctrl.advance(0.0)
-        from Prog.src.charge_controller import ChargeState
-        assert ctrl._charge_ctrl is not None
-        ctrl._charge_ctrl._state = ChargeState.CHARGE_DONE
-        ctrl.advance(1.0)
-        ctrl.advance(18000.0)  # PRECHARGE_RELAX lejár
-        ctrl.advance(1800.0)   # STEP_DISCHARGE → STEP_RELAX (step_Ah=0.35Ah, 0.7A * 1800s = 0.35Ah)
-        assert ctrl.state == OcvSocState.STEP_RELAX
-        # Relax lejárat (7200s)
+        ctrl._state = OcvSocState.STEP_RELAX
+        ctrl._current_relax_s = 7200.0
+        ctrl._relax_elapsed_s = 0.0
         ctrl.advance(7200.0)
         assert ctrl.state == OcvSocState.IMPULSE_PREP
 
@@ -244,40 +218,33 @@ class TestOcvSocRelax:
 # ------------------------------------------------------------------ #
 
 class TestOcvSocImpulse:
+    def _advance_impulse_cycle(self, ctrl) -> None:
+        """IMPULSE_ON → IMPULSE_WAIT_1S → 10S → 30S → LOG_SOC_POINT tick-sorozat."""
+        ctrl.advance(0.0)   # IMPULSE_ON → IMPULSE_WAIT_1S
+        ctrl.advance(1.0)   # IMPULSE_WAIT_1S → IMPULSE_WAIT_10S (elapsed >= 1.0)
+        ctrl.advance(9.0)   # IMPULSE_WAIT_10S → IMPULSE_WAIT_30S (elapsed >= 10.0)
+        ctrl.advance(20.0)  # IMPULSE_WAIT_30S → LOG_SOC_POINT (elapsed >= 30.0)
+
     def test_rb_calculation(self):
         """
-        Rb számítás ellenőrzése:
-        ocv=13.5V, v_1s=13.2V, i=1.4A → rb_1s = 0.3/1.4 ≈ 0.214 Ohm
-        """
-        psu = MockPSU()
-        load = MockLoad(voltage_V=13.5)
-        # DMM-et programozzuk: read_voltage() sorozat
-        # IMPULSE_ON hívások sorban: ocv_V, v_1s, v_10s, v_30s
-        dmm_v = MockDMM(voltage_V=13.5)
-        dmm_t = MockDMM(temperature_C=22.0)
-        profile = _make_profile(capacity_Ah=7.0)
-        safety = SafetyManager(
-            profile=profile,
-            psu_mode=PsuMode.INDEPENDENT,
-            temp_comp_mode=TempCompMode.MONITOR_ONLY,
-        )
-        cfg = OcvSocConfig(
-            step_percent=5.0,
-            discharge_rate_divisor=10,
-            relax_default_s=0.0,   # 0 → azonnal lejár
-            relax_keypoint_s=0.0,
-            impulse_current_rate_divisor=5,
-            impulse_duration_s=30.0,
-            impulse_measure_times_s=(1.0, 10.0, 30.0),
-        )
-        ctrl = OcvSocController(psu, load, dmm_v, dmm_t, profile, safety, cfg)
+        Rb számítás tick-alapú impulzussal:
+        v_before=13.5V, v_1s=13.2V, i=1.4A → rb_1s = 0.3/1.4 ≈ 0.214 Ohm
 
-        # Beállítjuk az impulzus áramot: C/5 = 7.0/5 = 1.4A
+        advance() hívássorban: _read_dmm() és _run_impulse_wait() párosával olvas DMM-et.
+        """
+        ctrl, psu, load, dmm_v, dmm_t = make_ocv_soc_controller(
+            dmm_voltage_V=13.5, capacity_Ah=7.0
+        )
+        ctrl._state = OcvSocState.IMPULSE_ON
         assert ctrl._impulse_current_A_set == pytest.approx(1.4)
 
-        # Az impulzus szimulálásához be kell állítani a DMM feszültség értékeit.
-        # read_voltage() sorozat: ocv=13.5, v_1s=13.2, v_10s=13.0, v_30s=12.9
-        voltage_sequence = [13.5, 13.2, 13.0, 12.9]
+        # Minden advance() hívásban _read_dmm() + _run_impulse_wait() is olvas DMM-et.
+        # Sorozat (páronként: _read_dmm értéke, _run_impulse_wait értéke):
+        # advance(0.0)/IMPULSE_ON: _read_dmm→13.5, _run_impulse_on→13.5 (v_before)
+        # advance(1.0)/WAIT_1S:   _read_dmm→13.5, _run_impulse_wait→13.2 (v_1s)
+        # advance(9.0)/WAIT_10S:  _read_dmm→13.5, _run_impulse_wait→13.0 (v_10s)
+        # advance(20.0)/WAIT_30S: _read_dmm→13.5, _run_impulse_wait→12.9 (v_30s)
+        voltage_sequence = [13.5, 13.5, 13.5, 13.2, 13.5, 13.0, 13.5, 12.9]
         call_idx = [0]
 
         def mock_read_voltage() -> float:
@@ -287,34 +254,20 @@ class TestOcvSocImpulse:
 
         ctrl._dmm_v.read_voltage = mock_read_voltage  # type: ignore[method-assign]
 
-        # Mockoljuk a time.sleep-et (ne várjunk valóban)
-        import unittest.mock
-        with unittest.mock.patch("time.sleep"):
-            ctrl._run_impulse_on()
+        self._advance_impulse_cycle(ctrl)
 
-        assert ctrl._rb_1s == pytest.approx(0.3 / 1.4, rel=1e-3)
-        assert ctrl._rb_10s == pytest.approx(0.5 / 1.4, rel=1e-3)
-        assert ctrl._rb_30s == pytest.approx(0.6 / 1.4, rel=1e-3)
+        i_set = ctrl._impulse_current_A_set
+        assert ctrl._rb_1s == pytest.approx((13.5 - 13.2) / i_set, rel=1e-3)
+        assert ctrl._rb_10s == pytest.approx((13.5 - 13.0) / i_set, rel=1e-3)
+        assert ctrl._rb_30s == pytest.approx((13.5 - 12.9) / i_set, rel=1e-3)
         assert ctrl.state == OcvSocState.LOG_SOC_POINT
 
     def test_impulse_on_turns_off_load_after_measurement(self):
         """Az impulzus befejezése után a terhelésnek ki kell kapcsolni."""
-        psu = MockPSU()
-        load = MockLoad(voltage_V=12.5)
-        dmm_v = MockDMM(voltage_V=12.5)
-        dmm_t = MockDMM(temperature_C=22.0)
-        profile = _make_profile(capacity_Ah=7.0)
-        safety = SafetyManager(
-            profile=profile,
-            psu_mode=PsuMode.INDEPENDENT,
-            temp_comp_mode=TempCompMode.MONITOR_ONLY,
-        )
-        cfg = OcvSocConfig(relax_default_s=0.0, relax_keypoint_s=0.0)
-        ctrl = OcvSocController(psu, load, dmm_v, dmm_t, profile, safety, cfg)
+        ctrl, psu, load, dmm_v, dmm_t = make_ocv_soc_controller(dmm_voltage_V=12.5)
+        ctrl._state = OcvSocState.IMPULSE_ON
 
-        import unittest.mock
-        with unittest.mock.patch("time.sleep"):
-            ctrl._run_impulse_on()
+        self._advance_impulse_cycle(ctrl)
 
         assert not load.input_commanded_on
 

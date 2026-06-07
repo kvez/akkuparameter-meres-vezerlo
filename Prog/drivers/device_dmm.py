@@ -115,7 +115,12 @@ class Keysight34465ADMM:
 
     def read_temperature(self) -> float:
         raw = self._query("READ?")
-        return self._parse_float(raw, context="temperature")
+        t = self._parse_float(raw, context="temperature")
+        if math.isnan(t) or math.isinf(t) or abs(t) > _OVERLOAD_THRESHOLD:
+            raise InstrumentInvalidReading(f"DMM temp: overload {t:.3e}")
+        if not (-80.0 <= t <= 150.0):
+            raise InstrumentInvalidReading(f"DMM temp: tartományon kívül {t:.1f}°C")
+        return t
 
     # ------------------------------------------------------------------ #
     # Belső segédek                                                        #

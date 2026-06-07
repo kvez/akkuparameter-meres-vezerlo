@@ -68,7 +68,7 @@ class SafetyManager:
     temp_comp_mode: TempCompMode = TempCompMode.MONITOR_ONLY
     temperature_dmm_fault_timeout_s: float = 60.0
     diode_power_warning_W: float = 2.0
-    diode_power_fault_W: float = 3.0
+    diode_power_critical_warning_W: float = 3.0
     warning_series_drop_V: float = 1.05
     fault_series_drop_V: float = 1.25
 
@@ -185,10 +185,10 @@ class SafetyManager:
     ) -> SafetyResult:
         """[BY550] Dióda disszipáció ellenőrzés."""
         p_diode = abs(charge_current_A) * u_drop_V
-        if p_diode > self.diode_power_fault_W:
+        if p_diode > self.diode_power_critical_warning_W:
             return SafetyResult(
                 warning=WarningCode.DIODE_POWER_TOO_HIGH,
-                message=f"Dióda disszipáció {p_diode:.2f}W > {self.diode_power_fault_W:.1f}W"
+                message=f"Dióda disszipáció {p_diode:.2f}W > {self.diode_power_critical_warning_W:.1f}W"
             )
         if p_diode > self.diode_power_warning_W:
             return SafetyResult(

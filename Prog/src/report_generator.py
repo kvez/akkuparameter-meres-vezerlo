@@ -103,4 +103,8 @@ class ReportGenerator:
                 "PSU readback alapú; kis taper áramnál korlátozott pontosság."
             ),
             "discharge_Ah_accuracy_note": "Load readback alapú.",
+            "rb_current_source": (
+                "Rb kalkuláció terhelés beállított értéke (LOAD_SETPOINT) alapján, "
+                "nem mért readback — kis eltérés lehetséges."
+            ),
         }

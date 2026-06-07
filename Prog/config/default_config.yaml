@@ -64,7 +64,7 @@ series_diode:
   warning_series_drop_V: 1.05
   fault_series_drop_V: 1.25
   diode_power_warning_W: 2.0
-  diode_power_fault_W: 3.0
+  diode_power_critical_warning_W: 3.0
   thermal_note: "BY550 DO-201AD, 5A. Hűtőborda 3A felett erősen ajánlott."
 
 taper:

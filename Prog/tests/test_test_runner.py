@@ -131,15 +131,19 @@ def _make_runner(tmp_path, cc=None, dc=None, rc=None):
     logger = Logger(session_dir=tmp_path, config=LogConfig())
     config = TestRunnerConfig(runner_tick_s=1.0, sleep_enabled=False, test_name="test")
 
+    _cc = cc if cc is not None else _StubChargeCtrl(steps_to_done=3)
+    _dc = dc if dc is not None else _StubDischargeCtrl(steps_to_done=3)
+    _rc = rc if rc is not None else _StubRelaxCtrl(steps_to_done=2)
+
     runner = TestRunner(
         instrument_manager=instruments,
         safety=safety,
         logger=logger,
         profile=profile,
         config=config,
-        charge_controller=cc or _StubChargeCtrl(steps_to_done=3),
-        discharge_controller=dc or _StubDischargeCtrl(steps_to_done=3),
-        relax_controller=rc or _StubRelaxCtrl(steps_to_done=2),
+        charge_ctrl_factory=lambda: _cc,
+        discharge_ctrl_factory=lambda: _dc,
+        relax_ctrl_factory=lambda: _rc,
     )
     return runner, logger
 
@@ -735,9 +739,40 @@ class TestRunIntegration:
         logger.close()
 
     def test_bq_learning_accumulates_two_cycles(self, tmp_path):
-        cc = _StubChargeCtrl(steps_to_done=3)    # 3 × 0.01 × 2 = 0.06 Ah total
-        dc = _StubDischargeCtrl(steps_to_done=2) # 2 × 0.01 × 2 = 0.04 Ah total
-        runner, logger = _make_runner(tmp_path, cc=cc, dc=dc)
+        # Factory-mintával friss stub-ot ad minden lépésnél — így 2 teljes ciklus összeadódik.
+        # 3 tick × 0.01 Ah × 2 töltés = 0.06 Ah; 2 tick × 0.01 Ah × 2 kisütés = 0.04 Ah
+        from Prog.src.battery_profile import BatteryProfile
+        from Prog.src.safety import SafetyManager, PsuMode
+        from Prog.src.logger import Logger, LogConfig
+        from Prog.src.instrument_manager import InstrumentManager
+        from Prog.tests.mock_drivers.mock_psu import MockPSU
+        from Prog.tests.mock_drivers.mock_load import MockLoad
+        from Prog.tests.mock_drivers.mock_dmm import MockDMM
+
+        profile = BatteryProfile(
+            battery_name="Test", manufacturer="FIAMM", model="FG",
+            nominal_voltage_V=12.0, cell_count=6, nominal_capacity_Ah=7.0,
+        )
+        instruments = InstrumentManager(
+            psu=MockPSU(voltage_V=14.4, current_A=1.75),
+            load=MockLoad(voltage_V=12.5, current_A=0.7),
+            dmm_voltage=MockDMM(voltage_V=12.5, temperature_C=25.0),
+            dmm_temperature=MockDMM(voltage_V=0.0, temperature_C=25.0),
+        )
+        safety = SafetyManager(profile=profile, psu_mode=PsuMode.INDEPENDENT)
+        logger = Logger(session_dir=tmp_path, config=LogConfig())
+        config = TestRunnerConfig(runner_tick_s=1.0, sleep_enabled=False, test_name="test")
+
+        runner = TestRunner(
+            instrument_manager=instruments,
+            safety=safety,
+            logger=logger,
+            profile=profile,
+            config=config,
+            charge_ctrl_factory=lambda: _StubChargeCtrl(steps_to_done=3),
+            discharge_ctrl_factory=lambda: _StubDischargeCtrl(steps_to_done=2),
+            relax_ctrl_factory=lambda: _StubRelaxCtrl(steps_to_done=2),
+        )
         result = runner.run(TestPlan.bq_learning_physical())
         assert result.total_charge_ah == pytest.approx(0.06, abs=0.001)
         assert result.total_discharge_ah == pytest.approx(0.04, abs=0.001)

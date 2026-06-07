@@ -29,7 +29,6 @@ class DischargeConfig:
     discharge_current_A: float = 0.0    # 0 = auto C/5
     max_discharge_time_s: float = 86400.0
     max_discharge_Ah_factor: float = 1.10
-    fallback_max_duration_s: float = 30.0
 
 
 class DischargeController:
@@ -53,9 +52,7 @@ class DischargeController:
         self._battery_temperature_C: float = 20.0
         self._temp_dmm_fault_s: float = 0.0
         self._last_warning_code: str = ""
-        self._integrator = Integrator(
-            fallback_max_duration_s=config.fallback_max_duration_s
-        )
+        self._integrator = Integrator()
 
         # Rb mérés: terhelésbekapcsolás előtti U_batt + időzített mintavétel
         self._i_discharge_set: float = 0.0
@@ -209,6 +206,7 @@ class DischargeController:
         if self._u_batt_pre_load is not None and self._i_discharge_set > 0.01:
             delta_v = self._u_batt_pre_load - self._u_batt
             t = self._load_on_elapsed_s
+            # Rb = ΔV / I_set; áramforrás: terhelés beállított értéke (LOAD_SETPOINT), nem mért readback
             if self._rb_1s_mohm is None and t >= 1.0:
                 self._rb_1s_mohm = delta_v / self._i_discharge_set * 1000.0
             if self._rb_10s_mohm is None and t >= 10.0:
@@ -252,4 +250,4 @@ class DischargeController:
     def _integrate(self, dt_s, signed_current_A, source):
         self._last_integration_source = source
         v = self._u_batt if self._u_batt > 0 else self._profile.terminate_voltage_pack_V
-        self._integrator.add_sample(signed_current_A, v, dt_s, source)
+        self._integrator.add_sample(signed_current_A, v, dt_s)

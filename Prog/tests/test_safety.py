@@ -252,7 +252,7 @@ class TestDiodePowerWarning:
     def test_low_power_no_warning(self):
         profile = make_12v_profile()
         sm = SafetyManager(profile=profile, psu_mode=PsuMode.INDEPENDENT,
-                           diode_power_warning_W=2.0, diode_power_fault_W=3.0)
+                           diode_power_warning_W=2.0, diode_power_critical_warning_W=3.0)
         result = sm.check_diode_power(charge_current_A=1.0, u_drop_V=0.85)
         assert result.fault is None
         assert result.warning is None
@@ -260,13 +260,13 @@ class TestDiodePowerWarning:
     def test_high_power_warning(self):
         profile = make_12v_profile()
         sm = SafetyManager(profile=profile, psu_mode=PsuMode.INDEPENDENT,
-                           diode_power_warning_W=2.0, diode_power_fault_W=3.0)
+                           diode_power_warning_W=2.0, diode_power_critical_warning_W=3.0)
         result = sm.check_diode_power(charge_current_A=2.5, u_drop_V=0.85)
         assert result.warning == WarningCode.DIODE_POWER_HIGH
 
     def test_very_high_power_fault(self):
         profile = make_12v_profile()
         sm = SafetyManager(profile=profile, psu_mode=PsuMode.INDEPENDENT,
-                           diode_power_warning_W=2.0, diode_power_fault_W=3.0)
+                           diode_power_warning_W=2.0, diode_power_critical_warning_W=3.0)
         result = sm.check_diode_power(charge_current_A=3.0, u_drop_V=1.05)
         assert result.warning == WarningCode.DIODE_POWER_TOO_HIGH

@@ -49,9 +49,6 @@ class ChargeConfig:
     max_charge_Ah_factor: float = 1.20
     temperature_dmm_fault_timeout_s: float = 60.0
 
-    # Integrátor
-    fallback_max_duration_s: float = 30.0
-
 
 class ChargeController:
     def __init__(
@@ -79,9 +76,7 @@ class ChargeController:
         self._temp_dmm_fault_s: float = 0.0
         self._fault_reason: str = ""
         self._last_integration_source: str = "ZERO"
-        self._integrator = Integrator(
-            fallback_max_duration_s=config.fallback_max_duration_s
-        )
+        self._integrator = Integrator()
 
         self._u_batt: float = 0.0
         self._i_charge: float = 0.0
@@ -459,4 +454,4 @@ class ChargeController:
     def _integrate(self, dt_s: float, signed_current_A: float, source: str) -> None:
         self._last_integration_source = source
         v = self._u_batt if self._u_batt > 0 else self._profile.charge_voltage_pack_V
-        self._integrator.add_sample(signed_current_A, v, dt_s, source)
+        self._integrator.add_sample(signed_current_A, v, dt_s)

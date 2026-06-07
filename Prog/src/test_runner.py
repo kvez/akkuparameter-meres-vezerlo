@@ -114,20 +114,20 @@ class TestRunner:
         logger: Logger,
         profile: BatteryProfile,
         config: TestRunnerConfig,
-        charge_controller,
-        discharge_controller,
-        relax_controller,
-        ocv_soc_controller=None,
+        charge_ctrl_factory: Callable,
+        discharge_ctrl_factory: Callable,
+        relax_ctrl_factory: Callable,
+        ocv_soc_ctrl_factory: Optional[Callable] = None,
     ) -> None:
         self._instruments = instrument_manager
         self._safety = safety
         self._logger = logger
         self._profile = profile
         self._config = config
-        self._charge_ctrl = charge_controller
-        self._discharge_ctrl = discharge_controller
-        self._relax_ctrl = relax_controller
-        self._ocv_soc_ctrl = ocv_soc_controller
+        self._charge_ctrl_factory = charge_ctrl_factory
+        self._discharge_ctrl_factory = discharge_ctrl_factory
+        self._relax_ctrl_factory = relax_ctrl_factory
+        self._ocv_soc_ctrl_factory = ocv_soc_ctrl_factory
 
         self.stop_requested: bool = False
         self.emergency_stop_requested: bool = False
@@ -143,8 +143,10 @@ class TestRunner:
         self._total_discharge_ah: float = 0.0
         self._start_time: Optional[datetime] = None
         self._last_device_error_poll_t: float = -1e9  # első tick azonnal pollol
+        self._last_checkpoint_t: float = -1e9          # checkpoint throttling
         self._active_plan: Optional[TestPlan] = None
         self.on_step_changed: Optional[Callable[[dict], None]] = None
+        self._checkpoint_interval_s: float = 10.0
 
     def request_stop(self) -> None:
         self.stop_requested = True
@@ -159,6 +161,12 @@ class TestRunner:
         self.emergency_stop_reason = ""
 
     def run(self, test_plan: TestPlan, start_step_index: int = 0) -> TestResult:
+        if start_step_index < 0 or start_step_index >= len(test_plan.steps):
+            return TestResult(
+                status="FAULT",
+                reason=f"Érvénytelen start_step_index={start_step_index} "
+                       f"({len(test_plan.steps)} lépéses tervhez)",
+            )
         self._active_plan = test_plan
         self._start_time = datetime.now(timezone.utc)
         self.status = "RUNNING"
@@ -214,10 +222,6 @@ class TestRunner:
 
         controller = self._controller_for_step(step)
 
-        reset_fn = getattr(controller, "reset", None)
-        if callable(reset_fn):
-            reset_fn()
-
         charge_ah_before = getattr(controller, "accumulated_charge_Ah", 0.0)
         discharge_ah_before = getattr(controller, "accumulated_discharge_Ah", 0.0)
 
@@ -245,13 +249,16 @@ class TestRunner:
                 self._poll_device_errors()
 
             self._logger.flush_all()
-            self._logger.write_checkpoint({
-                "status": "RUNNING",
-                "step": step.label,
-                "elapsed_s": sample.get("elapsed_s"),
-                "charge_ah": self._total_charge_ah,
-                "discharge_ah": self._total_discharge_ah,
-            })
+            _now_t = time.monotonic()
+            if _now_t - self._last_checkpoint_t >= self._checkpoint_interval_s:
+                self._last_checkpoint_t = _now_t
+                self._logger.write_checkpoint({
+                    "status": "RUNNING",
+                    "step": step.label,
+                    "elapsed_s": sample.get("elapsed_s"),
+                    "charge_ah": self._total_charge_ah,
+                    "discharge_ah": self._total_discharge_ah,
+                })
 
             if self._controller_faulted(controller):
                 # Forced poll fault esetén — a hibát okozó SCPI parancs kontextusa
@@ -391,15 +398,15 @@ class TestRunner:
 
     def _controller_for_step(self, step: TestStep):
         if step.kind == StepKind.CHARGE:
-            return self._charge_ctrl
+            return self._charge_ctrl_factory()
         if step.kind == StepKind.DISCHARGE:
-            return self._discharge_ctrl
+            return self._discharge_ctrl_factory()
         if step.kind == StepKind.RELAX:
-            return self._relax_ctrl
+            return self._relax_ctrl_factory()
         if step.kind == StepKind.OCV_SOC:
-            if self._ocv_soc_ctrl is None:
-                raise ValueError("OCV_SOC step requires ocv_soc_controller")
-            return self._ocv_soc_ctrl
+            if self._ocv_soc_ctrl_factory is None:
+                raise ValueError("OCV_SOC step requires ocv_soc_ctrl_factory")
+            return self._ocv_soc_ctrl_factory()
         raise ValueError(f"No controller for step kind: {step.kind}")
 
     def _build_sample(self, step: TestStep, controller) -> dict:

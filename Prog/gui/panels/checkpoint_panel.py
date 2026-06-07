@@ -43,6 +43,8 @@ class CheckpointPanel(QWidget):
 
         info = QLabel(
             "A mérés biztonságos állapotban megállt — PSU OFF, Load OFF.\n"
+            "FONTOS: Ez a checkpoint a BQ mérési folyamat tervezett kezelői megállópontja "
+            "— NEM teljesítmény-kiesés utáni folytatás, és NEM tartalmaz crash-recovery adatot.\n"
             "Végezd el a BQ kézi ellenőrzést, pipáld ki a teendőket, "
             "majd nyomj Teszt lezárása gombot."
         )

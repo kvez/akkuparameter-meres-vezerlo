@@ -78,9 +78,10 @@ class Keithley2220PSU:
 
     def check_error(self) -> list[str]:
         resp = self._query("SYST:ERR?")
-        if resp.startswith("+0") or resp.startswith("0,"):
+        stripped = resp.strip()
+        if stripped == "0" or resp.startswith("+0") or resp.startswith("0,"):
             return []
-        return [f"{resp.strip()} [last: {self._last_cmd}]"]
+        return [f"{stripped} [last: {self._last_cmd}]"]
 
     def safe_off(self) -> None:
         try:

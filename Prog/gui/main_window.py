@@ -3,13 +3,14 @@ MainWindow — QTabWidget koordinátor + QThread életciklus + objektumgráf fac
 A ConfigPanel-tól SessionConfig-ot kap, abból építi a teljes TestRunner stack-et.
 """
 from __future__ import annotations
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QLabel, QMainWindow, QTabWidget, QMessageBox, QStatusBar,
+    QLabel, QMainWindow, QMessageBox, QStatusBar, QTabWidget,
 )
 
 from Prog import app_paths
@@ -28,6 +29,9 @@ class MainWindow(QMainWindow):
 
         self._thread: QThread | None = None
         self._worker: TestRunnerWorker | None = None
+        self._instruments = None      # FIX-02: closeEvent safe_all_off
+        self._dmm_v = None            # FIX-05: per-phase NPLC
+        self._session_dir: Path | None = None  # FIX-08: report.json helye
 
         self._tabs = QTabWidget()
         self.setCentralWidget(self._tabs)
@@ -71,6 +75,27 @@ class MainWindow(QMainWindow):
             self._tabs.setCornerWidget(logo_label, Qt.Corner.TopRightCorner)
 
     # ------------------------------------------------------------------ #
+    # Ablak lezárás (FIX-02)                                              #
+    # ------------------------------------------------------------------ #
+
+    def closeEvent(self, event) -> None:
+        if self._worker is not None:
+            reply = QMessageBox.question(
+                self, "Teszt fut",
+                "Teszt folyamatban van. Biztosan bezárod az ablakot?\n"
+                "(A safe_off automatikusan megtörténik.)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._emergency_stop()
+                self._cleanup_thread()
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()
+
+    # ------------------------------------------------------------------ #
     # Start / Stop                                                        #
     # ------------------------------------------------------------------ #
 
@@ -110,6 +135,7 @@ class MainWindow(QMainWindow):
             self._device_error_panel.append_device_error
         )
         self._worker.step_changed.connect(self._on_step_changed)
+        self._worker.step_changed.connect(self._live_panel.set_step)
         self._worker.checkpoint_reached.connect(
             self._checkpoint_panel.show_checkpoint
         )
@@ -144,6 +170,8 @@ class MainWindow(QMainWindow):
             f"Kisütve: {result.total_discharge_ah:.4f} Ah"
         )
         if result.status == "DONE":
+            # FIX-08: riport generálás
+            self._write_report(result)
             QMessageBox.information(
                 self, "Teszt befejezve",
                 f"Teszt kész — {result.status}\n"
@@ -153,10 +181,42 @@ class MainWindow(QMainWindow):
         elif result.status == "CHECKPOINT_STOPPED":
             pass  # tab és status bar már frissítve az _on_checkpoint_reached-ben
 
+    def _write_report(self, result) -> None:
+        """FIX-08: összefoglaló report.json írása a session mappába."""
+        if self._session_dir is None:
+            return
+        try:
+            from Prog.src.report_generator import ReportGenerator
+            rg = ReportGenerator()
+            session_meta = {
+                "psu_mode": "UNKNOWN",
+                "total_charge_ah": result.total_charge_ah,
+                "total_discharge_ah": result.total_discharge_ah,
+                "capacity_result_quality": "OK",
+                "emergency_stop_occurred": False,
+                "communication_faults_count": 0,
+            }
+            report = rg.generate(session_meta)
+            report_path = self._session_dir / "report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False))
+        except Exception as exc:
+            self._status_bar.showMessage(f"Riport generálás hiba: {exc}")
+
     def _on_step_changed(self, payload: dict) -> None:
         status = payload.get("runner_status", "")
         label  = payload.get("step_label", "")
         self._status_bar.showMessage(f"{status} — {label}")
+        # FIX-05: per-lépés NPLC konfiguráció
+        step_kind = payload.get("step_kind", "")
+        if self._dmm_v is not None:
+            try:
+                if step_kind in ("CHARGE", "DISCHARGE"):
+                    self._dmm_v.set_nplc(2.0)
+                else:
+                    self._dmm_v.set_nplc(10.0)
+            except Exception:
+                pass
 
     def _on_checkpoint_reached(self, event: dict) -> None:
         self._tabs.setTabEnabled(self._checkpoint_tab_index, True)
@@ -248,14 +308,16 @@ class MainWindow(QMainWindow):
         dmm_v = Keysight34465ADMM()
         dmm_t = Keysight34465ADMM()
 
-        instruments = InstrumentManager(psu, load, dmm_v, dmm_t)
+        self._instruments = InstrumentManager(psu, load, dmm_v, dmm_t)
+        self._dmm_v = dmm_v  # FIX-05: per-phase NPLC referencia
+
         instr_cfg = InstrumentConfig(
             psu_resource=cfg.psu_resource,
             load_resource=cfg.load_resource,
             dmm_voltage_resource=cfg.dmm_voltage_resource,
             dmm_temperature_resource=cfg.dmm_temperature_resource,
         )
-        instruments.connect_all(instr_cfg)
+        self._instruments.connect_all(instr_cfg)
 
         # P0-1: DMM mérési módok konfigurálása — connect után kötelező
         dmm_v.configure_dcv(range_V=100, nplc=10)
@@ -270,31 +332,45 @@ class MainWindow(QMainWindow):
             psu.set_mode_series()
 
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        session_dir = Path("Mérések") / "Sessions" / f"session_{cfg.battery_model}_{stamp}"
-        logger = Logger(session_dir, LogConfig())
+        self._session_dir = Path("Mérések") / "Sessions" / f"session_{cfg.battery_model}_{stamp}"
+        logger = Logger(self._session_dir, LogConfig())
 
-        charge_ctrl = ChargeController(
-            psu, load, dmm_v, dmm_t, profile, safety,
-            ChargeConfig(taper_hold_s=cfg.taper_hold_s),
-        )
         discharge_A = profile.nominal_capacity_Ah / cfg.discharge_rate_divisor
-        discharge_ctrl = DischargeController(
-            psu, load, dmm_v, dmm_t, profile, safety,
-            DischargeConfig(discharge_current_A=discharge_A),
-        )
-        relax_ctrl = RelaxController(dmm_v, RelaxConfig())
+
+        def _make_charge_ctrl():
+            return ChargeController(
+                psu, load, dmm_v, dmm_t, profile, safety,
+                ChargeConfig(taper_hold_s=cfg.taper_hold_s),
+            )
+
+        def _make_discharge_ctrl():
+            return DischargeController(
+                psu, load, dmm_v, dmm_t, profile, safety,
+                DischargeConfig(discharge_current_A=discharge_A),
+            )
+
+        def _make_relax_ctrl():
+            rc = RelaxController(dmm_v, RelaxConfig())
+            rc.on_event = lambda ev: logger.log_event(
+                ev.get("event_code", "RELAX_EVENT"),
+                ev.get("event_message", ""),
+            )
+            return rc
 
         ocv_soc_config = OcvSocConfig(
             discharge_rate_divisor=cfg.discharge_rate_divisor,
             step_percent=cfg.ocv_soc_step_percent,
         )
-        ocv_soc_ctrl = OcvSocController(
-            psu, load, dmm_v, dmm_t, profile, safety, ocv_soc_config
-        )
-        ocv_soc_ctrl.on_soc_point = lambda data: logger.log_ocv_soc_point(data)
+
+        def _make_ocv_soc_ctrl():
+            ctrl = OcvSocController(
+                psu, load, dmm_v, dmm_t, profile, safety, ocv_soc_config
+            )
+            ctrl.on_soc_point = lambda data: logger.log_ocv_soc_point(data)
+            return ctrl
 
         runner = TestRunner(
-            instrument_manager=instruments,
+            instrument_manager=self._instruments,
             safety=safety,
             logger=logger,
             profile=profile,
@@ -303,10 +379,10 @@ class MainWindow(QMainWindow):
                 test_name=cfg.battery_model or "unnamed",
                 sleep_enabled=True,
             ),
-            charge_controller=charge_ctrl,
-            discharge_controller=discharge_ctrl,
-            relax_controller=relax_ctrl,
-            ocv_soc_controller=ocv_soc_ctrl,
+            charge_ctrl_factory=_make_charge_ctrl,
+            discharge_ctrl_factory=_make_discharge_ctrl,
+            relax_ctrl_factory=_make_relax_ctrl,
+            ocv_soc_ctrl_factory=_make_ocv_soc_ctrl,
         )
 
         if cfg.test_type == "CHARACTERIZATION":

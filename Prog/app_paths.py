@@ -1,5 +1,6 @@
 """Path resolver — fejlesztői mód és PyInstaller exe mód egységes kezelése."""
 from __future__ import annotations
+import shutil
 import sys
 from pathlib import Path
 
@@ -43,3 +44,13 @@ def default_config_path() -> Path:
 def resources_dir() -> Path:
     """Beágyazott resources/ mappa (képek, ikonok)."""
     return bundle_dir() / "Prog" / "resources"
+
+
+def ensure_local_config() -> None:
+    """Ha local_config.yaml nem létezik, másolja a beágyazott template-t."""
+    target = local_config_path()
+    if not target.exists():
+        template = local_config_template_path()
+        if template.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(str(template), str(target))

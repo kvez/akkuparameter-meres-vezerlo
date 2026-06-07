@@ -78,9 +78,7 @@ def test_ensure_local_config_copies_template(monkeypatch, tmp_path):
     monkeypatch.setattr(ap, "local_config_path", lambda: config_path)
     monkeypatch.setattr(ap, "local_config_template_path", lambda: template_path)
 
-    import Prog.main as main_mod
-    importlib.reload(main_mod)
-    main_mod._ensure_local_config()
+    ap.ensure_local_config()
 
     assert config_path.exists()
     assert "PLACEHOLDER" in config_path.read_text()
@@ -96,8 +94,6 @@ def test_ensure_local_config_does_not_overwrite_existing(monkeypatch, tmp_path):
     monkeypatch.setattr(ap, "local_config_path", lambda: config_path)
     monkeypatch.setattr(ap, "local_config_template_path", lambda: template_path)
 
-    import Prog.main as main_mod
-    importlib.reload(main_mod)
-    main_mod._ensure_local_config()
+    ap.ensure_local_config()
 
     assert "my_custom_config" in config_path.read_text()

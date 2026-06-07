@@ -3,6 +3,7 @@ LivePanel — kibővített állapotsor + 4 pyqtgraph grafikon + Rb panel + Start
 Slot: update_sample(dict) — minden tickben frissül.
 """
 from __future__ import annotations
+import time
 from collections import deque
 
 import pyqtgraph as pg
@@ -15,6 +16,32 @@ from PySide6.QtWidgets import (
 
 _MAX_POINTS = 3600  # max 1 óra 1 s tickkel
 _DVDT_WINDOW = 10   # dV/dt számítási ablak (minták száma)
+
+# Kontrollerállapot → megjelenítendő fázis szöveg
+# Kulcs: (step_kind, controller state értéke)
+_PHASE_MAP: dict[tuple[str, str], str] = {
+    ("CHARGE",    "CHARGE_CC"):             "CHARGE CC",
+    ("CHARGE",    "CHARGE_CV_DMM_CONTROL"): "CHARGE CV",
+    ("CHARGE",    "TAPER_HOLD"):            "CHARGE TAPER",
+    ("DISCHARGE", "DISCHARGE_CC_SETUP"):    "DISCHARGE",
+    ("DISCHARGE", "DISCHARGE_CC_RUN"):      "DISCHARGE",
+    ("RELAX",     "RELAXING"):              "RELAX",
+    ("OCV_SOC",   "PRECHARGE"):             "OCV-SOC CHARGE",
+    ("OCV_SOC",   "PRECHARGE_RELAX"):       "OCV-SOC RELAX",
+    ("OCV_SOC",   "STEP_DISCHARGE"):        "OCV-SOC DISCHARGE",
+    ("OCV_SOC",   "STEP_RELAX"):            "OCV-SOC RELAX",
+    ("OCV_SOC",   "IMPULSE_PREP"):          "OCV-SOC IMPULSE PREP",
+    ("OCV_SOC",   "IMPULSE_ON"):            "OCV-SOC IMPULSE",
+    ("OCV_SOC",   "LOG_SOC_POINT"):         "OCV-SOC LOG",
+}
+
+_STEP_KIND_DISPLAY: dict[str, str] = {
+    "CHARGE":             "CHARGE",
+    "DISCHARGE":          "DISCHARGE",
+    "RELAX":              "RELAX",
+    "OCV_SOC":            "OCV-SOC",
+    "MANUAL_CHECKPOINT":  "BQ CHECKPOINT",
+}
 
 
 def _make_plot(title: str, y_label: str, color: str) -> tuple[pg.PlotWidget, pg.PlotDataItem]:
@@ -42,6 +69,8 @@ class LivePanel(QWidget):
         self._temp:         deque[float] = deque(maxlen=_MAX_POINTS)
         self._charge_ah:    deque[float] = deque(maxlen=_MAX_POINTS)
         self._discharge_ah: deque[float] = deque(maxlen=_MAX_POINTS)
+        self._step_start_perf: float = 0.0
+        self._current_step_kind: str = ""
         self._build_ui()
 
     # ------------------------------------------------------------------ #
@@ -66,9 +95,13 @@ class LivePanel(QWidget):
         self._udrop_lbl    = self._status_label("– V")
         self._upsu_set_lbl = self._status_label("– V")
         self._iload_set_lbl = self._status_label("– A")
-        self._dvdt_lbl     = self._status_label("– mV/s")
+        self._dvdt_lbl     = self._status_label("– mV/min")
         self._warn_lbl     = self._status_label("–")
         self._fault_lbl    = self._status_label("–")
+        self._phase_lbl      = self._status_label("–")
+        self._step_info_lbl  = self._status_label("step –/–")
+        self._step_time_lbl  = self._status_label("–:–:–")
+        self._total_time_lbl = self._status_label("–:–:–")
 
         # Első sor: fő mérési adatok
         _ROW1 = [
@@ -89,6 +122,12 @@ class LivePanel(QWidget):
             ("Warning",     self._warn_lbl),
             ("Fault",       self._fault_lbl),
         ]
+        _ROW3 = [
+            ("Fázis",       self._phase_lbl),
+            ("Lépés",       self._step_info_lbl),
+            ("Lépés idő",   self._step_time_lbl),
+            ("Session idő", self._total_time_lbl),
+        ]
         for col, (name, widget) in enumerate(_ROW1):
             status_grid.addWidget(QLabel(f"<b>{name}</b>"), 0, col)
             status_grid.addWidget(widget, 1, col)
@@ -96,6 +135,10 @@ class LivePanel(QWidget):
             status_grid.addWidget(QLabel(f"<b>{name}</b>"), 2, col)
             status_grid.addWidget(widget, 3, col)
         status_grid.setRowMinimumHeight(2, 4)  # kis elválasztás a két sor között
+        for col, (name, widget) in enumerate(_ROW3):
+            status_grid.addWidget(QLabel(f"<b>{name}</b>"), 5, col)
+            status_grid.addWidget(widget, 6, col)
+        status_grid.setRowMinimumHeight(4, 6)  # elválasztó a 2. és 3. sor között
 
         root.addWidget(status_box)
 
@@ -241,19 +284,38 @@ class LivePanel(QWidget):
         self._iload_set_lbl.setText(
             f"{iload:.3f} A" if iload is not None and iload > 0 else "– A")
 
-        # dV/dt: utolsó _DVDT_WINDOW minta átlagos meredeksége
+        # dV/dt: utolsó _DVDT_WINDOW minta átlagos meredeksége (mV/min)
         u_list = list(self._u_batt)
         x_list = list(self._xs)
         n = min(_DVDT_WINDOW, len(u_list))
         if n >= 2:
             dt_win = x_list[-1] - x_list[-n]
             if dt_win > 0 and u_list[-1] == u_list[-1] and u_list[-n] == u_list[-n]:
-                dvdt_mvs = (u_list[-1] - u_list[-n]) / dt_win * 1000.0
-                self._dvdt_lbl.setText(f"{dvdt_mvs:+.2f} mV/s")
+                dvdt_mvmin = (u_list[-1] - u_list[-n]) / dt_win * 1000.0 * 60.0
+                self._dvdt_lbl.setText(f"{dvdt_mvmin:+.2f} mV/min")
             else:
-                self._dvdt_lbl.setText("– mV/s")
+                self._dvdt_lbl.setText("– mV/min")
         else:
-            self._dvdt_lbl.setText("– mV/s")
+            self._dvdt_lbl.setText("– mV/min")
+
+        # Fázis: kontrollerállapot + step kind kombinációja
+        state = sample.get("state") or ""
+        phase = _PHASE_MAP.get((self._current_step_kind, state))
+        if phase is None:
+            phase = _STEP_KIND_DISPLAY.get(self._current_step_kind, self._current_step_kind or "–")
+        self._phase_lbl.setText(phase)
+
+        # Teljes session eltelt idő (HH:MM:SS)
+        total_s = int(sample.get("elapsed_s") or 0)
+        self._total_time_lbl.setText(
+            f"{total_s // 3600:02d}:{(total_s % 3600) // 60:02d}:{total_s % 60:02d}"
+        )
+
+        # Aktuális lépés eltelt idő (HH:MM:SS)
+        step_s = int(time.perf_counter() - self._step_start_perf)
+        self._step_time_lbl.setText(
+            f"{step_s // 3600:02d}:{(step_s % 3600) // 60:02d}:{step_s % 60:02d}"
+        )
 
         # --- Rb panel ---
         rb1  = sample.get("rb_1s_mohm")
@@ -265,6 +327,17 @@ class LivePanel(QWidget):
         self._rb10s_lbl.setText(f"{rb10:.1f} mΩ" if rb10 is not None else "– mΩ")
         self._rb30s_lbl.setText(f"{rb30:.1f} mΩ" if rb30 is not None else "– mΩ")
         self._rb_dv_lbl.setText(f"{dv:.3f} V"     if dv   is not None else "– V")
+
+    @Slot(dict)
+    def set_step(self, payload: dict) -> None:
+        self._step_start_perf = time.perf_counter()
+        self._current_step_kind = payload.get("step_kind", "")
+        idx   = payload.get("step_index", 0)
+        count = payload.get("step_count", 0)
+        label = payload.get("step_label", "–")
+        self._step_info_lbl.setText(f"step {idx + 1}/{count}: {label}")
+        self._step_time_lbl.setText("00:00:00")
+        self._phase_lbl.setText(_STEP_KIND_DISPLAY.get(self._current_step_kind, self._current_step_kind or "–"))
 
     @Slot(str)
     def set_status(self, status: str) -> None:
@@ -310,5 +383,11 @@ class LivePanel(QWidget):
         self._udrop_lbl.setText("– V")
         self._upsu_set_lbl.setText("– V")
         self._iload_set_lbl.setText("– A")
-        self._dvdt_lbl.setText("– mV/s")
+        self._dvdt_lbl.setText("– mV/min")
+        self._phase_lbl.setText("–")
+        self._step_info_lbl.setText("step –/–")
+        self._step_time_lbl.setText("–:–:–")
+        self._total_time_lbl.setText("–:–:–")
+        self._step_start_perf = 0.0
+        self._current_step_kind = ""
         self._event_log.clear()
