@@ -479,8 +479,6 @@ class TestRunner:
 
         integrator = getattr(controller, "_integrator", None)
         if integrator is not None:
-            sample["integration_valid"] = integrator.integration_valid
-            sample["capacity_result_quality"] = integrator.capacity_result_quality
             sample["accumulated_charge_Wh"] = integrator.accumulated_charge_Wh
             sample["accumulated_discharge_Wh"] = integrator.accumulated_discharge_Wh
 
