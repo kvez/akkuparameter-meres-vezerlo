@@ -117,6 +117,10 @@ class ChargeController:
     def accumulated_charge_Ah(self) -> float:
         return self._integrator.accumulated_charge_Ah
 
+    @property
+    def u_psu_set_V(self) -> float:
+        return self._u_psu_set
+
     # ------------------------------------------------------------------ #
     # Fő advance() — egy vezérlési ciklus                                 #
     # ------------------------------------------------------------------ #
@@ -302,6 +306,9 @@ class ChargeController:
         self._i_charge = self._read_psu_current()
         if self._state == ChargeState.FAULT:
             return
+        # Csak lefelé szabályoz: ha u_batt > target, PSU csökkenti a feszültséget.
+        # Felfelé lépés tiltott — OV-védelmi garancia a taper hold teljes idejére.
+        self._regulate_cv(up_allowed=False)
         self._integrate(dt_s, signed_current_A=self._i_charge, source="PSU_READBACK")
 
         if self._check_charge_limits():
@@ -324,7 +331,7 @@ class ChargeController:
     # CV szabályozóhurok                                                   #
     # ------------------------------------------------------------------ #
 
-    def _regulate_cv(self) -> None:
+    def _regulate_cv(self, up_allowed: bool = True) -> None:
         target_V = self._effective_charge_target_V()
         error = target_V - self._u_batt
 
@@ -332,6 +339,8 @@ class ChargeController:
             return
 
         if error > 0:
+            if not up_allowed:
+                return
             step = min(error, self._config.max_step_up_V)
             self._u_psu_set += step
         else:

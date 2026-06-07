@@ -57,6 +57,14 @@ class DischargeController:
             fallback_max_duration_s=config.fallback_max_duration_s
         )
 
+        # Rb mérés: terhelésbekapcsolás előtti U_batt + időzített mintavétel
+        self._i_discharge_set: float = 0.0
+        self._u_batt_pre_load: float | None = None
+        self._load_on_elapsed_s: float = 0.0
+        self._rb_1s_mohm: float | None = None
+        self._rb_10s_mohm: float | None = None
+        self._rb_30s_mohm: float | None = None
+
     @property
     def state(self) -> DischargeState:
         return self._state
@@ -76,6 +84,26 @@ class DischargeController:
     @property
     def accumulated_discharge_Ah(self) -> float:
         return self._integrator.accumulated_discharge_Ah
+
+    @property
+    def i_load_set_A(self) -> float:
+        return self._i_discharge_set
+
+    @property
+    def u_batt_pre_load_V(self) -> float | None:
+        return self._u_batt_pre_load
+
+    @property
+    def rb_1s_mohm(self) -> float | None:
+        return self._rb_1s_mohm
+
+    @property
+    def rb_10s_mohm(self) -> float | None:
+        return self._rb_10s_mohm
+
+    @property
+    def rb_30s_mohm(self) -> float | None:
+        return self._rb_30s_mohm
 
     def advance(self, dt_s: float) -> DischargeState:
         self._elapsed_s += dt_s
@@ -158,8 +186,15 @@ class DischargeController:
             if self._config.discharge_current_A > 0
             else self._profile.C5_discharge_current_A
         )
+        self._i_discharge_set = i_discharge
         self._load.set_mode_cc()
         self._load.set_current(i_discharge)
+        # Rb referencia feszültség: terhelésbekapcsolás ELŐTTI U_batt
+        self._u_batt_pre_load = self._u_batt
+        self._load_on_elapsed_s = 0.0
+        self._rb_1s_mohm = None
+        self._rb_10s_mohm = None
+        self._rb_30s_mohm = None
         self._load.input_on()
         self._state = DischargeState.DISCHARGE_CC_RUN
 
@@ -168,6 +203,18 @@ class DischargeController:
         if self._state == DischargeState.FAULT:
             return
         self._integrate(dt_s, signed_current_A=-i_load, source="LOAD_READBACK")
+
+        # Rb mintavétel 1s / 10s / 30s időpontokban
+        self._load_on_elapsed_s += dt_s
+        if self._u_batt_pre_load is not None and self._i_discharge_set > 0.01:
+            delta_v = self._u_batt_pre_load - self._u_batt
+            t = self._load_on_elapsed_s
+            if self._rb_1s_mohm is None and t >= 1.0:
+                self._rb_1s_mohm = delta_v / self._i_discharge_set * 1000.0
+            if self._rb_10s_mohm is None and t >= 10.0:
+                self._rb_10s_mohm = delta_v / self._i_discharge_set * 1000.0
+            if self._rb_30s_mohm is None and t >= 30.0:
+                self._rb_30s_mohm = delta_v / self._i_discharge_set * 1000.0
 
         terminate_V = self._profile.terminate_voltage_pack_V
         if self._u_batt <= terminate_V:

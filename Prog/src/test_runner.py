@@ -477,4 +477,19 @@ class TestRunner:
             sample["accumulated_charge_Wh"] = integrator.accumulated_charge_Wh
             sample["accumulated_discharge_Wh"] = integrator.accumulated_discharge_Wh
 
+        sample["psu_set_voltage_V"] = getattr(controller, "u_psu_set_V", None)
+        sample["load_set_current_A"] = getattr(controller, "i_load_set_A", None)
+
+        # Rb mérési adatok — csak kisütési lépésben kerülnek feltöltésre
+        u_pre = getattr(controller, "u_batt_pre_load_V", None)
+        u_curr = sample.get("battery_voltage_V")
+        sample["rb_delta_v"] = (
+            round(u_pre - u_curr, 4)
+            if u_pre is not None and u_curr is not None
+            else None
+        )
+        sample["rb_1s_mohm"]  = getattr(controller, "rb_1s_mohm",  None)
+        sample["rb_10s_mohm"] = getattr(controller, "rb_10s_mohm", None)
+        sample["rb_30s_mohm"] = getattr(controller, "rb_30s_mohm", None)
+
         return sample

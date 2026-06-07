@@ -62,7 +62,7 @@ class MainWindow(QMainWindow):
         if logo_path.exists():
             self.setWindowIcon(QIcon(str(logo_path)))
             pixmap = QPixmap(str(logo_path)).scaledToHeight(
-                48, Qt.TransformationMode.SmoothTransformation
+                96, Qt.TransformationMode.SmoothTransformation
             )
             logo_label = QLabel()
             logo_label.setPixmap(pixmap)
