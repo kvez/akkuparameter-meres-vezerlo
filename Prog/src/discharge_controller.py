@@ -27,6 +27,7 @@ class DischargeState(Enum):
 @dataclass
 class DischargeConfig:
     discharge_current_A: float = 0.0    # 0 = auto C/5
+    terminate_voltage_V_override: float = 0.0   # 0 = profil default (1.80V/cella)
     max_discharge_time_s: float = 86400.0
     max_discharge_Ah_factor: float = 1.10
 
@@ -214,7 +215,11 @@ class DischargeController:
             if self._rb_30s_mohm is None and t >= 30.0:
                 self._rb_30s_mohm = delta_v / self._i_discharge_set * 1000.0
 
-        terminate_V = self._profile.terminate_voltage_pack_V
+        terminate_V = (
+            self._config.terminate_voltage_V_override
+            if self._config.terminate_voltage_V_override > 0
+            else self._profile.terminate_voltage_pack_V
+        )
         if self._u_batt <= terminate_V:
             self._load.input_off()
             self._state = DischargeState.DISCHARGE_DONE

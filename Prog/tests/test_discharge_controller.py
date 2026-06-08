@@ -181,3 +181,51 @@ class TestConcurrentPsuLoadDischarge:
         assert ctrl.state == DischargeState.DISCHARGE_CC_RUN
         assert load.input_commanded_on is True
         assert psu.output_commanded_on is False
+
+
+class TestDischargeTerminateOverride:
+    def test_uses_override_voltage_instead_of_profile(self):
+        """terminate_voltage_V_override=11.5V esetén 11.5V-nál áll meg, nem 10.8V-nál."""
+        profile = make_profile()  # terminate = 6 × 1.80 = 10.80V
+        psu = MockPSU(voltage_V=0.0, current_A=0.0)
+        load = MockLoad(voltage_V=12.0)
+        dmm_v = MockDMM(voltage_V=12.0)
+        dmm_t = MockDMM(temperature_C=22.0)
+        safety = SafetyManager(profile=profile, psu_mode=PsuMode.INDEPENDENT)
+        cfg = DischargeConfig(terminate_voltage_V_override=11.5)
+        ctrl = DischargeController(psu, load, dmm_v, dmm_t, profile, safety, cfg)
+
+        for _ in range(3):
+            ctrl.advance(dt_s=1.0)
+
+        # 11.4V < override 11.5V → le kell állni
+        dmm_v.voltage_V = 11.4
+        load.voltage_V = 11.4
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state == DischargeState.DISCHARGE_DONE
+
+    def test_zero_override_uses_profile_default(self):
+        """terminate_voltage_V_override=0 esetén a profil 1.80V/cella értéke érvényes."""
+        profile = make_profile()  # 6 × 1.80 = 10.80V
+        psu = MockPSU(voltage_V=0.0, current_A=0.0)
+        load = MockLoad(voltage_V=12.0)
+        dmm_v = MockDMM(voltage_V=12.0)
+        dmm_t = MockDMM(temperature_C=22.0)
+        safety = SafetyManager(profile=profile, psu_mode=PsuMode.INDEPENDENT)
+        cfg = DischargeConfig(terminate_voltage_V_override=0.0)
+        ctrl = DischargeController(psu, load, dmm_v, dmm_t, profile, safety, cfg)
+
+        for _ in range(3):
+            ctrl.advance(dt_s=1.0)
+
+        # 11.4V > profile 10.80V → ne álljon meg
+        dmm_v.voltage_V = 11.4
+        load.voltage_V = 11.4
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state != DischargeState.DISCHARGE_DONE
+
+        # 10.75V < profile 10.80V → álljon meg
+        dmm_v.voltage_V = 10.75
+        load.voltage_V = 10.75
+        ctrl.advance(dt_s=1.0)
+        assert ctrl.state == DischargeState.DISCHARGE_DONE
