@@ -190,13 +190,16 @@ class TestPlanChargeDischargeOnly:
         assert plan.test_type == TestType.CHARGE_ONLY
         assert len(plan.steps) == 2
         assert plan.steps[0].kind == StepKind.CHARGE
+        assert plan.steps[0].label == "charge"
         assert plan.steps[1].kind == StepKind.RELAX
+        assert plan.steps[1].label == "relax_after_charge"
 
     def test_discharge_only_plan_has_single_discharge_step(self):
         plan = TestPlan.discharge_only()
         assert plan.test_type == TestType.DISCHARGE_ONLY
         assert len(plan.steps) == 1
         assert plan.steps[0].kind == StepKind.DISCHARGE
+        assert plan.steps[0].label == "discharge"
 
 
 class TestTestPlanFactories:
