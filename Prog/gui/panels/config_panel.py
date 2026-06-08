@@ -43,6 +43,12 @@ class SessionConfig:
     # Hőkompenzáció
     temperature_compensation_mode: str = "MONITOR_ONLY"
 
+    # Kiterjesztett paraméterek
+    relax_after_charge_s: float = 600.0
+    charge_current_A_override: float = 0.0
+    discharge_current_A: float = 0.0
+    discharge_terminate_voltage_V: float = 0.0
+
     def validate(self) -> list[str]:
         """Visszaadja a validációs hibaüzenetek listáját. Üres lista = OK."""
         errors: list[str] = []
@@ -65,6 +71,27 @@ class SessionConfig:
             )
         if self.battery_profile_name == "FIAMM_24V" and self.psu_mode != "SERIES":
             errors.append("FIAMM_24V (24V pack) csak SERIES PSU módban indítható")
+
+        # Végfeszültség ellenőrzés (ha be van állítva)
+        if self.discharge_terminate_voltage_V > 0:
+            cell_count = _PROFILE_DEFAULTS.get(
+                self.battery_profile_name, {}
+            ).get("cell_count", 6)
+            min_v = cell_count * 1.60
+            if self.discharge_terminate_voltage_V < min_v:
+                errors.append(
+                    f"Végfeszültség ({self.discharge_terminate_voltage_V:.2f}V) "
+                    f"< 1.60V/cella minimum ({min_v:.2f}V)"
+                )
+
+        # Töltőáram override ellenőrzés
+        if self.charge_current_A_override > 0:
+            psu_max = 3.0 if self.psu_mode == "PARALLEL" else 1.5
+            if self.charge_current_A_override > psu_max:
+                errors.append(
+                    f"Töltőáram ({self.charge_current_A_override:.2f}A) "
+                    f"> PSU {self.psu_mode} limit ({psu_max:.1f}A)"
+                )
 
         return errors
 

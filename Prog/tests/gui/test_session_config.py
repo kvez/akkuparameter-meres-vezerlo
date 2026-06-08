@@ -97,3 +97,47 @@ class TestSessionConfigValidation:
             battery_model="", nominal_capacity_ah=0.0
         ).validate()
         assert len(errors) >= 2
+
+
+class TestSessionConfigNewFields:
+    def test_new_fields_have_correct_defaults(self):
+        cfg = SessionConfig()
+        assert cfg.relax_after_charge_s == 600.0
+        assert cfg.charge_current_A_override == 0.0
+        assert cfg.discharge_current_A == 0.0
+        assert cfg.discharge_terminate_voltage_V == 0.0
+
+    def test_validate_terminate_voltage_too_low(self):
+        """12V akku (6 cella): min 6×1.60=9.60V. 9.0V alatt hiba."""
+        cfg = SessionConfig(discharge_terminate_voltage_V=9.0)
+        # battery_profile_name default = "FIAMM_12V" → cell_count=6 → min=9.60V
+        errors = cfg.validate()
+        assert any("Végfeszültség" in e for e in errors)
+
+    def test_validate_terminate_voltage_ok(self):
+        """10.5V >= 9.60V minimum → nincs hiba."""
+        cfg = SessionConfig(discharge_terminate_voltage_V=10.5)
+        errors = cfg.validate()
+        assert not any("Végfeszültség" in e for e in errors)
+
+    def test_validate_charge_current_above_psu_limit_independent(self):
+        """INDEPENDENT mód, 2.0A override > 1.5A limit → hiba."""
+        cfg = SessionConfig(charge_current_A_override=2.0, psu_mode="INDEPENDENT")
+        errors = cfg.validate()
+        assert any("Töltőáram" in e for e in errors)
+
+    def test_validate_charge_current_ok_parallel(self):
+        """PARALLEL mód, 2.5A override <= 3.0A limit → nincs hiba."""
+        cfg = SessionConfig(charge_current_A_override=2.5, psu_mode="PARALLEL")
+        errors = cfg.validate()
+        assert not any("Töltőáram" in e for e in errors)
+
+    def test_validate_zero_override_skips_checks(self):
+        """0.0 értékek esetén (profil default) ne legyen validációs hiba."""
+        cfg = SessionConfig(
+            discharge_terminate_voltage_V=0.0,
+            charge_current_A_override=0.0,
+        )
+        errors = cfg.validate()
+        assert not any("Végfeszültség" in e for e in errors)
+        assert not any("Töltőáram" in e for e in errors)
