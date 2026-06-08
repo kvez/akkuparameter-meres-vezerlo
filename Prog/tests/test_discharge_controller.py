@@ -222,7 +222,7 @@ class TestDischargeTerminateOverride:
         dmm_v.voltage_V = 11.4
         load.voltage_V = 11.4
         ctrl.advance(dt_s=1.0)
-        assert ctrl.state != DischargeState.DISCHARGE_DONE
+        assert ctrl.state == DischargeState.DISCHARGE_CC_RUN
 
         # 10.75V < profile 10.80V → álljon meg
         dmm_v.voltage_V = 10.75

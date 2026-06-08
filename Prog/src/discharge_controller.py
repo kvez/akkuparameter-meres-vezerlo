@@ -31,6 +31,14 @@ class DischargeConfig:
     max_discharge_time_s: float = 86400.0
     max_discharge_Ah_factor: float = 1.10
 
+    def __post_init__(self) -> None:
+        if self.terminate_voltage_V_override != 0.0:
+            if not (1.0 <= self.terminate_voltage_V_override <= 100.0):
+                raise ValueError(
+                    f"terminate_voltage_V_override={self.terminate_voltage_V_override!r} "
+                    "out of sane range [1.0, 100.0] V"
+                )
+
 
 class DischargeController:
     def __init__(self, psu, load, dmm_voltage, dmm_temperature,
