@@ -428,7 +428,7 @@ class ConfigPanel(QWidget):
             test_type=self._test_type_combo.currentText(),
             runner_tick_s=self._tick_spin.value(),
             taper_hold_s=self._taper_spin.value(),
-            discharge_rate_divisor=5,  # fallback; preset buttons fill discharge_current_A directly
+            discharge_rate_divisor=10,  # OCV-SOC: C/10 (OcvSocConfig default); normál kisütésnél irreleváns
             ocv_soc_step_percent=self._ocv_soc_step_spin.value(),
             temperature_compensation_mode=self._temp_comp_combo.currentText(),
             relax_after_charge_s=self._relax_after_charge_spin.value(),
