@@ -130,6 +130,16 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Konfiguráció hiba", "\n".join(errors))
             return
 
+        warnings = cfg.get_warnings()
+        if warnings:
+            reply = QMessageBox.question(
+                self, "Figyelmeztetés",
+                "\n".join(warnings) + "\n\nFolytassuk?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
         try:
             runner, test_plan = self._build_runner(cfg)
         except Exception as exc:

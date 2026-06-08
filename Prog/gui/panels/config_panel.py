@@ -77,11 +77,11 @@ class SessionConfig:
             cell_count = _PROFILE_DEFAULTS.get(
                 self.battery_profile_name, {}
             ).get("cell_count", 6)
-            min_v = cell_count * 1.75  # FIAMM AGM: C/20 = 1.75V/cella, alatta maradandó károsodás
+            min_v = cell_count * 1.60  # abszolút biztonsági padló; ajánlott: 1.75–1.80V/cella
             if self.discharge_terminate_voltage_V < min_v:
                 errors.append(
                     f"Végfeszültség ({self.discharge_terminate_voltage_V:.2f}V) "
-                    f"< 1.75V/cella minimum ({min_v:.2f}V)"
+                    f"< 1.60V/cella minimum ({min_v:.2f}V)"
                 )
 
         # Töltőáram override ellenőrzés
@@ -94,6 +94,22 @@ class SessionConfig:
                 )
 
         return errors
+
+    def get_warnings(self) -> list[str]:
+        """Nem blokkoló figyelmeztetések — indítható, de érdemes figyelni."""
+        warnings: list[str] = []
+        if self.discharge_terminate_voltage_V > 0:
+            cell_count = _PROFILE_DEFAULTS.get(
+                self.battery_profile_name, {}
+            ).get("cell_count", 6)
+            warn_v = cell_count * 1.75
+            if self.discharge_terminate_voltage_V < warn_v:
+                warnings.append(
+                    f"Végfeszültség ({self.discharge_terminate_voltage_V:.2f}V) "
+                    f"< 1.75V/cella ajánlott minimum ({warn_v:.2f}V) — "
+                    "akkukárosodás lehetséges."
+                )
+        return warnings
 
 
 _PROFILE_DEFAULTS = {

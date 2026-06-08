@@ -108,22 +108,40 @@ class TestSessionConfigNewFields:
         assert cfg.discharge_terminate_voltage_V == 0.0
 
     def test_validate_terminate_voltage_too_low(self):
-        """12V akku (6 cella): min 6×1.75=10.50V. 10.0V alatt hiba."""
+        """12V akku (6 cella): abszolút min 6×1.60=9.60V. 9.0V alatt blokkoló hiba."""
         cfg = SessionConfig(
             battery_profile_name="FIAMM_12V",
-            discharge_terminate_voltage_V=10.0,
+            discharge_terminate_voltage_V=9.0,
         )
         errors = cfg.validate()
         assert any("Végfeszültség" in e for e in errors)
 
     def test_validate_terminate_voltage_ok(self):
-        """10.5V >= 10.50V minimum (C/20 adatlap érték) → nincs hiba."""
+        """10.5V >= 9.60V abszolút minimum → nincs blokkoló hiba."""
         cfg = SessionConfig(
             battery_profile_name="FIAMM_12V",
             discharge_terminate_voltage_V=10.5,
         )
         errors = cfg.validate()
         assert not any("Végfeszültség" in e for e in errors)
+
+    def test_get_warnings_terminate_voltage_below_recommended(self):
+        """10.0V ≥ 9.60V (nem blokkoló Végfeszültség hiba), de < 10.50V → figyelmeztetés."""
+        cfg = SessionConfig(
+            battery_profile_name="FIAMM_12V",
+            discharge_terminate_voltage_V=10.0,
+        )
+        assert not any("Végfeszültség" in e for e in cfg.validate())
+        warnings = cfg.get_warnings()
+        assert any("Végfeszültség" in w for w in warnings)
+
+    def test_get_warnings_no_warning_above_recommended(self):
+        """10.5V = 1.75V/cella → nincs figyelmeztetés."""
+        cfg = SessionConfig(
+            battery_profile_name="FIAMM_12V",
+            discharge_terminate_voltage_V=10.5,
+        )
+        assert not cfg.get_warnings()
 
     def test_validate_charge_current_above_psu_limit_independent(self):
         """INDEPENDENT mód, 2.0A override > 1.5A limit → hiba."""
