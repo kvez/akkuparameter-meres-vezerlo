@@ -26,6 +26,8 @@ class TestType(Enum):
     CHARACTERIZATION = "CHARACTERIZATION"
     BQ_LEARNING_PHYSICAL = "BQ_LEARNING_PHYSICAL"
     OCV_SOC_CHARACTERIZATION = "OCV_SOC_CHARACTERIZATION"
+    CHARGE_ONLY = "CHARGE_ONLY"
+    DISCHARGE_ONLY = "DISCHARGE_ONLY"
 
 
 class StepKind(Enum):
@@ -82,6 +84,25 @@ class TestPlan:
             test_type=TestType.OCV_SOC_CHARACTERIZATION,
             steps=(
                 TestStep(StepKind.OCV_SOC, "ocv_soc"),
+            ),
+        )
+
+    @staticmethod
+    def charge_only() -> "TestPlan":
+        return TestPlan(
+            test_type=TestType.CHARGE_ONLY,
+            steps=(
+                TestStep(StepKind.CHARGE, "charge"),
+                TestStep(StepKind.RELAX,  "relax_after_charge"),
+            ),
+        )
+
+    @staticmethod
+    def discharge_only() -> "TestPlan":
+        return TestPlan(
+            test_type=TestType.DISCHARGE_ONLY,
+            steps=(
+                TestStep(StepKind.DISCHARGE, "discharge"),
             ),
         )
 
