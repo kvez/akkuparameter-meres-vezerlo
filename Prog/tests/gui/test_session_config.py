@@ -109,8 +109,10 @@ class TestSessionConfigNewFields:
 
     def test_validate_terminate_voltage_too_low(self):
         """12V akku (6 cella): min 6×1.60=9.60V. 9.0V alatt hiba."""
-        cfg = SessionConfig(discharge_terminate_voltage_V=9.0)
-        # battery_profile_name default = "FIAMM_12V" → cell_count=6 → min=9.60V
+        cfg = SessionConfig(
+            battery_profile_name="FIAMM_12V",
+            discharge_terminate_voltage_V=9.0,
+        )
         errors = cfg.validate()
         assert any("Végfeszültség" in e for e in errors)
 
@@ -127,8 +129,12 @@ class TestSessionConfigNewFields:
         assert any("Töltőáram" in e for e in errors)
 
     def test_validate_charge_current_ok_parallel(self):
-        """PARALLEL mód, 2.5A override <= 3.0A limit → nincs hiba."""
-        cfg = SessionConfig(charge_current_A_override=2.5, psu_mode="PARALLEL")
+        """PARALLEL mód, 2.5A override <= 3.0A limit → nincs Töltőáram hiba."""
+        cfg = SessionConfig(
+            charge_current_A_override=2.5,
+            psu_mode="PARALLEL",
+            hardware_wiring_confirmed=True,
+        )
         errors = cfg.validate()
         assert not any("Töltőáram" in e for e in errors)
 
