@@ -49,6 +49,17 @@ class ChargeConfig:
     max_charge_Ah_factor: float = 1.20
     temperature_dmm_fault_timeout_s: float = 60.0
 
+    # Töltőáram felülírás (0.0 = automatikus profil alapján)
+    charge_current_A_override: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.charge_current_A_override != 0.0:
+            if not (0.0 < self.charge_current_A_override <= 100.0):
+                raise ValueError(
+                    f"charge_current_A_override={self.charge_current_A_override!r} "
+                    "érvénytelen; elfogadott tartomány: (0.0, 100.0]"
+                )
+
 
 class ChargeController:
     def __init__(
@@ -233,7 +244,11 @@ class ChargeController:
             PsuMode.PARALLEL: 3.0,
             PsuMode.SERIES: 1.5,
         }.get(self._safety.psu_mode, 1.5)
-        charge_A = min(self._profile.effective_max_charge_A, psu_hw_max_A)
+
+        if self._config.charge_current_A_override > 0:
+            charge_A = min(self._config.charge_current_A_override, psu_hw_max_A)
+        else:
+            charge_A = min(self._profile.effective_max_charge_A, psu_hw_max_A)
         self._psu.set_output_current(charge_A)
         self._psu.output_on()
         self._state = ChargeState.CHARGE_CC

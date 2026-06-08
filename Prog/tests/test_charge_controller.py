@@ -650,3 +650,50 @@ class TestPsuCurrentClamping:
         profile = make_12v_profile(capacity_Ah=7.0)  # effective = 1.75A
         psu = self._advance_to_cc(profile, psu_mode=PsuMode.PARALLEL)
         assert psu.current_A == pytest.approx(1.75, abs=0.001)
+
+
+class TestChargeCurrentOverride:
+    """ChargeConfig.charge_current_A_override: egyedi töltőáram felülírás."""
+
+    def _advance_through_psu_preset(self, config, psu_mode=PsuMode.INDEPENDENT, dmm_V=12.5):
+        """PSU_PRESET tick-et végrehajtja (→ CHARGE_CC), visszaadja a PSU-t."""
+        ctrl, psu, load, dmm = make_controller(
+            profile=make_12v_profile(),
+            psu_mode=psu_mode,
+            dmm_voltage_V=dmm_V,
+            config=config,
+        )
+        ctrl.advance(dt_s=1.0)  # INIT → PRECHECK
+        ctrl.advance(dt_s=1.0)  # PRECHECK → PSU_PRESET
+        ctrl.advance(dt_s=1.0)  # PSU_PRESET → CHARGE_CC (set_output_current itt fut)
+        assert ctrl.state == ChargeState.CHARGE_CC
+        return psu
+
+    def test_override_current_set_when_below_psu_limit(self):
+        """override=1.2A, INDEPENDENT limit 1.5A → PSU kap 1.2A."""
+        cfg = ChargeConfig(charge_current_A_override=1.2)
+        psu = self._advance_through_psu_preset(cfg, psu_mode=PsuMode.INDEPENDENT)
+        assert psu.current_A == pytest.approx(1.2, abs=0.001)
+
+    def test_override_current_clamped_to_psu_hw_limit(self):
+        """override=2.0A, INDEPENDENT limit 1.5A → PSU kap 1.5A (clamp)."""
+        cfg = ChargeConfig(charge_current_A_override=2.0)
+        psu = self._advance_through_psu_preset(cfg, psu_mode=PsuMode.INDEPENDENT)
+        assert psu.current_A == pytest.approx(1.5, abs=0.001)
+
+    def test_override_zero_is_valid(self):
+        """override=0.0 (disabled) → ChargeConfig létrehozás nem dob ValueError-t."""
+        cfg = ChargeConfig(charge_current_A_override=0.0)
+        assert cfg.charge_current_A_override == 0.0
+
+    def test_override_negative_raises_value_error(self):
+        """Negatív override → ValueError."""
+        import pytest as _pytest
+        with _pytest.raises(ValueError):
+            ChargeConfig(charge_current_A_override=-0.1)
+
+    def test_override_above_range_raises_value_error(self):
+        """100.001A override → ValueError."""
+        import pytest as _pytest
+        with _pytest.raises(ValueError):
+            ChargeConfig(charge_current_A_override=100.001)
