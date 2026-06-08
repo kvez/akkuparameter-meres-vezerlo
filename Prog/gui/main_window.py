@@ -10,7 +10,8 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QLabel, QMainWindow, QMessageBox, QStatusBar, QTabWidget,
+    QHBoxLayout, QLabel, QMainWindow, QMessageBox, QStatusBar, QTabWidget,
+    QVBoxLayout, QWidget,
 )
 
 from Prog import app_paths
@@ -34,7 +35,40 @@ class MainWindow(QMainWindow):
         self._session_dir: Path | None = None  # FIX-08: report.json helye
 
         self._tabs = QTabWidget()
-        self.setCentralWidget(self._tabs)
+
+        # Dedicated header bar above tabs
+        container = QWidget()
+        vbox = QVBoxLayout(container)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(0)
+
+        header = QWidget()
+        header.setFixedHeight(72)
+        hbox = QHBoxLayout(header)
+        hbox.setContentsMargins(8, 4, 8, 4)
+
+        logo_path = app_paths.resources_dir() / "psnd.png"
+        if logo_path.exists():
+            self.setWindowIcon(QIcon(str(logo_path)))
+            pixmap = QPixmap(str(logo_path)).scaledToHeight(
+                60, Qt.TransformationMode.SmoothTransformation
+            )
+            logo_label = QLabel()
+            logo_label.setPixmap(pixmap)
+            logo_label.setToolTip("PSND Elektronika")
+            hbox.addWidget(logo_label)
+
+        title_label = QLabel("Akkuteszter — Labor műszerfal")
+        font = title_label.font()
+        font.setBold(True)
+        font.setPointSize(14)
+        title_label.setFont(font)
+        hbox.addWidget(title_label)
+        hbox.addStretch()
+
+        vbox.addWidget(header)
+        vbox.addWidget(self._tabs)
+        self.setCentralWidget(container)
 
         self._config_panel = ConfigPanel()
         self._live_panel = LivePanel()
@@ -61,18 +95,6 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self._status_bar)
         self._status_bar.showMessage(
             "Kész — konfiguráld a paramétereket és nyomj Start-ot.")
-
-        logo_path = app_paths.resources_dir() / "psnd.png"
-        if logo_path.exists():
-            self.setWindowIcon(QIcon(str(logo_path)))
-            pixmap = QPixmap(str(logo_path)).scaledToHeight(
-                96, Qt.TransformationMode.SmoothTransformation
-            )
-            logo_label = QLabel()
-            logo_label.setPixmap(pixmap)
-            logo_label.setContentsMargins(8, 2, 8, 2)
-            logo_label.setToolTip("PSND Elektronika")
-            self._tabs.setCornerWidget(logo_label, Qt.Corner.TopRightCorner)
 
     # ------------------------------------------------------------------ #
     # Ablak lezárás (FIX-02)                                              #
@@ -335,22 +357,37 @@ class MainWindow(QMainWindow):
         self._session_dir = Path("Mérések") / "Sessions" / f"session_{cfg.battery_model}_{stamp}"
         logger = Logger(self._session_dir, LogConfig())
 
-        discharge_A = profile.nominal_capacity_Ah / cfg.discharge_rate_divisor
+        discharge_A = (
+            cfg.discharge_current_A
+            if cfg.discharge_current_A > 0
+            else profile.nominal_capacity_Ah / cfg.discharge_rate_divisor
+        )
 
         def _make_charge_ctrl():
             return ChargeController(
                 psu, load, dmm_v, dmm_t, profile, safety,
-                ChargeConfig(taper_hold_s=cfg.taper_hold_s),
+                ChargeConfig(
+                    taper_hold_s=cfg.taper_hold_s,
+                    charge_current_A_override=cfg.charge_current_A_override,
+                ),
             )
 
         def _make_discharge_ctrl():
             return DischargeController(
                 psu, load, dmm_v, dmm_t, profile, safety,
-                DischargeConfig(discharge_current_A=discharge_A),
+                DischargeConfig(
+                    discharge_current_A=discharge_A,
+                    terminate_voltage_V_override=cfg.discharge_terminate_voltage_V,
+                ),
             )
 
         def _make_relax_ctrl():
-            rc = RelaxController(dmm_v, RelaxConfig())
+            relax_s = (
+                cfg.relax_after_charge_s
+                if cfg.test_type == "CHARGE_ONLY"
+                else RelaxConfig().min_relax_s
+            )
+            rc = RelaxController(dmm_v, RelaxConfig(min_relax_s=relax_s))
             rc.on_event = lambda ev: logger.log_event(
                 ev.get("event_code", "RELAX_EVENT"),
                 ev.get("event_message", ""),
@@ -385,7 +422,11 @@ class MainWindow(QMainWindow):
             ocv_soc_ctrl_factory=_make_ocv_soc_ctrl,
         )
 
-        if cfg.test_type == "CHARACTERIZATION":
+        if cfg.test_type == "CHARGE_ONLY":
+            test_plan = TestPlan.charge_only()
+        elif cfg.test_type == "DISCHARGE_ONLY":
+            test_plan = TestPlan.discharge_only()
+        elif cfg.test_type == "CHARACTERIZATION":
             test_plan = TestPlan.characterization()
         elif cfg.test_type == "OCV_SOC_CHARACTERIZATION":
             test_plan = TestPlan.ocv_soc_characterization()
