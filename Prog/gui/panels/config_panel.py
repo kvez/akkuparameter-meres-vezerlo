@@ -77,11 +77,11 @@ class SessionConfig:
             cell_count = _PROFILE_DEFAULTS.get(
                 self.battery_profile_name, {}
             ).get("cell_count", 6)
-            min_v = cell_count * 1.60
+            min_v = cell_count * 1.75  # FIAMM AGM: C/20 = 1.75V/cella, alatta maradandó károsodás
             if self.discharge_terminate_voltage_V < min_v:
                 errors.append(
                     f"Végfeszültség ({self.discharge_terminate_voltage_V:.2f}V) "
-                    f"< 1.60V/cella minimum ({min_v:.2f}V)"
+                    f"< 1.75V/cella minimum ({min_v:.2f}V)"
                 )
 
         # Töltőáram override ellenőrzés

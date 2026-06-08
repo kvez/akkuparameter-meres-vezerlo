@@ -108,17 +108,20 @@ class TestSessionConfigNewFields:
         assert cfg.discharge_terminate_voltage_V == 0.0
 
     def test_validate_terminate_voltage_too_low(self):
-        """12V akku (6 cella): min 6×1.60=9.60V. 9.0V alatt hiba."""
+        """12V akku (6 cella): min 6×1.75=10.50V. 10.0V alatt hiba."""
         cfg = SessionConfig(
             battery_profile_name="FIAMM_12V",
-            discharge_terminate_voltage_V=9.0,
+            discharge_terminate_voltage_V=10.0,
         )
         errors = cfg.validate()
         assert any("Végfeszültség" in e for e in errors)
 
     def test_validate_terminate_voltage_ok(self):
-        """10.5V >= 9.60V minimum → nincs hiba."""
-        cfg = SessionConfig(discharge_terminate_voltage_V=10.5)
+        """10.5V >= 10.50V minimum (C/20 adatlap érték) → nincs hiba."""
+        cfg = SessionConfig(
+            battery_profile_name="FIAMM_12V",
+            discharge_terminate_voltage_V=10.5,
+        )
         errors = cfg.validate()
         assert not any("Végfeszültség" in e for e in errors)
 
