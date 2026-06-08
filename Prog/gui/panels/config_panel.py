@@ -10,7 +10,7 @@ from typing import Any
 import yaml
 from PySide6.QtWidgets import (
     QWidget, QFormLayout, QLineEdit, QDoubleSpinBox, QComboBox,
-    QCheckBox, QGroupBox, QVBoxLayout, QPushButton, QLabel, QScrollArea,
+    QCheckBox, QGroupBox, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollArea,
 )
 from PySide6.QtCore import Signal
 
@@ -142,7 +142,11 @@ class ConfigPanel(QWidget):
         self._capacity_spin.setRange(0.1, 1000.0)
         self._capacity_spin.setDecimals(1)
         self._capacity_spin.setSuffix(" Ah")
-        batt_form.addRow("Névleges kapacitás:", self._capacity_spin)
+        self._capacity_spin.setToolTip(
+            "Az adatlap szerinti 10 órás kapacitás. "
+            "C-ráta számítás alapja (0.25×C10 = max töltőáram)."
+        )
+        batt_form.addRow("C10 kapacitás (Ah):", self._capacity_spin)
 
         self._sample_id_edit = QLineEdit()
         self._sample_id_edit.setPlaceholderText("opcionális azonosító")
@@ -207,7 +211,8 @@ class ConfigPanel(QWidget):
 
         self._test_type_combo = QComboBox()
         self._test_type_combo.addItems(
-            ["CHARACTERIZATION", "BQ_LEARNING_PHYSICAL", "OCV_SOC_CHARACTERIZATION"]
+            ["CHARACTERIZATION", "BQ_LEARNING_PHYSICAL", "OCV_SOC_CHARACTERIZATION",
+             "CHARGE_ONLY", "DISCHARGE_ONLY"]
         )
         test_form.addRow("Teszttípus:", self._test_type_combo)
 
@@ -225,9 +230,12 @@ class ConfigPanel(QWidget):
         self._taper_spin.setSuffix(" s")
         test_form.addRow("Taper hold:", self._taper_spin)
 
-        self._discharge_rate_combo = QComboBox()
-        self._discharge_rate_combo.addItems(["C/5 (gyors)", "C/10 (közepes)", "C/20 (lassú)"])
-        test_form.addRow("Kisütési ráta:", self._discharge_rate_combo)
+        self._relax_after_charge_spin = QDoubleSpinBox()
+        self._relax_after_charge_spin.setRange(60.0, 7200.0)
+        self._relax_after_charge_spin.setDecimals(0)
+        self._relax_after_charge_spin.setValue(600.0)
+        self._relax_after_charge_spin.setSuffix(" s")
+        test_form.addRow("Relax töltés után:", self._relax_after_charge_spin)
 
         self._ocv_soc_step_spin = QDoubleSpinBox()
         self._ocv_soc_step_spin.setRange(1.0, 20.0)
@@ -246,6 +254,71 @@ class ConfigPanel(QWidget):
         self._temp_comp_combo.setCurrentText("MONITOR_ONLY")
         temp_form.addRow("Mód:", self._temp_comp_combo)
         root.addWidget(temp_box)
+
+        # --- Töltési paraméterek ---
+        charge_box = QGroupBox("Töltési paraméterek")
+        charge_form = QFormLayout(charge_box)
+
+        self._charge_current_spin = QDoubleSpinBox()
+        self._charge_current_spin.setRange(0.0, 3.0)
+        self._charge_current_spin.setDecimals(2)
+        self._charge_current_spin.setSingleStep(0.01)
+        self._charge_current_spin.setSuffix(" A")
+        self._charge_current_spin.setSpecialValueText("auto (számított)")
+
+        self._charge_current_label = QLabel("számított: — A")
+        charge_form.addRow("Töltőáram:", self._charge_current_spin)
+        charge_form.addRow("", self._charge_current_label)
+
+        root.addWidget(charge_box)
+
+        # --- Kisütési paraméterek ---
+        discharge_box = QGroupBox("Kisütési paraméterek")
+        discharge_layout = QVBoxLayout(discharge_box)
+
+        # Preset gombok
+        preset_widget = QWidget()
+        preset_hbox = QHBoxLayout(preset_widget)
+        preset_hbox.setContentsMargins(0, 0, 0, 0)
+
+        btn_c5  = QPushButton("C/5")
+        btn_c10 = QPushButton("C/10")
+        btn_c20 = QPushButton("C/20")
+        preset_hbox.addWidget(btn_c5)
+        preset_hbox.addWidget(btn_c10)
+        preset_hbox.addWidget(btn_c20)
+        preset_hbox.addStretch()
+        discharge_layout.addWidget(preset_widget)
+
+        discharge_form = QFormLayout()
+        self._discharge_current_spin = QDoubleSpinBox()
+        self._discharge_current_spin.setRange(0.0, 60.0)
+        self._discharge_current_spin.setDecimals(2)
+        self._discharge_current_spin.setSingleStep(0.01)
+        self._discharge_current_spin.setSuffix(" A")
+        self._discharge_current_spin.setSpecialValueText("auto (C/5)")
+        discharge_form.addRow("Áram:", self._discharge_current_spin)
+
+        self._discharge_term_v_spin = QDoubleSpinBox()
+        self._discharge_term_v_spin.setRange(0.0, 60.0)
+        self._discharge_term_v_spin.setDecimals(2)
+        self._discharge_term_v_spin.setSingleStep(0.01)
+        self._discharge_term_v_spin.setSuffix(" V")
+        self._discharge_term_v_spin.setSpecialValueText("auto (profil default)")
+        discharge_form.addRow("Végfeszültség:", self._discharge_term_v_spin)
+        discharge_layout.addLayout(discharge_form)
+
+        root.addWidget(discharge_box)
+
+        # --- Kapcsolatok ---
+        self._capacity_spin.valueChanged.connect(self._update_charge_current_info)
+        # _psu_mode_combo → _on_psu_mode_changed → _update_charge_current_info (nincs dupla kötés)
+
+        btn_c5.clicked.connect(lambda: self._apply_discharge_preset(5, 1.80))
+        btn_c10.clicked.connect(lambda: self._apply_discharge_preset(10, 1.80))
+        btn_c20.clicked.connect(lambda: self._apply_discharge_preset(20, 1.75))
+
+        self._update_charge_current_info()
 
         root.addStretch()
 
@@ -267,6 +340,25 @@ class ConfigPanel(QWidget):
             "SERIES":      "Max: 60V / 1.5A",
         }
         self._psu_mode_info_label.setText(info.get(mode, ""))
+        self._update_charge_current_info()
+
+    def _psu_hw_max_A(self) -> float:
+        return 3.0 if self._psu_mode_combo.currentText() == "PARALLEL" else 1.5
+
+    def _update_charge_current_info(self) -> None:
+        c10 = self._capacity_spin.value()
+        hw_max = self._psu_hw_max_A()
+        calculated = min(c10 * 0.25, hw_max)
+        self._charge_current_label.setText(f"számított: {calculated:.2f} A")
+        self._charge_current_spin.setMaximum(hw_max)
+        if self._charge_current_spin.value() > hw_max:
+            self._charge_current_spin.setValue(hw_max)
+
+    def _apply_discharge_preset(self, divisor: int, v_per_cell: float) -> None:
+        c10 = self._capacity_spin.value()
+        cell_count = int(self._cell_count_label.text()) if self._cell_count_label.text().isdigit() else 6
+        self._discharge_current_spin.setValue(c10 / divisor)
+        self._discharge_term_v_spin.setValue(cell_count * v_per_cell)
 
     def _load_yaml(self) -> None:
         from Prog import app_paths
@@ -322,14 +414,6 @@ class ConfigPanel(QWidget):
         dlg.exec()
 
     def get_session_config(self) -> SessionConfig:
-        discharge_rate_map = {
-            "C/5 (gyors)": 5,
-            "C/10 (közepes)": 10,
-            "C/20 (lassú)": 20,
-        }
-        discharge_divisor = discharge_rate_map.get(
-            self._discharge_rate_combo.currentText(), 5
-        )
         return SessionConfig(
             battery_profile_name=self._profile_combo.currentText(),
             battery_model=self._model_edit.text().strip(),
@@ -344,7 +428,11 @@ class ConfigPanel(QWidget):
             test_type=self._test_type_combo.currentText(),
             runner_tick_s=self._tick_spin.value(),
             taper_hold_s=self._taper_spin.value(),
-            discharge_rate_divisor=discharge_divisor,
+            discharge_rate_divisor=5,  # fallback; preset buttons fill discharge_current_A directly
             ocv_soc_step_percent=self._ocv_soc_step_spin.value(),
             temperature_compensation_mode=self._temp_comp_combo.currentText(),
+            relax_after_charge_s=self._relax_after_charge_spin.value(),
+            charge_current_A_override=self._charge_current_spin.value(),
+            discharge_current_A=self._discharge_current_spin.value(),
+            discharge_terminate_voltage_V=self._discharge_term_v_spin.value(),
         )
