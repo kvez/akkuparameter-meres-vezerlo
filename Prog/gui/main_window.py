@@ -381,11 +381,13 @@ class MainWindow(QMainWindow):
                 ),
             )
 
+        _DEFAULT_RELAX_S = 7200.0  # RelaxConfig.min_relax_s default
+
         def _make_relax_ctrl():
             relax_s = (
                 cfg.relax_after_charge_s
                 if cfg.test_type == "CHARGE_ONLY"
-                else RelaxConfig().min_relax_s
+                else _DEFAULT_RELAX_S
             )
             rc = RelaxController(dmm_v, RelaxConfig(min_relax_s=relax_s))
             rc.on_event = lambda ev: logger.log_event(
