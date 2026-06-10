@@ -31,7 +31,6 @@ class MainWindow(QMainWindow):
         self._thread: QThread | None = None
         self._worker: TestRunnerWorker | None = None
         self._instruments = None      # FIX-02: closeEvent safe_all_off
-        self._dmm_v = None            # FIX-05: per-phase NPLC
         self._session_dir: Path | None = None  # FIX-08: report.json helye
 
         self._tabs = QTabWidget()

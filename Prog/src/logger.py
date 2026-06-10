@@ -31,6 +31,7 @@ CSV_COLUMNS: list[str] = [
     "diode_power_W",
     "rb_delta_v", "rb_1s_mohm", "rb_10s_mohm", "rb_30s_mohm",
     "dmm_voltage_valid", "dmm_temperature_valid",
+    # Placeholder mezők — jövőbeli bővíthetőségre fenntartva; _build_sample() nem tölti fel (None marad).
     "psu_readback_valid", "load_readback_valid",
     "sample_valid", "integration_valid", "safety_valid",
     "capacity_result_quality",
