@@ -229,3 +229,32 @@ class TestDischargeTerminateOverride:
         load.voltage_V = 10.75
         ctrl.advance(dt_s=1.0)
         assert ctrl.state == DischargeState.DISCHARGE_DONE
+
+
+class TestPowerLimitFault:
+    """[M-03] LOAD teljesítmény túllépés → FAULT."""
+
+    def test_power_limit_triggers_fault_when_exceeded(self):
+        """DMM 12.5V × terhelés 1.4A (C/5) = 17.5W > 15W max → FAULT.
+        Tick 1-3: INIT→PRECHECK→CC_SETUP→CC_RUN; tick 4: _run_cc power check."""
+        profile = make_profile()
+        psu = MockPSU(voltage_V=0.0, current_A=0.0)
+        load = MockLoad(voltage_V=12.5)
+        dmm_v = MockDMM(voltage_V=12.5)
+        dmm_t = MockDMM(temperature_C=22.0)
+        safety = SafetyManager(profile=profile, psu_mode=PsuMode.INDEPENDENT)
+        cfg = DischargeConfig(max_load_power_W=15.0)
+        ctrl = DischargeController(psu, load, dmm_v, dmm_t, profile, safety, cfg)
+
+        for _ in range(4):
+            ctrl.advance(dt_s=1.0)
+
+        assert ctrl.state == DischargeState.FAULT
+        assert "POWER_LIMIT" in ctrl.fault_reason
+
+    def test_power_limit_not_triggered_when_below_limit(self):
+        """Normál kisütésnél (17.5W < 60W default) nem triggel."""
+        ctrl, *_ = make_discharge_controller(dmm_voltage_V=12.5)
+        for _ in range(3):
+            ctrl.advance(dt_s=1.0)
+        assert ctrl.state == DischargeState.DISCHARGE_CC_RUN

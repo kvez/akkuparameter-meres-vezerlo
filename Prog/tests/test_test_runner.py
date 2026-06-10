@@ -143,7 +143,7 @@ def _make_runner(tmp_path, cc=None, dc=None, rc=None):
         config=config,
         charge_ctrl_factory=lambda: _cc,
         discharge_ctrl_factory=lambda: _dc,
-        relax_ctrl_factory=lambda: _rc,
+        relax_ctrl_factory=lambda step: _rc,
     )
     return runner, logger
 
@@ -789,7 +789,7 @@ class TestRunIntegration:
             config=config,
             charge_ctrl_factory=lambda: _StubChargeCtrl(steps_to_done=3),
             discharge_ctrl_factory=lambda: _StubDischargeCtrl(steps_to_done=2),
-            relax_ctrl_factory=lambda: _StubRelaxCtrl(steps_to_done=2),
+            relax_ctrl_factory=lambda step: _StubRelaxCtrl(steps_to_done=2),
         )
         result = runner.run(TestPlan.bq_learning_physical())
         assert result.total_charge_ah == pytest.approx(0.06, abs=0.001)
@@ -1065,3 +1065,124 @@ class TestLoggerCloseOnTermination:
 
         logger_mock.close.assert_called()
         real_logger.close()
+
+
+# ------------------------------------------------------------------ #
+# [M-02] Relax gyár step argumentumot kap                           #
+# ------------------------------------------------------------------ #
+
+class TestRelaxFactoryReceivesStep:
+    """[M-02] relax_ctrl_factory(step) — a gyár megkapja a lépést,
+    hogy megkülönbözthesse post-charge (2h) vs post-discharge (5h) relaxot."""
+
+    def test_relax_factory_called_with_step(self, tmp_path):
+        from Prog.src.battery_profile import BatteryProfile
+        from Prog.src.safety import SafetyManager, PsuMode
+        from Prog.src.logger import Logger, LogConfig
+        from Prog.src.instrument_manager import InstrumentManager
+        from Prog.tests.mock_drivers.mock_psu import MockPSU
+        from Prog.tests.mock_drivers.mock_load import MockLoad
+        from Prog.tests.mock_drivers.mock_dmm import MockDMM
+
+        received: list[object] = []
+
+        def _relax_factory(step):
+            received.append(step)
+            return _StubRelaxCtrl(steps_to_done=1)
+
+        profile = BatteryProfile(
+            battery_name="T", manufacturer="F", model="FG",
+            nominal_voltage_V=12.0, cell_count=6, nominal_capacity_Ah=7.0,
+        )
+        instruments = InstrumentManager(
+            psu=MockPSU(voltage_V=14.4, current_A=1.75),
+            load=MockLoad(voltage_V=12.5, current_A=0.7),
+            dmm_voltage=MockDMM(voltage_V=12.5),
+            dmm_temperature=MockDMM(temperature_C=25.0),
+        )
+        logger = Logger(session_dir=tmp_path, config=LogConfig())
+        config = TestRunnerConfig(runner_tick_s=1.0, sleep_enabled=False, test_name="t")
+        runner = TestRunner(
+            instrument_manager=instruments,
+            safety=SafetyManager(profile=profile, psu_mode=PsuMode.INDEPENDENT),
+            logger=logger,
+            profile=profile,
+            config=config,
+            charge_ctrl_factory=lambda: _StubChargeCtrl(steps_to_done=1),
+            discharge_ctrl_factory=lambda: _StubDischargeCtrl(steps_to_done=1),
+            relax_ctrl_factory=_relax_factory,
+        )
+
+        plan = TestPlan(
+            test_type=TestType.CHARACTERIZATION,
+            steps=(
+                TestStep(StepKind.RELAX, "relax_after_charge"),
+                TestStep(StepKind.RELAX, "relax_after_discharge"),
+            ),
+        )
+        runner.run(plan)
+        logger.close()
+
+        assert len(received) == 2
+        labels = [s.label for s in received]
+        assert "relax_after_charge" in labels
+        assert "relax_after_discharge" in labels
+
+
+# ------------------------------------------------------------------ #
+# [H-03] NPLC konfiguráció worker threadben                          #
+# ------------------------------------------------------------------ #
+
+class TestNplcInWorkerThread:
+    """[H-03] DMM NPLC-t a TestRunner konfigurálja (worker thread),
+    nem a GUI thread — elkerüli a race conditiont."""
+
+    def test_runner_config_has_nplc_fields(self):
+        cfg = TestRunnerConfig(charge_discharge_nplc=5.0, relax_ocv_nplc=20.0)
+        assert cfg.charge_discharge_nplc == 5.0
+        assert cfg.relax_ocv_nplc == 20.0
+
+    def test_nplc_set_before_charge_step(self, tmp_path):
+        """CHARGE lépés előtt set_nplc(charge_discharge_nplc) hívódik a DMM-en."""
+        from Prog.src.battery_profile import BatteryProfile
+        from Prog.src.safety import SafetyManager, PsuMode
+        from Prog.src.logger import Logger, LogConfig
+        from Prog.src.instrument_manager import InstrumentManager
+        from Prog.tests.mock_drivers.mock_psu import MockPSU
+        from Prog.tests.mock_drivers.mock_load import MockLoad
+        from Prog.tests.mock_drivers.mock_dmm import MockDMM
+
+        dmm_v = MockDMM(voltage_V=12.5)
+        profile = BatteryProfile(
+            battery_name="T", manufacturer="F", model="FG",
+            nominal_voltage_V=12.0, cell_count=6, nominal_capacity_Ah=7.0,
+        )
+        instruments = InstrumentManager(
+            psu=MockPSU(voltage_V=14.4, current_A=1.75),
+            load=MockLoad(voltage_V=12.5, current_A=0.7),
+            dmm_voltage=dmm_v,
+            dmm_temperature=MockDMM(temperature_C=25.0),
+        )
+        logger = Logger(session_dir=tmp_path, config=LogConfig())
+        config = TestRunnerConfig(
+            runner_tick_s=1.0, sleep_enabled=False, test_name="t",
+            charge_discharge_nplc=7.0,
+        )
+        runner = TestRunner(
+            instrument_manager=instruments,
+            safety=SafetyManager(profile=profile, psu_mode=PsuMode.INDEPENDENT),
+            logger=logger,
+            profile=profile,
+            config=config,
+            charge_ctrl_factory=lambda: _StubChargeCtrl(steps_to_done=1),
+            discharge_ctrl_factory=lambda: _StubDischargeCtrl(steps_to_done=1),
+            relax_ctrl_factory=lambda step: _StubRelaxCtrl(steps_to_done=1),
+        )
+        plan = TestPlan(
+            test_type=TestType.CHARGE_ONLY,
+            steps=(TestStep(StepKind.CHARGE, "charge"),),
+        )
+        runner.run(plan)
+        logger.close()
+
+        assert dmm_v.called("set_nplc(7.0)")

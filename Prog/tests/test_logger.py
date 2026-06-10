@@ -67,6 +67,21 @@ class TestCsvColumns:
         header = (tmp_path / "samples.csv").read_text().splitlines()[0]
         assert "isolation_state" in header.split(",")
 
+    def test_rb_fields_saved_to_csv(self, tmp_path):
+        """[H-01] Rb mérési adatok megjelennek a samples.csv-ben."""
+        logger = Logger(session_dir=tmp_path, config=LogConfig())
+        s = make_sample(rb_1s_mohm=12.5, rb_10s_mohm=11.8,
+                        rb_30s_mohm=11.2, rb_delta_v=0.5)
+        logger.log_sample(s)
+        logger.close()
+        import csv as _csv
+        with open(tmp_path / "samples.csv") as f:
+            row = next(_csv.DictReader(f))
+        assert row["rb_1s_mohm"] == "12.5"
+        assert row["rb_10s_mohm"] == "11.8"
+        assert row["rb_30s_mohm"] == "11.2"
+        assert row["rb_delta_v"] == "0.5"
+
     def test_csv_header_has_no_relay_state(self, tmp_path):
         """[R1] Regression: relay_state soha nem kerülhet vissza a CSV-be."""
         logger = Logger(session_dir=tmp_path, config=LogConfig())

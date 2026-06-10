@@ -51,8 +51,8 @@ class ReportGenerator:
             "ocv_isolation_method": "PSU_OUTPUT_OFF_ONLY",
             "ocv_accuracy_limitation": (
                 "Az OCV mérés PSU_OUTPUT_OFF_ONLY leválasztás mellett történt "
-                "(nincs galvanikus leválasztás). BY550 fordított szivárgás ~10 µA "
-                "@25°C (adatlap alapján) — FELTÉTELEZÉS, nem mért."
+                "(nincs galvanikus leválasztás). BY550 fordított szivárgás ~10 nA "
+                "@30V (mért érték, 2026-06-xx lab session) — adatlap max ~10 µA."
             ),
 
             # [N13] Mérési korlátozások dedikált szekció

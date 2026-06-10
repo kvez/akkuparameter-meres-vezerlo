@@ -29,6 +29,7 @@ CSV_COLUMNS: list[str] = [
     "integration_current_source",
     "u_drop_V", "regulation_error_V", "taper_timer_s",
     "diode_power_W",
+    "rb_delta_v", "rb_1s_mohm", "rb_10s_mohm", "rb_30s_mohm",
     "dmm_voltage_valid", "dmm_temperature_valid",
     "psu_readback_valid", "load_readback_valid",
     "sample_valid", "integration_valid", "safety_valid",

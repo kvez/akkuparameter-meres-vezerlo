@@ -214,18 +214,18 @@ class MainWindow(QMainWindow):
             pass  # tab és status bar már frissítve az _on_checkpoint_reached-ben
 
     def _write_report(self, result) -> None:
-        """FIX-08: összefoglaló report.json írása a session mappába."""
+        """Összefoglaló report.json írása a session mappába."""
         if self._session_dir is None:
             return
         try:
             from Prog.src.report_generator import ReportGenerator
             rg = ReportGenerator()
             session_meta = {
-                "psu_mode": "UNKNOWN",
+                "psu_mode": getattr(self, "_psu_mode_str", "UNKNOWN"),
                 "total_charge_ah": result.total_charge_ah,
                 "total_discharge_ah": result.total_discharge_ah,
                 "capacity_result_quality": "OK",
-                "emergency_stop_occurred": False,
+                "emergency_stop_occurred": (result.status == "FAULT"),
                 "communication_faults_count": 0,
             }
             report = rg.generate(session_meta)
@@ -239,16 +239,6 @@ class MainWindow(QMainWindow):
         status = payload.get("runner_status", "")
         label  = payload.get("step_label", "")
         self._status_bar.showMessage(f"{status} — {label}")
-        # FIX-05: per-lépés NPLC konfiguráció
-        step_kind = payload.get("step_kind", "")
-        if self._dmm_v is not None:
-            try:
-                if step_kind in ("CHARGE", "DISCHARGE"):
-                    self._dmm_v.set_nplc(2.0)
-                else:
-                    self._dmm_v.set_nplc(10.0)
-            except Exception:
-                pass
 
     def _on_checkpoint_reached(self, event: dict) -> None:
         self._tabs.setTabEnabled(self._checkpoint_tab_index, True)
@@ -341,7 +331,7 @@ class MainWindow(QMainWindow):
         dmm_t = Keysight34465ADMM()
 
         self._instruments = InstrumentManager(psu, load, dmm_v, dmm_t)
-        self._dmm_v = dmm_v  # FIX-05: per-phase NPLC referencia
+        self._psu_mode_str: str = cfg.psu_mode  # H-02: riporthoz
 
         instr_cfg = InstrumentConfig(
             psu_resource=cfg.psu_resource,
@@ -364,7 +354,7 @@ class MainWindow(QMainWindow):
             psu.set_mode_series()
 
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        self._session_dir = Path("Mérések") / "Sessions" / f"session_{cfg.battery_model}_{stamp}"
+        self._session_dir = app_paths.exe_dir() / "Mérések" / "Sessions" / f"session_{cfg.battery_model}_{stamp}"
         logger = Logger(self._session_dir, LogConfig())
 
         discharge_A = (
@@ -393,12 +383,15 @@ class MainWindow(QMainWindow):
 
         _DEFAULT_RELAX_S = 7200.0  # RelaxConfig.min_relax_s default
 
-        def _make_relax_ctrl():
-            relax_s = (
-                cfg.relax_after_charge_s
-                if cfg.test_type == "CHARGE_ONLY"
-                else _DEFAULT_RELAX_S
-            )
+        _POST_DISCHARGE_RELAX_S = 18000.0   # 5h: FIAMM spec / BQ Learning
+
+        def _make_relax_ctrl(step):
+            if "discharge" in step.label.lower():
+                relax_s = _POST_DISCHARGE_RELAX_S
+            elif cfg.test_type == "CHARGE_ONLY":
+                relax_s = cfg.relax_after_charge_s
+            else:
+                relax_s = _DEFAULT_RELAX_S   # 2h post-charge
             rc = RelaxController(dmm_v, RelaxConfig(min_relax_s=relax_s))
             rc.on_event = lambda ev: logger.log_event(
                 ev.get("event_code", "RELAX_EVENT"),

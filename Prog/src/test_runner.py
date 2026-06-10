@@ -123,6 +123,8 @@ class TestRunnerConfig:
     test_name: str = "unnamed"
     sleep_enabled: bool = True
     device_error_poll_interval_s: float = 60.0
+    charge_discharge_nplc: float = 2.0   # CC/CV fázisban: gyors mintavétel
+    relax_ocv_nplc: float = 10.0         # relaxáció/OCV: lassú, pontos mérés
 
 
 class TestRunner:
@@ -241,6 +243,7 @@ class TestRunner:
         if step.kind == StepKind.MANUAL_CHECKPOINT:
             return self._run_manual_checkpoint(step_index, step)
 
+        self._configure_dmm_for_step(step)
         controller = self._controller_for_step(step)
 
         charge_ah_before = getattr(controller, "accumulated_charge_Ah", 0.0)
@@ -417,13 +420,24 @@ class TestRunner:
     def _step_can_be_gracefully_interrupted(self, step: TestStep) -> bool:
         return True
 
+    def _configure_dmm_for_step(self, step: TestStep) -> None:
+        """NPLC beállítás worker threadben — megelőzi a GUI thread race conditiont."""
+        if step.kind in (StepKind.RELAX, StepKind.OCV_SOC):
+            nplc = self._config.relax_ocv_nplc
+        else:
+            nplc = self._config.charge_discharge_nplc
+        try:
+            self._instruments.dmm_voltage.set_nplc(nplc)
+        except Exception:
+            pass  # NPLC hiba nem akasztja meg a lépést; DMM fault a mérésnél derül ki
+
     def _controller_for_step(self, step: TestStep):
         if step.kind == StepKind.CHARGE:
             return self._charge_ctrl_factory()
         if step.kind == StepKind.DISCHARGE:
             return self._discharge_ctrl_factory()
         if step.kind == StepKind.RELAX:
-            return self._relax_ctrl_factory()
+            return self._relax_ctrl_factory(step)
         if step.kind == StepKind.OCV_SOC:
             if self._ocv_soc_ctrl_factory is None:
                 raise ValueError("OCV_SOC step requires ocv_soc_ctrl_factory")

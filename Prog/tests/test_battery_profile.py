@@ -178,3 +178,39 @@ class TestValidation:
         p = make_profile(cell_count=12, nominal_voltage_V=24.0, nominal_capacity_Ah=18.0,
                          model="FGH21803")
         assert p is not None
+
+
+class TestC10CapacityField:
+    """[K-1] FIAMM Boost charge spec: 0.25 C10 max áram, 0.03 C10 taper stop.
+    FG akkuknál nominal = C20, ezért C10_capacity_Ah külön mező kell.
+    Engineering Manual line 907-909: "0.25 C10" és "0.03 C10" az Ah kapacitás %-a."""
+
+    def test_effective_taper_uses_c10_capacity_when_specified(self):
+        """FG20721: C20=7.2Ah, C10=6.7Ah → taper = 0.03 × 6.7 = 0.201A"""
+        p = make_profile(nominal_capacity_Ah=7.2, C10_capacity_Ah=6.7)
+        assert abs(p.effective_taper_A - 0.201) < 0.001
+
+    def test_effective_max_charge_uses_c10_capacity_when_specified(self):
+        """FG20721: C20=7.2Ah, C10=6.7Ah → max charge = 0.25 × 6.7 = 1.675A"""
+        p = make_profile(nominal_capacity_Ah=7.2, C10_capacity_Ah=6.7)
+        assert abs(p.effective_max_charge_A - 1.675) < 0.001
+
+    def test_effective_taper_falls_back_to_nominal_when_c10_not_set(self):
+        """Ha nincs C10_capacity_Ah megadva, fallback: 0.03 × nominal (FGH: nominal=C10)"""
+        p = make_profile(nominal_capacity_Ah=7.0)
+        assert abs(p.effective_taper_A - 0.21) < 0.001
+
+    def test_effective_max_charge_falls_back_to_nominal_when_c10_not_set(self):
+        p = make_profile(nominal_capacity_Ah=7.0)
+        assert abs(p.effective_max_charge_A - 1.75) < 0.001
+
+    def test_c10_capacity_must_not_exceed_nominal(self):
+        """C10 < C20 (C20=nominal): C10 fizikailag nem lehet nagyobb a C20-nál."""
+        with pytest.raises(ProfileValidationError):
+            make_profile(nominal_capacity_Ah=7.0, C10_capacity_Ah=8.0)
+
+    def test_explicit_taper_still_overrides_c10(self):
+        """Ha taper_current_A manuálisan be van állítva, az élvez elsőbbséget."""
+        p = make_profile(nominal_capacity_Ah=7.2, C10_capacity_Ah=6.7,
+                         taper_current_A=0.15)
+        assert abs(p.effective_taper_A - 0.15) < 0.001

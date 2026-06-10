@@ -15,6 +15,7 @@ class BatteryProfile:
     charge_voltage_per_cell_V: float = 2.40
     terminate_voltage_per_cell_V: float = 1.80
     float_voltage_per_cell_V: float = 2.27
+    C10_capacity_Ah: float | None = None   # FIAMM FG: C20=nominal, C10 külön; FGH: None (nominal=C10)
     max_charge_current_A: float | None = None
     taper_current_A: float | None = None
     temp_comp_mV_per_cell_per_degC: float = -2.5
@@ -53,6 +54,17 @@ class BatteryProfile:
             raise ProfileValidationError(
                 f"cell_count tartomány: 1–24. Kapott: {self.cell_count}"
             )
+        if self.C10_capacity_Ah is not None:
+            if not (0.1 <= self.C10_capacity_Ah <= 1000):
+                raise ProfileValidationError(
+                    f"C10_capacity_Ah tartomány: 0.1–1000 Ah. Kapott: {self.C10_capacity_Ah}"
+                )
+            if self.C10_capacity_Ah > self.nominal_capacity_Ah:
+                raise ProfileValidationError(
+                    f"C10_capacity_Ah ({self.C10_capacity_Ah}) nem lehet nagyobb "
+                    f"a nominal_capacity_Ah ({self.nominal_capacity_Ah}) értéknél. "
+                    f"C10 ≤ C20 (gyorsabb kisütés → kisebb kapacitás)."
+                )
 
     # ------------------------------------------------------------------ #
     # Safety határok                                                       #
@@ -84,8 +96,15 @@ class BatteryProfile:
 
     # ------------------------------------------------------------------ #
     # C-ráta számítás [R2]                                                 #
-    # FIAMM: 0.25 × nominal_capacity_Ah [A] — NEM 0.25 × C10 kisütőáram! #
+    # FIAMM Engineering Manual: 0.25 C10 max charge, 0.03 C10 taper stop. #
+    # FGH/FGHL: nominal=C10 → C10_capacity_Ah=None → fallback=nominal.    #
+    # FG: nominal=C20 → C10_capacity_Ah külön megadandó.                  #
     # ------------------------------------------------------------------ #
+
+    @property
+    def _c10_base_Ah(self) -> float:
+        """C10 kapacitás (Ah) — ha meg van adva; egyébként nominal (FGH: nominal=C10)."""
+        return self.C10_capacity_Ah if self.C10_capacity_Ah is not None else self.nominal_capacity_Ah
 
     @property
     def C5_discharge_current_A(self) -> float:
@@ -93,7 +112,7 @@ class BatteryProfile:
 
     @property
     def C10_discharge_current_A(self) -> float:
-        """Kisütőáram C/10 rátán — NEM azonos az effective_max_charge_A-val!"""
+        """Kisütőáram C/10 rátán (A) — NEM azonos az effective_max_charge_A-val!"""
         return self.nominal_capacity_Ah / 10
 
     @property
@@ -102,17 +121,17 @@ class BatteryProfile:
 
     @property
     def effective_max_charge_A(self) -> float:
-        """FIAMM: 0.25 × nominal_capacity_Ah [A]"""
+        """FIAMM: 0.25 × C10_capacity_Ah [A] (ha nincs C10: fallback=nominal)"""
         if self.max_charge_current_A is not None:
             return self.max_charge_current_A
-        return 0.25 * self.nominal_capacity_Ah
+        return 0.25 * self._c10_base_Ah
 
     @property
     def effective_taper_A(self) -> float:
-        """FIAMM: 0.03 × nominal_capacity_Ah [A]"""
+        """FIAMM: 0.03 × C10_capacity_Ah [A] (ha nincs C10: fallback=nominal)"""
         if self.taper_current_A is not None:
             return self.taper_current_A
-        return 0.03 * self.nominal_capacity_Ah
+        return 0.03 * self._c10_base_Ah
 
     # ------------------------------------------------------------------ #
     # Hőkompenzáció [N1]                                                   #

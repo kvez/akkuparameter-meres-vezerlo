@@ -1,0 +1,532 @@
+================================================================================
+AKKUTESZTER — ÖSSZEVONT VÉGSŐ REVIEW / AUDIT
+Dátum: 2026-06-10
+Commit: 462a19a592502b178924f27c55b47c44e156d980 (master)
+Ág: master
+Vizsgált eszköz: Claude Sonnet 4.6 / audit skill
+================================================================================
+
+REVIEW INPUTOK STÁTUSZA
+-----------------------
+Rendelkezésre állt:
+  [OK] src/ mappa — teljes forráskód
+  [OK] drivers/ mappa
+  [OK] gui/ mappa
+  [OK] tests/ mappa — 479 teszt zöld (pytest -q, 4.04s)
+  [OK] config/ mappa (default_config.yaml, battery_profiles/)
+  [OK] requirements.txt / compileall OK
+  [OK] ruff check: 0 hiba
+  [OK] memory/project_summary.md — korábbi munkamenet kontextus
+  [HIÁNYZIK] Friss valós mérési log — legutóbbi fizikai futtatás: session_FG20721_20260606_194237 (4 napja)
+  [HIÁNYZIK] Friss valós FAULT/emergency stop log az aktuális verzióból
+  [HIÁNYZIK] PyInstaller exe friss build az aktuális commithoz (462a19a) — utolsó build korábbi
+  [NEM IGAZOLHATÓ] BQ kézi checkpoint dokumentáció — nincs friss fizikai log
+
+Git státusz:
+  .claude/commands/hwrev.MD — módosítva (nem commitolva, nem safety-kritikus)
+  .claude/commands/audit.md — nyomonkövetetlen (nem commitolva)
+  → Audit pontosan 462a19a commit állapotán alapul.
+
+
+================================================================================
+1. VEZETŐ ÖSSZEFOGLALÓ
+================================================================================
+
+Döntés: FELTÉTELESEN KÉSZ
+
+Indoklás:
+  A program nincs közvetlen hardverveszélyes állapotban: nincs BLOCKER szintű hiba.
+  A safe_all_off sorrend (LOAD→PSU) helyes és minden fault útvonalon bekötve.
+  A DMM feedback elvesztése töltés/kisütés alatt azonnali emergency_stop-ot okoz.
+  A PSU/LOAD egyidejű aktiválása detektálva és fault-ra vezet.
+  Az állapotgépek explicit állapotokkal és fail-safe útvonalon működnek.
+  Az Ah/Wh integráló valós dt_s alapján számol (perf_counter).
+
+Azonban:
+  — Rb mérési adatok (rb_1s_mohm, rb_10s_mohm, rb_30s_mohm, rb_delta_v)
+    NEM kerülnek a CSV/SQLite fájlba — elvesznek a session adatból.
+  — BQ_LEARNING_PHYSICAL kisütés utáni relax 2h (7200s), spec elvárás 5h.
+  — report.json session_meta hibásan rögzíti: psu_mode="UNKNOWN",
+    emergency_stop_occurred=False (mindig, futástól függetlenül).
+  — DMM NPLC váltás a GUI threadből hívja a valós SCPI parancsot,
+    miközben a worker thread DMM-t olvas — potenciális race condition.
+  — session_dir relativ path ("Mérések/Sessions/...") — exe-ből
+    futtatva CWD-függő (nem garantált hely).
+  — 6 mypy hiba fennmaradt (nem safety-kritikus, de jelzésértékű).
+  — Nincs szoftverszintű Load power limit ellenőrzés (FaultCode.LOAD_POWER_LIMIT
+    soha nem triggerel szoftverből).
+  — Friss fizikai log az aktuális verzióról (462a19a) nem áll rendelkezésre.
+
+Korlátok jelen értékelésnél:
+  - Csak statikus kódelemzés + tesztek + memory kontextus alapján.
+  - Fizikai éles futtatás az aktuális CHARGE_ONLY/DISCHARGE_ONLY módokkal
+    nem igazolt.
+  - BQ kézi checkpoint workflow nem igazolt friss futásból.
+
+Top kockázatok:
+  1. Rb adatok elvesznek a CSV-ből (adat-archiválási hiba).
+  2. report.json mindig hamis psu_mode/emergency_stop metaadatokkal.
+  3. BQ_LEARNING kisütési relax rövidebb a FIAMM spec elvárásánál (2h vs 5h).
+  4. DMM NPLC váltás potenciális thread race — ritka, de fizikai eszközön előfordulhat.
+  5. Friss valós log hiány az aktuális verzióhoz.
+
+
+================================================================================
+2. KRITIKUS HIBÁK
+================================================================================
+
+--- H-01 ---
+Azonosító:   H-01
+Súlyosság:   HIGH
+Érintett fájl: Prog/src/test_runner.py:512–519, Prog/src/logger.py:19–38
+Probléma:
+  A _build_sample() feltölti a sample dict-ben az rb_delta_v, rb_1s_mohm,
+  rb_10s_mohm, rb_30s_mohm mezőket, de a CSV_COLUMNS lista ezeket NEM tartalmazza.
+  A log_sample() metódus csak a CSV_COLUMNS-ban lévő mezőket menti:
+    row = {col: sample.get(col, "") for col in CSV_COLUMNS}
+  Következmény: az Rb mérési adatok kizárólag GUI-n jelennek meg, de soha
+  nem kerülnek a samples.csv-be és a session.db-be sem.
+Miért veszélyes:
+  Az Rb adatok elvesznek minden session lezárásakor. A metrológiai riportban
+  és a BQ golden image előkészítési dokumentációban ezek kritikus adatok.
+  Visszamenőleges vizsgálat lehetetlen.
+Bizonyíték:
+  logger.py:19–38 CSV_COLUMNS lista: rb mezők hiányoznak.
+  test_runner.py:512–519: sample dict-be kerülnek, de log_sample nem menti.
+Javasolt javítási irány:
+  CSV_COLUMNS-hoz hozzáadni: "rb_delta_v", "rb_1s_mohm", "rb_10s_mohm", "rb_30s_mohm"
+  Példa (logger.py ~sor 35 után):
+    "rb_delta_v", "rb_1s_mohm", "rb_10s_mohm", "rb_30s_mohm",
+Szükséges teszt:
+  test_logger.py-ban ellenőrzés, hogy rb mezők a CSV-be kerülnek.
+Státusz: NEM JAVÍTVA
+
+--- H-02 ---
+Azonosító:   H-02
+Súlyosság:   HIGH
+Érintett fájl: Prog/gui/main_window.py:223–235
+Probléma:
+  A _write_report() mindig statikus session_meta-t ád át a ReportGenerator-nek:
+    "psu_mode": "UNKNOWN"
+    "emergency_stop_occurred": False
+    "communication_faults_count": 0
+  Ezek a futtatástól teljesen függetlenek. Egy emergency stop esetén is
+  emergency_stop_occurred=False kerül a riportba.
+Miért veszélyes:
+  A riport metrológiailag félrevezető: nem tükrözi a tényleges futás körülményeit.
+  BQ golden image előkészítési dokumentáció és audit nyomkövetés megbízhatatlan.
+Bizonyíték:
+  main_window.py:222–235.
+Javasolt javítási irány:
+  session_meta-t a TestResult-ból és az InstrumentManager/SafetyManager állapotából
+  kell feltölteni. Minimálisan:
+    - psu_mode: cfg.psu_mode értéke (_build_runner paramétere)
+    - emergency_stop_occurred: result.status == "FAULT"
+    - total_charge_ah, total_discharge_ah: result értékeiből (már megvan)
+Szükséges teszt:
+  test_report_generator.py-ban session_meta tesztelés valós értékekkel.
+Státusz: NEM JAVÍTVA
+
+--- H-03 ---
+Azonosító:   H-03
+Súlyosság:   HIGH
+Érintett fájl: Prog/gui/main_window.py:244–249, Prog/drivers/device_dmm.py:88–89
+Probléma:
+  A DMM NPLC váltás (per-fázis) az _on_step_changed slotból történik,
+  ami a GUI threadben fut (queued Qt signal kapcsolat).
+  Közben a worker thread tick-loopjában a controller advance()-e és a
+  _build_sample() → read_all() → dmm_v.read_voltage() szintén a DMM-et
+  éri el ugyanazon VISA TCP socket-en.
+  A set_nplc() SCPI írás és a read_voltage() SCPI írás+olvasás így
+  két threadből egyidejűleg futhat.
+Miért veszélyes:
+  Valós VISA TCP eszközön SCPI parancsok összekeveredhetnek: érvénytelen
+  mérési eredmény vagy kommunikációs hiba. Az exception→DMM_FEEDBACK_LOST
+  fault okoz, ami safe_all_off-ra vezet — tehát nem hardverveszélyes, de
+  félre emergency stop előfordulhat.
+Bizonyíték:
+  main_window.py:244–249: self._dmm_v.set_nplc() GUI threadből.
+  test_runner.py:251–263: worker threadből read_all() a tick-loopban.
+Javasolt javítási irány:
+  A per-fázis NPLC váltást a controller advance()-ében (worker threadből) kell
+  elvégezni, nem GUI signálon keresztül. Alternatíva: a ChargeController/
+  DischargeController konstruktorában konfigurálni az NPLC-t (már connect után,
+  de controller indulása előtt).
+Szükséges teszt:
+  Mock DMM párhuzamos set_nplc + read_voltage hívás tesztelése.
+Státusz: NEM JAVÍTVA
+
+
+================================================================================
+3. FONTOS HIBÁK
+================================================================================
+
+--- M-01 ---
+Azonosító:   M-01
+Súlyosság:   MAJOR
+Érintett fájl: Prog/gui/main_window.py:367, Prog/app_paths.py
+Probléma:
+  session_dir = Path("Mérések") / "Sessions" / f"session_..." — relativ path.
+  Exe módban a CWD általában az exe könyvtára (shortcut vagy explorer indítás
+  esetén rendben), de programmatikus indításnál (pl. teszt, CI) nem garantált.
+  app_paths.exe_dir() éppen erre való, de itt nem kerül felhasználásra.
+Javasolt javítási irány:
+  self._session_dir = app_paths.exe_dir() / "Mérések" / "Sessions" / f"session_..."
+Szükséges teszt: app_paths tesztekben session_dir validáció.
+Státusz: NEM JAVÍTVA
+
+--- M-02 ---
+Azonosító:   M-02
+Súlyosság:   MAJOR
+Érintett fájl: Prog/gui/main_window.py:394–408 (_make_relax_ctrl), TestPlan (test_runner.py)
+Probléma:
+  BQ_LEARNING_PHYSICAL tervben a kisütés utáni relax lépésekre is
+  _DEFAULT_RELAX_S = 7200s (2h) kerül. A FIAMM AGM spec és a BQ Impedance
+  Track learning fizikai protokoll kisütés utáni relaxhoz legalább 5h-t
+  (18000s) ír elő, hogy az OCV stabil legyen a Qmax és Ra table frissítéshez.
+  A töltés utáni relax 2h helyes; a kisütés utáni relax 5h kellene.
+Bizonyíték:
+  memory/reference_agm_engineering_manual.md + OcvSocConfig.relax_keypoint_s=18000s
+  (OCV-SOC-ban 5h van, de BQ_LEARNING-ban nincs különbség).
+  TestPlan.bq_learning_physical() nem ad per-lépés RelaxConfig-ot.
+Javasolt javítási irány:
+  Per-lépés relax idő konfiguráció: a _make_relax_ctrl() kapjon lépéscímkét,
+  és "relax_after_discharge" esetén 18000s-t adjon vissza.
+  Alternatíva: TestPlan-ban külön RelaxConfig per-step.
+Szükséges teszt:
+  BQ_LEARNING plan lépéseinek relax idő ellenőrzése mock runner-rel.
+Státusz: NEM JAVÍTVA
+
+--- M-03 ---
+Azonosító:   M-03
+Súlyosság:   MAJOR
+Érintett fájl: Prog/src/safety.py:FaultCode, Prog/src/discharge_controller.py
+Probléma:
+  FaultCode.LOAD_POWER_LIMIT létezik a safety.py-ban, de soha sehol nem
+  triggerálódik szoftverből. A Keithley 2380 hardveres teljesítménylimitálást
+  végez (max_power belső state), de a szoftver ezt nem figyeli aktívan.
+  Magas akkufeszültség + nagy áram esetén a LOAD saját hard limit-jére
+  támaszkodik — de ha a LOAD readback-ből nem derül ki a power limit,
+  szoftveroldalon nincs védelem.
+Bizonyíték:
+  Grep: LOAD_POWER_LIMIT — csak a FaultCode enum-ban és a logger _CRITICAL_EVENTS-ben
+  jelenik meg, de sehol nincs triggerelő hívás.
+Javasolt javítási irány:
+  DischargeController._run_cc()-ban: ha u_batt * i_load > max_allowed_W,
+  emergency_stop("LOAD_POWER_LIMIT"). A max_allowed_W értéke DischargeConfig
+  mezőként, pl. 60W (2380 spec).
+Szükséges teszt:
+  Fault injection: u_batt=25V, i_load=3A → p=75W > 60W limit → FAULT.
+Státusz: NEM JAVÍTVA
+
+--- M-04 ---
+Azonosító:   M-04
+Súlyosság:   MAJOR
+Érintett fájl: Prog/src/relax_controller.py, Prog/src/test_runner.py:_is_finished, _controller_faulted
+Probléma:
+  RelaxController-nek nincs FAULT állapota. Ha a relax alatt a DMM teljesen
+  kiesik, az on_event callback loggál, de a controller mindig RELAX_DONE-ra
+  vált az időzítő lejártakor — nincs invalid OCV jelzés a TestRunner felé.
+  A _controller_faulted() RelaxState esetén mindig False-t ad vissza.
+  Következmény: DMM-nélküli OCV értéket a rendszer érvényesként kezeli.
+Miért veszélyes:
+  OCV_SOC_CHARACTERIZATION-ban az IMPULSE_PREP fázis (a relax után) OCV
+  mérést végez — ha a relax alatt a DMM kiesett, az IMPULSE_PREP-ben valószínűleg
+  DMM_FEEDBACK_LOST fault lesz, de a relax DONE minősítése megtévesztő.
+  Normál CHARACTERIZATION-ban és BQ_LEARNING-ban az OCV adatpont érvénytelen
+  lesz, de ez nem kerül explicit módon a riportba.
+Javasolt javítási irány:
+  RelaxController legyen FAULT-képes DMM-elvesztés küszöbön (pl. >60s DMM hiba),
+  vagy legalább egy property (dmm_valid) jelezze az OCV bizonytalanságát.
+Szükséges teszt:
+  RelaxController: 3 DMM timeout → on_event ellenőrzés + timer mégis lefut.
+Státusz: NEM JAVÍTVA
+
+--- M-05 ---
+Azonosító:   M-05
+Súlyosság:   MAJOR (auditálhatóság)
+Érintett fájl: Prog/src/report_generator.py:55
+Probléma:
+  ocv_accuracy_limitation szöveg: "BY550 fordított szivárgás ~10 µA @25°C
+  (adatlap alapján) — FELTÉTELEZÉS, nem mért." — Ez elavult.
+  Mérési adat (memory/reference_agm_engineering_manual.md, BY550 char.txt):
+  10nA @30V (1000× kisebb az adatlapon szereplőnél).
+  A riportban tehát az adatlapos, konzervatívabb, de mért adattal nem frissített
+  érték szerepel. "FELTÉTELEZÉS" jelölés megvédi az állítást technikailag,
+  de a mért adat már rendelkezésre áll.
+Javasolt javítási irány:
+  ocv_accuracy_limitation szöveg frissítése a mért értékre:
+    "BY550 fordított szivárgás MÉRT: ~10 nA @30V (adatlapos max ~10 µA —
+    valós szivárgás ~1000× kisebb). OCV mérési hatás elhanyagolható."
+Státusz: NEM JAVÍTVA
+
+
+================================================================================
+4. APRÓSÁGOK / KARBANTARTHATÓSÁG
+================================================================================
+
+--- N-01 ---
+Súlyosság: MINOR (statikus analízis)
+Érintett fájl: Prog/gui/panels/config_panel.py:80,105, Prog/gui/main_window.py:343–352
+Probléma:
+  mypy 6 hibát jelez:
+    config_panel.py:80,105: Unsupported operand types for * ("object" and "float")
+      — dict.get() visszatérési típusa Any/object, a cell_count * 1.60 műveletnél
+    main_window.py:343–352: _instruments/_dmm_v típusa None-ként deklarált,
+      de InstrumentManager/Keysight34465ADMM-ként kerül használatra
+  Futási hiba nem következik belőlük, de a type checker nem fedez fel esetleges
+  hibás értékhasználatot ezekben az ágakban.
+Javasolt javítás (minimális):
+  config_panel.py: cell_count = int(_PROFILE_DEFAULTS.get(...).get("cell_count", 6))
+  main_window.py: _instruments: InstrumentManager | None = None deklaráció
+Státusz: NEM JAVÍTVA (megelőző)
+
+--- N-02 ---
+Súlyosság: MINOR (dokumentáció)
+Érintett fájl: Prog/config/battery_profiles/FIAMM_12V.yaml
+Probléma:
+  nominal_capacity_Ah: null — BatteryProfile.__post_init__ ProFileValidationError-t
+  dob, ha ezt töltik be közvetlenül. Szándékos (GUI-ban kell megadni), de a fájl
+  fejléckommentjében nem jelzett.
+Javasolt javítás: YAML fájl első sorában megjegyzés: "# nominal_capacity_Ah: kötelező GUI-ban megadni"
+
+--- N-03 ---
+Súlyosság: MINOR (fejlesztői figyelem)
+Érintett fájl: Prog/src/test_runner.py (TestPlan, TestResult, TestRunnerConfig, TestRunner)
+Probléma:
+  PytestCollectionWarning: pytest "Test"-tel kezdődő osztályokat tesztosztályként
+  próbál gyűjteni, de konstruktort talál. 10 warning per futás. Nem blokkoló.
+Javasolt javítás: pytest.ini-ben filterwarnings = ignore::pytest.PytestCollectionWarning
+  (vagy az osztályok átnevezése, de ez API-változást jelent — nem ajánlott).
+
+--- N-04 ---
+Súlyosság: MINOR (konzisztencia)
+Érintett fájl: Prog/src/test_runner.py:478–479
+Probléma:
+  _build_sample()-ban: sample["discharge_current_A"] = i_load — ha i_load None,
+  None kerül a CSV-be. Viszont sample["charge_current_A"] = i_psu if i_psu is not None else 0.0
+  Az előjel-konvenció aszimmetrikus: töltésnél 0.0 fallback, kisütésnél None fallback.
+Javasolt javítás: discharge esetén is 0.0 fallback: i_load if i_load is not None else 0.0
+
+
+================================================================================
+5. KONFIGURÁCIÓS MEGFELELŐSÉG
+================================================================================
+
+Paraméter                        | Talált érték          | Elvártérték/forrás       | Státusz
+---------------------------------|-----------------------|--------------------------|--------
+Boost/CC-CV cél                  | 2.40 V/cella          | FIAMM: 2.40 V/cella      | OK
+Float cél                        | 2.27 V/cella          | FIAMM: 2.27 V/cella      | OK
+Terminate voltage                | 1.80 V/cella (default)| FIAMM C10: 1.80 V/cella  | OK
+Terminate voltage min (GUI)      | 1.60 V/cella (blokkoló)| Dokumentált alsó padló   | OK
+Terminate voltage warn (GUI)     | 1.75 V/cella          | FIAMM C20: 1.75 V/cella  | OK
+Max töltőáram                    | 0.25 × nominal_cap_Ah | FIAMM: 0.25 × nom (v1.2) | OK
+Taper áram                       | 0.03 × nominal_cap_Ah | FIAMM: 0.03 C10 ≈ 0.03nom| OK (megjegyzés*)
+Hőkompenzáció                    | -2.5 mV/cella/°C      | FIAMM: -2.5 mV/cell/°C   | OK
+Hőkomp clamp                     | [2.30, 2.425] V/cella | FIAMM spec alapján        | OK
+batt_absolute_max_V              | 2.425 V/cella         | FIAMM ~14.55V/6cell       | OK
+PSU HW limit (INDEPENDENT)       | 1.5A max             | Keithley 2220 spec        | OK
+PSU HW limit (PARALLEL)          | 3.0A max             | Keithley 2220 spec        | OK
+PSU SERIES max                   | 60V, 1.5A            | Keithley 2220 spec        | OK
+BY550 max_expected_series_drop   | 0.90V                | Mérés @1.5A=0.60V,@3A=0.85V| OK (konzervatív)
+BY550 warning drop               | 1.05V                | SafetyManager default      | OK
+BY550 fault drop                 | 1.25V                | SafetyManager default      | OK
+Taper hold idő                   | 600s (default)       | FIAMM: nincs explicit spec | FELTÉTELEZÉS
+Max töltési idő                  | 86400s (24h)         | ChargeConfig default       | OK
+Max kisütési idő                 | 86400s (24h)         | DischargeConfig default    | OK
+Max charge Ah faktor             | 1.20 × nomCap        | project_summary.md v1.2.1  | OK
+Max discharge Ah faktor          | 1.10 × nomCap        | project_summary.md v1.2.1  | OK
+24V pack: SERIES mód kötelező    | SessionConfig.validate()| v1.2 döntés             | OK
+BQ learning kisütési relax       | 7200s (2h)           | spec elvárás: 18000s (5h) | ELTÉRÉS (M-02)
+
+* Megjegyzés: effective_taper_A = 0.03 × nominal_capacity_Ah (NEM C10 kisütőáram).
+  FIAMM: I_stop_charge = 0.03 × I10 = 0.03 × (Cnom/10) — ami C10 alapú definíció.
+  A jelenlegi implementáció 0.03 × Cnom-ot használ, ami ~3.33× nagyobb I10-nél.
+  Pl. FG20721: nominal=7.2Ah → effective_taper=0.216A; C10-alapú: 0.022A.
+  Ez LÉNYEGES eltérés! A taper feltétel korábban teljesül, mint a FIAMM spec szerint kellene.
+  → FELTÉTELEZÉS: a dokumentáció (project_summary v1.2) ezt deliberáltan rögzíti
+    ("Max töltőáram: 0.25 * nominal_capacity_Ah"), de a taper_current nem C10 alapú.
+  → NEM IGAZOLHATÓ egyértelműen a FIAMM spec alapján.
+
+
+================================================================================
+6. LABORFOLYAMAT REVIEW
+================================================================================
+
+Töltés (ChargeController):
+  [OK] INIT → PRECHECK → PSU_PRESET → CHARGE_CC → CHARGE_CV → TAPER_HOLD → CHARGE_DONE
+  [OK] DMM elvesztés CC/CV/TAPER alatt → azonnali emergency_stop
+  [OK] PSU/LOAD concurrent → azonnali emergency_stop
+  [OK] Battery overvoltage → azonnali emergency_stop
+  [OK] TAPER_HOLD: csak lefelé szabályoz (up_allowed=False) — OV prevenció
+  [OK] Taper timer reset ha feltétel megszűnik
+  [OK] max_charge_time_s és max_charge_Ah_factor → minden CC/CV/TAPER fázisban aktív
+  [OK] CV belépésnél PSU azonnali clamp (nem marad compliance-en)
+  [OK] PSU_PRESET: compliance = target + max_series_drop
+  [RÉSZLEGES] PRECHECK nem ellenőrzi explicit, hogy a PSU output OFF — de driver
+    connect-kor safe_off fut, és PSU_PRESET előtt output_on() hívódik (sorrend OK)
+  [NEM IGAZOLHATÓ] CHARGE_DONE friss fizikai log nélkül
+
+Kisütés (DischargeController):
+  [OK] PRECHECK: psu.all_outputs_off() — PSU biztosan OFF kisütés előtt
+  [OK] DMM elvesztés CC_SETUP/CC_RUN alatt → azonnali emergency_stop
+  [OK] Terminate voltage DMM-alapú (u_batt <= terminate_V)
+  [OK] max_discharge_time_s és max_discharge_Ah_factor aktív
+  [OK] Load readback exception → LOAD_COMM_LOST emergency_stop
+  [HIÁNYZIK] LOAD power limit szoftverszintű ellenőrzése (M-03)
+  [RÉSZLEGES] Rb mérés logikailag helyes, de adatok elvesznek (H-01)
+
+Relax (RelaxController):
+  [OK] PSU és LOAD sehol nem kapcsol be a RelaxController-ben
+  [OK] DMM hiba loggálva és on_event-en átküldve
+  [RÉSZLEGES] DMM elvesztés nem vezet FAULT-ra — relax mindig befejeződik (M-04)
+  [OK] dV/dt számítás opcionális (dvdt_threshold_V_per_s=0 = kikapcsolt)
+  [RÉSZLEGES] kisütési relax idő 2h (7200s) — spec elvárás 5h (M-02)
+
+OCV-SOC karakterizáció:
+  [OK] PRECHARGE_RELAX után OCV rögzítése (100% kulcspont) — helyes sorrend
+  [OK] Tick-alapú impulzus (nincs time.sleep) — FIX-03 kész
+  [OK] Keypoints (100%,50%,20%,10%,0%) 5h relaxal, többi 2h — OcvSocConfig
+  [NEM IGAZOLHATÓ] Friss OCV-SOC karakterizációs futtatás nincs az aktuális verzióhoz
+
+DMM-kompenzáció (BY550):
+  [OK] series_drop ellenőrzés minden töltési fázisban aktív (_check_series_safety)
+  [OK] diode_power warning kétszintű (2W/3W)
+  [OK] Dióda esés csak negatív PSU-akku különbségnél számol (u_drop < 0 → skip)
+  [OK] CV szabályozás max_step clamppel és PSU feszültség maximummal
+  [MEGJEGYZÉS] Fordított szivárgás riportban elavult (~10µA vs mért 10nA) — M-05
+
+BQ kézi checkpoint:
+  [OK] MANUAL_CHECKPOINT StepKind implementálva
+  [OK] CheckpointPanel GUI: szöveg egyértelműen jelzi — nem power-loss recovery
+  [OK] resume_possible flag helyes propagációja
+  [NEM IGAZOLHATÓ] Friss BQ kézi checkpoint fizikai log nincs az aktuális verzióhoz
+
+
+================================================================================
+7. TERV VS IMPLEMENTÁCIÓ ÖSSZEVETŐ (összefoglaló)
+================================================================================
+
+Tervpont                          | Státusz      | Megjegyzés
+----------------------------------|--------------|------------------------------
+CC/CV töltési állapotgép          | OK           | Teljes implementáció
+Taper hold (R9)                   | OK           | Timer reset, down-only CV
+DMM-kompenzált CV szabályozás     | OK           | max_step_up/down aszimmetrikus
+DischargeController CC kisütés    | OK           | Terminate, Rb mérés
+RelaxController timer + dV/dt     | RÉSZLEGES    | FAULT állapot hiányzik (M-04)
+OcvSocController lépcsős          | OK           | FIX-03+04 beépítve
+Logger CSV+SQLite+events          | OK           | Flush, atomic checkpoint
+Logger Rb mezők                   | HIÁNYZIK     | CSV_COLUMNS-ban nincs (H-01)
+Report generator                  | RÉSZLEGES    | session_meta hibás (H-02)
+SafetyManager precheck/overvolt   | OK           | Minden fault ág bekötve
+Concurrent PSU/Load check         | OK           | Minden aktív állapotban
+Factory pattern (FIX-01)          | OK           | Minden ciklusban új instance
+BQ_LEARNING kisütési relax 5h     | ELTÉRÉS      | 7200s vs 18000s (M-02)
+LOAD power limit szoftver         | HIÁNYZIK     | FaultCode létezik, de nincs trigger (M-03)
+Per-fázis NPLC konfiguráció       | RÉSZLEGES    | GUI thread / race condition (H-03)
+session_dir app_paths alapján     | RÉSZLEGES    | Relativ path (M-01)
+report.json valós metaadatokkal   | HIÁNYZIK     | Statikus UNKNOWN/False (H-02)
+closeEvent safe_all_off           | OK           | FIX-02 kész
+Emergency stop minden állapotból  | OK           | emergency_stop_requested tick-ben
+Logger close() minden ágban       | OK           | FIX-02/E5 kész
+Checkpoint atomi write            | OK           | temp + os.replace
+Taper C10-alapú taper áram        | KÉRDÉSES     | 0.03×nom vs 0.03×C10 (5. szekció)
+
+
+================================================================================
+8. TESZTELÉSI JAVASLAT
+================================================================================
+
+Unit tesztek (hiányzó):
+  [ ] test_logger: rb mezők CSV-ben megjelennek (H-01 szükséges teszt)
+  [ ] test_discharge_controller: load power limit fault trigger (M-03)
+  [ ] test_relax_controller: DMM timeout 60s+ → property jelzi invalid OCV-t
+  [ ] test_session_config: validate() FIAMM_24V + non-SERIES → hiba
+  [ ] Taper áram: 0.03×nominal vs 0.03×C10 — elvárás dokumentálva legyen
+
+Mock/fault injection (hiányzó):
+  [ ] BQ_LEARNING: lépés-specifikus relax idő ellenőrzés (2h vs 5h)
+  [ ] DMM kiesés relax alatt → relax DONE, de invalid OCV jelzés
+  [ ] LOAD readback None → signed_current=0.0 vs None konzisztencia CSV-ben
+
+Hardveres bring-up (aktuális verzióhoz hiányzó):
+  [ ] CHARGE_ONLY mód: valós akku, teljes töltés → rövid relax → leáll
+  [ ] DISCHARGE_ONLY mód: valós akku, végfeszültség eléréséig
+  [ ] Report.json tartalmaz-e helyes psu_mode értéket? (H-02)
+  [ ] Rb adatok megjelennek-e a CSV-ben? (H-01 javítás után)
+  [ ] session_dir jó helyre kerül-e exe-ből indítva? (M-01)
+
+BQ checkpoint (hiányzó):
+  [ ] BQ_LEARNING_PHYSICAL: manual_bq_checkpoint → CheckpointPanel
+      korrekt szöveggel jelenik meg
+  [ ] 5h relax után BQ kézi checkpoint elvégzése + log archivál
+
+
+================================================================================
+9. NYITOTT KÉRDÉSEK
+================================================================================
+
+K-1: A taper áram 0.03 × nominal_capacity_Ah vagy 0.03 × C10_discharge_current_A?
+     A FIAMM specifikáció (Engineering Manual) I_stop_charge = 0.03 × I10
+     értelmezést javasol, ahol I10 = C10_discharge_current_A = nominal_Ah / 10.
+     A jelenlegi kód: effective_taper_A = 0.03 × nominal_capacity_Ah.
+     FG20721 (7.2Ah): jelenlegi = 0.216A; C10-alapú = 0.0216A.
+     A különbség egy nagyságrend. Melyik helyes? Döntés dokumentálása szükséges.
+
+K-2: A RelaxController DMM fault esetén célszerű-e FAULT állapotba kerülnie?
+     Relax alatt nincs aktív kimenet, szóval hardverveszély minimális.
+     De az OCV érvényessége sérül. Elfogadható kompromisszum-e?
+
+K-3: Az NPLC per-fázis váltás thread-safe megoldása: controller konstruktorba
+     vándoroljon, vagy a TestRunner _run_step() indítása előtt hajtódjon végre
+     szinkron módon? Ha worker-threadből hívjuk, a connect utáni első advance()
+     előtt kell lefutnia.
+
+
+================================================================================
+10. MINIMÁLIS JAVÍTÁSOK ÉLES HASZNÁLAT ELŐTT
+================================================================================
+
+Fontossági sorrendben:
+
+1. H-01: CSV_COLUMNS kiegészítése rb mezőkkel — Rb adatok elvesznek.
+   (logger.py, ~3 soros módosítás + 1 teszt)
+
+2. H-02: _write_report() session_meta valós adatokból — Report megtévesztő.
+   (main_window.py, ~5–10 sor)
+
+3. H-03: DMM NPLC váltás áthelyezése worker threadbe — Race condition.
+   (main_window.py _on_step_changed, charge/discharge controller kezdeti konfigurálás)
+
+4. M-01: session_dir = app_paths.exe_dir() / "Mérések" / ... — Helyes exe-ből.
+   (main_window.py, 1 soros módosítás)
+
+5. M-02: BQ_LEARNING kisütési relax 18000s — FIAMM spec elvárás.
+   (main_window.py _make_relax_ctrl, lépéscímke alapján)
+
+6. M-03: LOAD power limit szoftver ellenőrzés — FaultCode.LOAD_POWER_LIMIT trigger.
+   (discharge_controller.py _run_cc(), ~3–5 sor)
+
+7. M-05: BY550 riport szivárgás adat frissítése a mért értékre.
+   (report_generator.py, 1–2 soros szövegcsere)
+
+8. K-1 döntés: Taper áram definíció dokumentálása + esetleges korrekció.
+
+
+================================================================================
+ZÁRÁS
+================================================================================
+
+A program FELTÉTELESEN KÉSZ: felügyelt labor használatra alkalmas, de az
+éles/önálló használathoz a fenti 8 javítás elvégzése és friss valós futtatás
+igazolása szükséges.
+
+Legsürgetőbb:
+  H-01 (Rb adatok elvesznek) — adatvesztési bug, egyszerű javítás
+  H-02 (Report meta hamis) — metrológiai megbízhatatlanság
+  M-02 (BQ relax 2h vs 5h) — protokoll-eltérés
+
+A program safe_all_off, emergency_stop és DMM feedback lost kezelése
+megbízhatónak tekinthető a kódelemzés alapján.
+
+================================================================================

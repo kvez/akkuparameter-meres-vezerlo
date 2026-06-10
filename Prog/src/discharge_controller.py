@@ -30,6 +30,7 @@ class DischargeConfig:
     terminate_voltage_V_override: float = 0.0   # 0 = profil default (1.80V/cella)
     max_discharge_time_s: float = 86400.0
     max_discharge_Ah_factor: float = 1.10
+    max_load_power_W: float = 250.0     # Keithley 2380-120-60: 120V/60A/250W hardware max
 
     def __post_init__(self) -> None:
         if self.terminate_voltage_V_override != 0.0:
@@ -207,6 +208,9 @@ class DischargeController:
     def _run_cc(self, dt_s: float) -> None:
         i_load = self._read_load_current()
         if self._state == DischargeState.FAULT:
+            return
+        if self._u_batt * i_load > self._config.max_load_power_W:
+            self.emergency_stop("LOAD_POWER_LIMIT_EXCEEDED")
             return
         self._integrate(dt_s, signed_current_A=-i_load, source="LOAD_READBACK")
 
