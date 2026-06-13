@@ -322,6 +322,7 @@ class MainWindow(QMainWindow):
             profile=profile,
             psu_mode=psu_mode,
             temp_comp_mode=temp_mode,
+            is_bq_mode=(cfg.test_type == "BQ_LEARNING_PHYSICAL"),
         )
 
         psu   = Keithley2220PSU()

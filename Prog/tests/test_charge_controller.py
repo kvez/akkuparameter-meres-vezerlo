@@ -419,15 +419,15 @@ class TestSeriesSafety:
         return ctrl, psu, dmm
 
     def test_series_drop_above_fault_triggers_fault(self):
-        """u_psu - u_batt > fault_series_drop_V (1.25V) → SERIES_DROP_TOO_HIGH fault."""
+        """u_psu - u_batt > fault_series_drop_V (1.50V) → SERIES_DROP_TOO_HIGH fault."""
         ctrl, psu, dmm = self._advance_to_cc(dmm_voltage_V=12.5)
-        psu.voltage_V = 12.5 + 1.30  # u_drop = 1.30V > 1.25V
+        psu.voltage_V = 12.5 + 1.55  # u_drop = 1.55V > 1.50V
         ctrl.advance(dt_s=1.0)
         assert ctrl.state == ChargeState.FAULT
         assert "SERIES_DROP_TOO_HIGH" in ctrl.fault_reason
 
     def test_series_drop_below_fault_no_fault(self):
-        """u_drop = 0.85V < 1.25V → nincs fault."""
+        """u_drop = 0.85V < 1.50V → nincs fault."""
         ctrl, psu, dmm = self._advance_to_cc(dmm_voltage_V=12.5)
         psu.voltage_V = 12.5 + 0.85
         ctrl.advance(dt_s=1.0)

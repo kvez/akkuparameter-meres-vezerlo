@@ -61,8 +61,9 @@ series_diode:
   max_expected_drop_V_parallel: 1.10
   max_expected_drop_V_series: 0.90
   max_reverse_leakage_uA: 10
-  warning_series_drop_V: 1.05
-  fault_series_drop_V: 1.25
+  warning_series_drop_V: 1.20
+  fault_series_drop_V: 1.50
+  fault_series_drop_V_bq: 3.50
   diode_power_warning_W: 2.0
   diode_power_critical_warning_W: 3.0
   thermal_note: "BY550 DO-201AD, 5A. Hűtőborda 3A felett erősen ajánlott."

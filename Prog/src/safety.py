@@ -69,8 +69,10 @@ class SafetyManager:
     temperature_dmm_fault_timeout_s: float = 60.0
     diode_power_warning_W: float = 2.0
     diode_power_critical_warning_W: float = 3.0
-    warning_series_drop_V: float = 1.05
-    fault_series_drop_V: float = 1.25
+    warning_series_drop_V: float = 1.20
+    fault_series_drop_V: float = 1.50
+    fault_series_drop_V_bq: float = 3.50
+    is_bq_mode: bool = False
 
     def check_psu_mode_compatibility(self) -> SafetyResult:
         """
@@ -210,10 +212,11 @@ class SafetyManager:
 
     def check_series_drop(self, u_drop_V: float) -> SafetyResult:
         """[BY550] Soros dióda feszültségesés kétszintű ellenőrzés."""
-        if u_drop_V > self.fault_series_drop_V:
+        active_fault_limit = self.fault_series_drop_V_bq if self.is_bq_mode else self.fault_series_drop_V
+        if u_drop_V > active_fault_limit:
             return SafetyResult(
                 fault=FaultCode.SERIES_DROP_TOO_HIGH,
-                message=f"U_drop {u_drop_V:.3f}V > fault limit {self.fault_series_drop_V:.2f}V"
+                message=f"U_drop {u_drop_V:.3f}V > fault limit {active_fault_limit:.2f}V"
             )
         if u_drop_V > self.warning_series_drop_V:
             return SafetyResult(
