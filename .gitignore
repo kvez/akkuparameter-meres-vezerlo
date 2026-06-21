@@ -1,3 +1,23 @@
+# Claude AI fejlesztési segédeszközök — nem publikus
+.claude/
+CLAUDE.md
+docs/superpowers/
+
+# Forrás dokumentumok (műszer manuálok, akku adatlapok) — nem publikus
+Leírások/műszer_manualok/
+Leírások/akku_adatlapok/
+Leírások/TI_BQ/
+Leírások/TUDÁSBÁZIS.txt
+
+# Belső munkafolyamat (tervek, review-k, döntések) — nem publikus
+Folyamatok/
+
+# Belső riportok
+Riportok/
+
+# Belső struktúra dokumentáció
+README_PROJEKT_STRUKTURA.md
+
 .claude/settings.local.json
 .env
 *.key

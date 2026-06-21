@@ -1,7 +1,0 @@
-Voltage dropp:
-0,21A/0,35V
-1,5A/0,6V
-3A/0,85V
-
-Reverse current:
-10nA @30V
