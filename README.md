@@ -47,7 +47,7 @@ A DMM LAN-on, SCPI protokollon keresztül csatlakozik.
 | OCV-SOC lépcsős mérés | 🔧 Részleges |
 | Valós idejű mérés grafikon | ✅ Működik |
 | Session log és CSV export | ✅ Működik |
-| Checkpoint / folytatás megszakított mérés után | ✅ Működik |
+| Checkpoint / folytatás megszakított mérés után | 🔧 Tesztelés alatt |
 | BQ34Z110PWR fizikai golden image ciklus | 🔧 Tesztelés alatt |
 | Hőmérséklet kompenzáció (második DMM) | 🔧 Részleges |
 | Impedancia jellegű mérés | 📋 Tervezett |
