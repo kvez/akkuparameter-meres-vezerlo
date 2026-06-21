@@ -44,7 +44,7 @@ A DMM LAN-on, SCPI protokollon keresztül csatlakozik.
 | DMM-alapú diódaesés-kompenzált töltés (CC/CV) | ✅ Működik |
 | Kisütési ciklus elektronikus terheléssel | ✅ Működik |
 | Relaxációs várakozás | ✅ Működik |
-| OCV-SOC lépcsős mérés | ✅ Működik |
+| OCV-SOC lépcsős mérés | 🔧 Részleges |
 | Valós idejű mérés grafikon | ✅ Működik |
 | Session log és CSV export | ✅ Működik |
 | Checkpoint / folytatás megszakított mérés után | ✅ Működik |
