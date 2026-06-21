@@ -19,7 +19,7 @@ Fő célja BQ34Z110PWR fuel gauge IC golden image előkészítéséhez szükség
 
 | | | |
 |--|--|--|
-| ![Labor 1](photo_2026-06-21_10-44-32.jpg) | ![Labor 2](photo_2026-06-21_10-44-33.jpg) | ![Labor 3](photo_2026-06-21_10-44-43.jpg) | ![Labor 3](photo_2026-06-21_10-44-44.jpg) |
+| ![Labor 1](photo_2026-06-21_10-44-32.jpg) | ![Labor 2](photo_2026-06-21_10-44-33.jpg) | ![Labor 3](photo_2026-06-21_10-44-43.jpg) | ![Labor 4](photo_2026-06-21_10-44-44.jpg) |
 
 ---
 
