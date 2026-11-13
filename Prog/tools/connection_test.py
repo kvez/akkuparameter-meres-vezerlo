@@ -40,9 +40,13 @@ def load_config(
         return yaml.safe_load(f)
 
 
-def is_placeholder(resource: str) -> bool:
-    """Igaz, ha a resource string még nincs kitöltve (üres vagy PLACEHOLDER)."""
-    return not resource or "PLACEHOLDER" in resource
+def is_placeholder(resource: str | None) -> bool:
+    """Igaz, ha a resource üres vagy egy teljes konfigurációs placeholder."""
+    return not resource or resource in {
+        "PLACEHOLDER",
+        "USB0::PLACEHOLDER::INSTR",
+        "TCPIP0::192.168.X.X::inst0::INSTR",
+    }
 
 
 # ------------------------------------------------------------------ #
@@ -132,13 +136,21 @@ def check_dmm_temperature(cfg: dict) -> None:
     if is_placeholder(resource):
         _skip("DMM_T", f"resource nincs kitöltve: {resource}")
         return
+    sensor_mode = cfg.get("temperature_sensor_mode", "RTD_4W_PT100")
     dmm = Keysight34465ADMM()
     try:
         dmm.connect(resource)
         idn = dmm.idn()
-        dmm.configure_temp_4wire_pt100(nplc=1.0)
+        if sensor_mode == "RTD_4W_PT100":
+            dmm.configure_temp_4wire_pt100(nplc=1.0)
+        elif sensor_mode == "THERMISTOR_2W_NTC_10K_B3950":
+            dmm.configure_temp_2wire_ntc_thermistor(
+                r25_ohm=10000.0, beta_K=3950.0, nplc=1.0
+            )
+        else:
+            raise ValueError(f"Ismeretlen temperature_sensor_mode: {sensor_mode!r}")
         t = dmm.read_temperature()
-        _ok("DMM_T", f"{idn.strip()} | Mért: {t:.2f} °C")
+        _ok("DMM_T", f"{idn.strip()} | Mért: {t:.2f} °C | mód: {sensor_mode}")
     except Exception as exc:
         _fail("DMM_T", str(exc))
     finally:

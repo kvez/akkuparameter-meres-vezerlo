@@ -97,3 +97,26 @@ def test_ensure_local_config_does_not_overwrite_existing(monkeypatch, tmp_path):
     ap.ensure_local_config()
 
     assert "my_custom_config" in config_path.read_text()
+
+
+def test_real_template_has_no_unread_timeout_ms_keys():
+    """[Kör 21 F17, ARC21-4(a), DFAM-026] a 4 `instruments.*.timeout_ms`
+    kulcsnak SOHA nem volt YAML-olvasó fogyasztója -- mind a 4 driver
+    (device_psu.py/device_load.py/device_dmm.py×2) a saját, kódba égetett
+    alapértékét használja. Törölve a valós sablonból, NEM bekötve (az
+    archívum döntése: vagy-vagy, nem mindkettő -- a bekötés ÚJ GUI/
+    SessionConfig-funkciót igényelne, CLAUDE.md §10). Ez a teszt a VALÓS
+    (nem szintetikus) sablonfájlt olvassa, hogy egy jövőbeli szerkesztés
+    ne vezesse vissza csendben a holt kulcsokat."""
+    import yaml
+
+    from Prog import app_paths
+
+    template = yaml.safe_load(
+        app_paths.local_config_template_path().read_text(encoding="utf-8")
+    )
+    for instrument_name, instrument_cfg in template["instruments"].items():
+        assert "timeout_ms" not in instrument_cfg, (
+            f"instruments.{instrument_name}.timeout_ms visszakerult a "
+            f"sablonba, de meg nincs YAML-olvaso fogyasztoja (l. ARC21-4(a))"
+        )

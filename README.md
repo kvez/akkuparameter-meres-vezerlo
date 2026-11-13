@@ -1,248 +1,173 @@
-# Akkuparaméter mérés vezérlő
+# Akkuteszter
 
-> **⚠️ FEJLESZTÉS ALATT — Work in Progress**
->
-> A szoftver aktív fejlesztés és tesztelés alatt áll. Nem minden funkció működik még stabilan. Éles laborhasználat előtt tesztelj mock módban!
+> **Fejlesztés alatt; unit/mock tesztelt; a fizikai validálás részleges; energizált mérés és BQ-írás csak felügyelt, jóváhagyott mérésnél engedélyezett.**
 
-AGM/VRLA akkumulátor paraméter mérő és labor vezérlő szoftver.
-Fő célja BQ34Z110PWR fuel gauge IC golden image előkészítéséhez szükséges fizikai akkumulátor ciklusok automatizált végrehajtása és dokumentálása.
-
----
+Windows-os Python/PySide6 laborprogram FIAMM AGM/VRLA akkumulátorok méréséhez. Töltést, kisütést, kapacitásmérést, OCV–SOC- és ellenállásmérést, valamint a TI BQ34Z110 golden image előkészítését automatizálja.
 
 ## Képernyőképek
 
-| Program | Program |
-|---------|---------|
-| ![Főablak 1](pic_prog_1.png) | ![Főablak 2](pic_prog_2.png) |
+| | |
+|---|---|
+| ![Konfiguráció](pic_prog_1.png)<br>*Konfiguráció — akkumulátorprofil, műszerek, PSU-mód, teszttípus* | ![Élő mérés — töltés](pic_prog_2.png)<br>*Élő mérés, töltési fázis* |
+| ![Élő mérés — BQ tanítás](pic_prog_3.png)<br>*Élő mérés, Traditional Learning munkamenet* | ![BQ Diagnosztika](pic_prog_4.png)<br>*BQ Diagnosztika munkamenet alatt, csak olvasással és elavultságjelzéssel* |
 
-## Labor fotók
+## Laborfotók
 
-| | | |
-|--|--|--|
-| ![Labor 1](photo_2026-06-21_10-44-32.jpg) | ![Labor 2](photo_2026-06-21_10-44-33.jpg) |
-| ![Labor 3](photo_2026-06-21_10-44-43.jpg) | ![Labor 4](photo_2026-06-21_10-44-44.jpg) |
-
----
+| | | | |
+|---|---|---|---|
+| ![Labor 1](photo_2026-06-21_10-44-32.jpg) | ![Labor 2](photo_2026-06-21_10-44-33.jpg) | ![Labor 3](photo_2026-06-21_10-44-43.jpg) | ![Labor 4](photo_2026-06-21_10-44-44.jpg) |
 
 ## Hardver
 
-| Műszer | Szerepe | Kapcsolat |
-|--------|---------|-----------|
-| Keithley 2220-30-1 | Programozható tápegység (töltés) | USB (NI-VISA) |
-| Keithley 2380-120-60 | Elektronikus terhelés (kisütés) | USB (NI-VISA) |
-| Keysight 34465A | DMM — akkufeszültség mérés | LAN (SCPI) |
+| Eszköz | Feladat | Kapcsolat |
+|---|---|---|
+| Keithley 2220-30-1 | Töltő tápegység, INDEPENDENT/PARALLEL/SERIES mód; 24 V-os pakkhoz SERIES kötelező | USB/VISA |
+| Keithley 2380-120-60 | Elektronikus terhelés kisütéshez és ellenállásméréshez, legfeljebb 250 W | USB/VISA |
+| Keysight 34465A ×2 | Akkukapocs-feszültség és hőmérséklet; 4-eres PT100 vagy 2-eres 10 kΩ-os NTC | LAN, SCPI/HiSLIP |
+| Raspberry Pi Pico + BQ34Z110 | Gauge-kommunikáció a tanításhoz, Golden GG-hez, diagnosztikához és kalibrációhoz | USB, soros port |
 
-A tápegység és az elektronikus terhelés NI-VISA drivert igényel Windows alatt.
-A DMM LAN-on, SCPI protokollon keresztül csatlakozik.
+A teszttípusokhoz mind a négy VISA-műszer szükséges; a program `*IDN?` alapján ellenőrzi a típust. USB- és LAN-kapcsolathoz is PyVISA és NI-VISA szükséges.
 
----
+Beépített profilok: `FIAMM_12V` — 6 cella; `FIAMM_24V` — 12 cella, két 12 V-os akkumulátor sorba kötve.
 
-## Főbb funkciók
+## Üzemmódok
 
-| Funkció | Állapot |
-|---------|---------|
-| Eszközök automatikus keresése (VISA scan) | ✅ Működik |
-| DMM-alapú diódaesés-kompenzált töltés (CC/CV) | ✅ Működik |
-| Kisütési ciklus elektronikus terheléssel | ✅ Működik |
-| Relaxációs várakozás | ✅ Működik |
-| OCV-SOC lépcsős mérés | 🔧 Részleges |
-| Valós idejű mérés grafikon | ✅ Működik |
-| Session log és CSV export | ✅ Működik |
-| Checkpoint / folytatás megszakított mérés után | 🔧 Tesztelés alatt |
-| BQ34Z110PWR fizikai golden image ciklus | 🔧 Tesztelés alatt |
-| Hőmérséklet kompenzáció (második DMM) | 🔧 Részleges |
-| Impedancia jellegű mérés | 📋 Tervezett |
+| GUI-teszttípus | Feladat |
+|---|---|
+| `CHARACTERIZATION` | Töltés → relaxáció → kapacitásmérő kisütés → 5 h relaxáció. |
+| `BQ_LEARNING_PHYSICAL` | Két fizikai töltés–kisütés ciklus relaxációkkal, végül kézi BQ-ellenőrzési pont; Pico nélkül. |
+| `OCV_SOC_CHARACTERIZATION` | Labor-OCV–SOC görbe és `R_pulse` impulzus-ellenállás; alapból 5%-os C/10 lépések a profil végfeszültségéig. |
+| `CHEMID_CHARACTERIZATION_PBA` | Kondicionálás → töltés → 5 h relax → C/20 kisütés → 5 h relax → GPCCHEM-export. |
+| `CHARGE_ONLY` | DMM-visszacsatolt, diódaesés-kompenzált CC/CV töltés, majd állítható relaxáció. |
+| `DISCHARGE_ONLY` | CC kapacitásmérés és névleges 1/10/30 s-os feszültségeséses ellenállásbecslés, mentett tényleges időponttal és minőségjelzéssel. |
+| `TRADITIONAL_LEARNING` | BQ-tanítás, BQ-adatok alapján minősített eredmény, majd automatikus 0,67 A-es záró újratöltés. |
+| `GOLDEN_GG` | Kísérleti mérési csomag megadott rendszerárammal; a `lowtemp.csv` és a natív TI `gg.csv` export hiányzik. |
+| `IEC_DC_INTERNAL_RESISTANCE` | Kétpontos DC Ri-mérés, Ia = 4·I10 és Ib = 20·I10; a szabványeljárás forrása nem ellenőrzött, 24 V-os FG20721-pakkon a 250 W-os korlát miatt nem használható. |
 
----
+A töltés utáni relaxáció `CHARGE_ONLY` és `CHARACTERIZATION` módban alapból 600 s, állítható; `BQ_LEARNING_PHYSICAL` módban 2 h. A külön kisütés utáni relaxlépések 5 órásak. Az önálló relaxáció dV/dt-értéke diagnosztikai adat, nem rövidíti le a várakozást.
 
-## Üzemmódok részletesen
+A kisütési ellenállásbecslés, az OCV–SOC műszer-időzített `R_pulse` mérése és az IEC DC Ri külön mérési módszer.
 
-A szoftver négy független vezérlő állapotgépből áll, amelyek önállóan vagy sorban is futtathatók.
+A Traditional Learning a BQ-eredményt a záró töltés előtt rögzíti; a következő kampány legkorábbi időpontját a sikeres záró töltés befejezése után 48 órára menti.
 
----
+- **BQ Diagnosztika fül:** gauge-adatok megtekintése, futó BQ-munkamenet alatt csak olvasással.
+- **„Gauge kalibráció…” ablak:** a BQ Diagnosztika fülről nyílik; előtte állítsd le a mérést és bontsd a diagnosztikai kapcsolatot.
+- **Eszközök → Pico előkészítése BQ34Z110-hez…:** a mellékelt firmware feltöltése friss MicroPython-os Picóra, bekötési útmutatóval.
 
-### Töltés — CC/CV DMM-kompenzált
-
-**Cél:** AGM akku teljes feltöltése konstantáram → konstansfeszültség módban, ahol a DMM méri az akkufeszültséget (nem a PSU readback-je).
-
-**Miért kell DMM?** Ha a töltési körben soros dióda vagy kábelellenállás van, a PSU saját feszültség-readbackje a diódaesést (tipikusan 0,3–0,9 V) is tartalmazza — az akku valós feszültsége alacsonyabb. A DMM az akkukapcsain mér, így a PSU feszültsége a tényleges akkufeszültség alapján szabályozódik.
-
-**Állapotok:**
-
-| Állapot | Leírás |
-|---------|--------|
-| `INIT` → `PRECHECK` | DMM érvényesség, PSU mód, előfeszültség ellenőrzés |
-| `PSU_PRESET` | PSU feszültség = célfeszültség + max dióda-esés, áram = profil C-ráta szerint |
-| `CHARGE_CC` | Konstantáram fázis — PSU CC módban tart, DMM figyeli az akkufeszültséget |
-| `CHARGE_CV_DMM_CONTROL` | DMM visszacsatolásos feszültségszabályozás: PSU feszültségét lépteti (fel max 50 mV/tick, le max 500 mV/tick), deadband ±10 mV |
-| `TAPER_HOLD` | 10 perces tartás: taper feltétel — U_batt ≥ célfeszültség és I ≤ taper_I; ha a feltétel megszakad, visszalép CV-be |
-| `CHARGE_DONE` | PSU output OFF, ciklus kész |
-| `FAULT` | Vészleállítás: terhelés OFF → PSU OFF |
-
-**Lehetséges hibák (`FAULT` okok):**
-
-- `DMM_FEEDBACK_LOST` — DMM nem válaszol
-- `BATTERY_OVERVOLTAGE` — akku feszültsége kritikus határt ért el
-- `SERIES_DROP_EXCEEDED` — soros esés meghaladta a limitet
-- `MAX_CHARGE_TIME_REACHED` — 24h limit
-- `MAX_CHARGE_AH_REACHED` — névleges kapacitás 120%-a
-
----
-
-### Kisütés — CC elektronikus terheléssel
-
-**Cél:** Akkumulátor kapacitásának mérése konstans áramú kisütéssel, közben belső ellenállás (Rb) becslése.
-
-**Állapotok:**
-
-| Állapot | Leírás |
-|---------|--------|
-| `INIT` → `PRECHECK` | DMM érvényesség, előfeszültség ellenőrzés, PSU biztosan OFF |
-| `DISCHARGE_CC_SETUP` | Terhelés CC módba áll, áram = profil C/5, terhelés be |
-| `DISCHARGE_CC_RUN` | Kisütés fut; integrátor számolja az eltávolított Ah-t; Rb mérés 1 s / 10 s / 30 s-os időpontokban |
-| `DISCHARGE_DONE` | Terminate feszültség elérve (default: 1,80 V/cella), terhelés OFF |
-| `FAULT` | Vészleállítás |
-
-**Rb mérés:** Terhelésbekapcsolás előtti OCV és az 1 s / 10 s / 30 s-os feszültség különbségéből számítja az belső ellenállást (Rb = ΔV / I_set), mΩ-ban logolva.
-
-**Lehetséges hibák:**
-
-- `DMM_FEEDBACK_LOST` — DMM kiesés
-- `LOAD_COMM_LOST` — terhelés kommunikációs hiba
-- `LOAD_POWER_LIMIT_EXCEEDED` — 250 W hardver limit (Keithley 2380 max)
-- `MAX_DISCHARGE_TIME_REACHED` / `MAX_DISCHARGE_AH_REACHED`
-
----
-
-### Relaxáció
-
-**Cél:** Töltés vagy kisütés után az akkumulátor feszültségének stabilizálása nyílt áramkörben (OCV felé közelítés).
-
-**Konfiguráció:**
-
-| Paraméter | Alapérték |
-|-----------|-----------|
-| Töltés utáni relaxáció | 2 h |
-| Kisütés utáni relaxáció | 5 h (kulcspontokon: 100%, 50%, 20%, 10%, 0%) |
-| dV/dt korai kilépés | alapból kikapcsolva |
-
-DMM hibánál esemény logolódik, de a relaxáció nem áll le automatikusan — a mérés minőségét `DEGRADED_DMM_LOSS_DURING_RELAX` jelöli.
-
----
-
-### OCV-SOC lépcsős karakterizáció (🔧 Részleges)
-
-**Cél:** Az akku teljes töltöttségi tartományán (100% → 0%) OCV–SOC görbe és belső ellenállás térkép felvétele, BQ34Z110PWR golden image paraméterekhez.
-
-**Folyamat:**
-
-1. Teljes töltés (belső CC/CV töltővel)
-2. 5 h relaxáció 100%-on
-3. Ismételt 5%-os kisütési lépések C/10 árammal (20 lépés)
-4. Minden lépés után relaxáció, majd OCV mérés + Rb impulzusteszt
-
-**Állapotok:**
-
-| Állapot | Leírás |
-|---------|--------|
-| `PRECHARGE` | Belső ChargeController fut — teljes töltés |
-| `PRECHARGE_RELAX` | 5 h várakozás 100%-on |
-| `STEP_DISCHARGE` | Részleges kisütés (C/10) a következő SOC lépcsőig |
-| `STEP_RELAX` | Relaxáció: kulcspontokon 5 h, többi lépésnél 2 h |
-| `IMPULSE_PREP` | OCV mérés a relax végén |
-| `IMPULSE_ON` → `IMPULSE_WAIT_1S/10S/30S` | C/5 impulzus, Rb mérés 1 s / 10 s / 30 s-ban |
-| `LOG_SOC_POINT` | Adatpont rögzítése: SOC%, OCV [V], Rb_1s/10s/30s [Ω], hőmérséklet [°C] |
-| `DONE` | 0% SOC elérve, mérés kész |
-
-**Kulcspontok** (5 h relaxáció): 100%, 50%, 20%, 10%, 0%
-**Többi lépés**: 2 h relaxáció
-
-**Kimenet CSV-ben:** soc_percent, removed_Ah_total, ocv_V, rb_1s_ohm, rb_10s_ohm, rb_30s_ohm, temperature_C, measurement_quality
-
----
+Csak Python-modulként érhető el a validation matrix, a golden image manifest, a gyártási programozás és a TI Golden GG eredményimport; kezelői belépési pontjuk nincs.
 
 ## Biztonság
 
-A szoftver safety-first elvek szerint épül fel:
+- Kapcsolódáskor a PSU minden kimenete és a Load bemenete kikapcsol; Stopnál, hibánál, befejezéskor és vészleállításkor a sorrend: **Load OFF → PSU ALL OFF**. Az egyik kikapcsolási hibája nem akadályozhatja a másik megkísérlését.
+- A PSU és a terhelés nem lehet egyszerre aktív.
+- FG20721 normál kisütésénél C10, más vagy bizonytalan ráta esetén legalább **1,80 V/cella** a megengedett végfeszültség. A kód csak igazolt adatlapi C20-bázissal — 7,2 Ah, 0,36 A — enged **1,75 V/cellát**; a C/20 beállítás önmagában nem elegendő. A ChemID jelenlegi végfeszültsége **1,80 V/cella**.
+- Az adatlapi végfeszültség alá kizárólag **Traditional Learning** módban szabad kisütni, az Update Status 06 / golden image céljára, az akkumulátor elhasználásának tudatos vállalásával. A tanítás legkisebb névleges szoftveres lekapcsolási küszöbe **1,70 V/cella**, pakkszintű felügyelettel; a lezáró minta ez alá is eshet.
+- Valós kimenetbekapcsolás, BQ Data Flash-írás, seal/unseal és tanítás csak explicit jóváhagyott, felügyelt mérésnél végezhető.
+- A Keithley 2220 előlapján az Output Recall legyen Off (Menu → User Settings); a program ezt nem ellenőrzi.
+- A `Prog/tools/` szkriptjei valós műszerkimenetet kapcsolhatnak; futtatásukra ugyanez a jóváhagyási és felügyeleti feltétel érvényes.
 
-- Hiba esetén: elektronikus terhelés OFF → tápegység output OFF
-- DMM feedback elvesztése esetén töltés azonnal megáll
-- Minden esemény logolva van
+## Telepítés és indítás
 
----
-
-## Telepítés és első futtatás
-
-Részletes leírás: **[INSTALL.md](INSTALL.md)**
-
-Rövid összefoglaló:
-1. Telepítsd az **NI-VISA** drivert (kötelező az USB műszerekhez)
-2. Indítsd újra a PC-t
-3. Futtasd az `akkuteszter.exe`-t (első indításkor létrehozza a `local_config.yaml`-t)
-4. **Konfiguráció → "Eszközök keresése…"** — azonosítsd a VISA resource stringeket
-5. Írd be a stringeket a `local_config.yaml`-ba
-6. Indítsd újra
-
-### Futtatás forráskódból
+Telepítsd az NI-VISA-t. Forrásból, a repó gyökerében:
 
 ```bash
-pip install -r requirements.txt
-python Prog/main.py
+python -m pip install -r requirements.txt
+python -m Prog.main
 ```
+
+A GUI valós műszerekkel dolgozik. A helyi konfiguráció forrásindításnál `Prog/config/local_config.yaml`, EXE-nél az exe melletti `local_config.yaml`. Hiányzáskor a program a sablonból automatikusan létrehozza, placeholder-címekkel.
+
+Állítsd be a négy VISA-resource-ot és a tényleges szondához tartozó `temperature_sensor_mode` értéket: `RTD_4W_PT100` vagy `THERMISTOR_2W_NTC_10K_B3950`. A **Resource stringek mentése** gomb csak a négy műszercímet menti.
+
+Telepítési útmutató: [INSTALL.md](INSTALL.md); az EXE-csomagban `_internal/INSTALL.md`.
+
+## Kezelés
+
+1. A **Konfiguráció** fülön válassz profilt, modellt, teszttípust és PSU-módot; add meg a C10-kapacitást, a Sample ID-t, a műszercímeket és a módfüggő paramétereket. A **C10 kapacitás (Ah)** az adatlapi 10 órás kapacitás, a C/x áramok és az alapértelmezett 0,25·C10 töltőáram alapja. FG20721 esetén 6,7 Ah; két soros akkumulátornál is 6,7 Ah. PARALLEL/SERIES módban ellenőrizd a bekötést, majd jelöld be a **Fizikai bekötés megerősítve** mezőt.
+2. Az **Élő mérés** fülön válaszd a **Start** gombot, ellenőrizd és erősítsd meg az összefoglalót. Futás alatt a Konfiguráció zárolt. A kézi ellenőrzési pont a **BQ Checkpoint**, a műszerhibák az **Eszköz hibák** fülön láthatók.
+3. A **Stop** kikapcsolást kezdeményez és lezárja a munkamenetet. Az **Emergency Stop** vészleállítást kér, és FAULT állapottal zár. Az így lezárt munkamenet nem folytatható.
+4. Összeomlás vagy áramkimaradás után a Start felajánlhatja a folytatást, ha a konfiguráció, profil, műszerek és Sample ID egyezik, és van mentett biztonságos lépéshatár. Folytatáshoz ugyanaz az akkumulátor és fizikai felállás szükséges.
+
+A `TRADITIONAL_LEARNING` és `GOLDEN_GG` FG20721-modellt és egész számú 6,7 Ah-s C10-többszöröst igényel; add meg a Pico portját is. Golden GG-hez a rendszerre jellemző kisütőáramot külön kell megadni.
+
+A kisütött akkumulátorral záruló módok után töltsd újra az akkut; a GUI figyelmeztet.
+
+Az eredmények az exe mappájában, forrásindításnál a repó gyökerében találhatók: `Mérések/Sessions/session_<modell>_<UTC-idő>/`. Fő fájlok: `samples.csv`, `events.csv`, `device_errors.csv`, `session.db`, `checkpoint.json`, `report.json` és a módfüggő exportok. A diagnosztikai napló `logs/akkuteszter.log` alatt gyűlik, WARNING szinttől, UTF-8 formátumban, hozzáfűzéssel és automatikus rotáció nélkül.
 
 ### EXE build (PyInstaller)
 
-```bash
-pip install pyinstaller
-pyinstaller akkuteszter.spec
-# Kimenet: dist/akkuteszter/akkuteszter.exe
-```
+**A használt `dist\akkuteszter\` mappába közvetlenül buildelni tilos: a COLLECT törli a helyi konfigurációt és a mérési adatokat.**
 
----
+1. Zárd be az alkalmazást. Mentsd a teljes telepítési mappát a repón és a telepítésen kívülre, a `local_config.yaml`, `Mérések\` és `logs\` tartalmával együtt. A telepítési mappa az `akkuteszter.exe`-t tartalmazó könyvtár, például `dist\akkuteszter\`.
+2. A futtatási függőségek mellé telepítsd a PyInstallert ugyanahhoz a Pythonhoz:
+
+   ```bash
+   python -m pip install pyinstaller
+   ```
+
+   Csak tiszta követett munkafából buildelj, staged és nem staged követett módosítás nélkül. A repó gyökeréből rögzítsd a build eredetét; a kimeneteket külső mentési helyre tedd:
+
+   ```bash
+   git rev-parse HEAD
+   git status --short
+   python -m pip freeze
+   ```
+
+3. Minden buildhez használj új, a teljes repón és a telepítésen kívüli stagingkönyvtárat: `<build-gyökér>\<dátum>_<commit>\dist|work`. A helyőrzőket cseréld tényleges útvonalra; a stagingbe ne tegyél helyi konfigurációt vagy mérési adatot. A repó gyökeréből:
+
+   ```powershell
+   python -m PyInstaller --noconfirm --clean --distpath "<build-gyökér>\<dátum>_<commit>\dist" --workpath "<build-gyökér>\<dátum>_<commit>\work" akkuteszter.spec
+   ```
+
+   A `--noconfirm` kérdés nélkül engedélyezi a COLLECT kimeneti mappájának teljes törlését; a `--clean` nem védi a felhasználói adatokat. A korábbi stagingbuildeket őrizd meg.
+
+4. Ellenőrizd a staging `dist\akkuteszter\` csomagját:
+   - `_internal/Prog/config/`: `default_config.yaml`, `local_config.template.yaml`, valamint `battery_profiles/FIAMM_12V.yaml` és `FIAMM_24V.yaml`;
+   - `_internal/Prog/resources/psnd.png`;
+   - `_internal/Prog/pico_firmware/`: `main.py`, `pico_bq_rpc.py`, `pico_bq_service.py`;
+   - `_internal/INSTALL.md`.
+
+   Vizsgáld meg az importhiányokat a `<build-gyökér>\<dátum>_<commit>\work\akkuteszter\warn-akkuteszter.txt` fájlban.
+
+5. A bezárt telepítésben **csak az `akkuteszter.exe`-t és a teljes `_internal\` mappát cseréld** a staging megfelelő elemeire. A `local_config.yaml`, `Mérések\` és `logs\` maradjon meg. Új telepítésnél a teljes staging `dist\akkuteszter\` mappát másold a célhelyre.
+6. Első indítás előtt ellenőrizd az exe melletti `local_config.yaml` műszercímeit és szenzormódját. Hiányzó fájl az `_internal/Prog/config/local_config.template.yaml` sablonból előre elkészíthető; az alkalmazás hiányzáskor maga is létrehozza. Ezután a telepítési mappa új exe-jét indítsd.
 
 ## Tesztek futtatása
 
+A projektgyökérből, Git Bash alatt, **négy külön invokációban**, ebben a sorrendben:
+
 ```bash
-python -m pytest
+export PYTHONDONTWRITEBYTECODE=1 QT_QPA_PLATFORM=offscreen
+timeout 900 python -m pytest Prog/tests --ignore=Prog/tests/gui -q -p no:cacheprovider
+timeout 900 python -m pytest Prog/tests/gui/test_build_runner.py -q -p no:cacheprovider
+timeout 900 python -m pytest Prog/tests/gui --ignore=Prog/tests/gui/test_build_runner.py --ignore=Prog/tests/gui/test_main_emergency_excepthook.py -q -p no:cacheprovider
+timeout 900 python -m pytest Prog/tests/gui/test_main_emergency_excepthook.py -q -p no:cacheprovider
 ```
 
-Statikus ellenőrzések:
+A példák mock/fake környezetre szólnak; teszt/próba valós soros portot vagy VISA-erőforrást nem nyithat. Csonkult/kimaradt futás nem teljes PASS.
+
+Statikus ellenőrzések — ismert, nem nulla alapállapot; új diagnosztika ne kerüljön be:
 
 ```bash
 python -m ruff check Prog
 python -m mypy Prog
 ```
 
-A tesztek mock driverekkel futnak, fizikai műszer nem szükséges.
+## Projektszerkezet
 
----
-
-## Akkumulátor profilok
-
-A `Prog/config/battery_profiles/` mappában YAML formátumú profilok találhatók:
-
-- `FIAMM_12V.yaml` — FIAMM 12V AGM/VRLA
-- `FIAMM_24V.yaml` — FIAMM 24V AGM/VRLA
-
----
-
-## Projekt struktúra
-
-```
+```text
 Prog/
-├── main.py                  # Belépési pont
-├── drivers/                 # Műszer driverek (PSU, Load, DMM)
-├── src/                     # Üzleti logika (töltés, kisütés, OCV, relax)
-├── gui/                     # PySide6 GUI
-├── config/                  # Alapértelmezett konfig, battery profilok
-├── tests/                   # Pytest tesztek (mock driverekkel)
-└── tools/                   # Segédeszközök (VISA kapcsolat teszt)
-akkuteszter.spec             # PyInstaller build leírás
-requirements.txt             # Python függőségek
-INSTALL.md                   # Részletes telepítési útmutató
+├── gui/             # Kezelőfelület
+├── src/             # Mérési folyamatok, biztonság, naplózás és export
+├── drivers/         # Műszer- és Pico-driverek
+├── config/          # Konfigurációk és akkumulátorprofilok
+├── resources/       # Logó
+├── pico_firmware/   # Picóra feltölthető MicroPython-fájlok
+├── tests/           # Mock/fake és GUI-tesztek
+└── tools/           # Segédszkriptek, valós műszervezérléssel is
+Mérések/Sessions/    # Futás közben létrejövő mérési adatok
+logs/                # Diagnosztikai napló
 ```
-
----
 
 ## Licenc
 

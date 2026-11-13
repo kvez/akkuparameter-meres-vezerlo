@@ -17,6 +17,13 @@ a = Analysis(
         ("Prog/config/battery_profiles/FIAMM_12V.yaml",  "Prog/config/battery_profiles"),
         ("Prog/config/battery_profiles/FIAMM_24V.yaml",  "Prog/config/battery_profiles"),
         ("Prog/resources/psnd.png",                      "Prog/resources"),
+        # Pico-firmware: a "Pico előkészítése BQ34Z110-hez" menüpont ezeket a
+        # MicroPython fájlokat tölti fel a Pico-ra (l. Prog/app_paths.py::
+        # pico_firmware_dir(), Prog/src/pico_provisioning_service.py). ADAT,
+        # nem importálható modul — a `machine` modul csak a Picon létezik.
+        ("Prog/pico_firmware/pico_bq_service.py",        "Prog/pico_firmware"),
+        ("Prog/pico_firmware/pico_bq_rpc.py",            "Prog/pico_firmware"),
+        ("Prog/pico_firmware/main.py",                   "Prog/pico_firmware"),
         ("INSTALL.md",                                   "."),
     ] + pyqtgraph_datas,
     hiddenimports=[

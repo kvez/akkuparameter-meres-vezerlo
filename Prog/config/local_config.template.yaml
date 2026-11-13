@@ -9,33 +9,59 @@
 #   3. Állítsd be a PSU módot és erősítsd meg a fizikai bekötést
 # ================================================================
 
+# Hőmérséklet-szenzor típus: RTD_4W_PT100 | THERMISTOR_2W_NTC_10K_B3950
+#   RTD_4W_PT100              : gyári 4-eres PT100 (alapértelmezett)
+#   THERMISTOR_2W_NTC_10K_B3950 : pótszonda sérült RTD esetén (2-eres, 10kΩ@25°C,
+#                                 B=3950K, szoftveres átszámítás) — ha ez nincs a
+#                                 ténylegesen bekötött szondával összhangban,
+#                                 TEMPERATURE_MONITOR_LOST_CRITICAL faultot okoz!
+temperature_sensor_mode: RTD_4W_PT100
+
+# A Pico (BQ34Z110 RPC-kapcsolat) soros portja NEM ebből a fájlból töltődik —
+# a GUI-ban kell megadni (pl. "COM8"): a Tanítási ciklusnál és a Golden GG-nél
+# session indításakor a Konfiguráció → "BQ (Pico) port" mezőben, a BQ
+# Diagnosztika fülön és a kalibrációhoz a fül saját portmezőjében. A többi
+# módnál (pl. Töltés/Kisütés/OCV-SOC/ChemID) nincs rá szükség.
+
 instruments:
   psu:
     # USB eszköz — tipikus format: "USB0::0x05E6::0x2220::XXXXXXXX::INSTR"
     # Resource keresés: python Prog/tools/connection_test.py
     resource: "USB0::PLACEHOLDER::INSTR"
-    timeout_ms: 5000
+    # Kör 21 F17 (ARC21-4(a), DFAM-026): a `timeout_ms` kulcsnak SOHA nem
+    # volt YAML-olvasó fogyasztója -- a driver (device_psu.py) saját,
+    # kódba égetett alapértékét (5000 ms) használja a connect()-kori VISA
+    # I/O timeout beállításához. Törölve innen (nem "wired", l. archívum
+    # döntése: vagy-vagy, nem mindkettő) -- egy jövőbeli config-vezérelt
+    # timeout GUI-mezőt/SessionConfig-mezőt igényelne, ami ÚJ funkció
+    # lenne (CLAUDE.md §10), nem ennek a hibaosztálynak a minimális fixe.
     # PSU mód: INDEPENDENT | PARALLEL | SERIES
-    #   INDEPENDENT : 12V pack, CH1+CH2 külön, 30V/1.5A — nincs extra bekötés
+    #   INDEPENDENT : 12V pack, csak CH1 (CH2 tiltva), 30V/1.5A — nincs extra bekötés
     #   PARALLEL    : 12V pack, jumper CH1-CH2 között, 30V/3A — fizikai bekötés szükséges!
     #   SERIES      : 24V pack, 60V/1.5A — fizikai bekötés szükséges!
     combination_mode: INDEPENDENT
-    # PARALLEL vagy SERIES módban kötelező True-ra állítani!
+    # A betöltő ezt a kulcsot nem olvassa: PARALLEL vagy SERIES módban a
+    # bekötés ellenőrzése után a Konfiguráció fül „Fizikai bekötés
+    # megerősítve” mezőjét kell bejelölni (a GUI-pipa a biztonsági kapu).
     hardware_wiring_confirmed: false
 
   load:
     # USB eszköz — tipikus format: "USB0::0x05E6::0x2380::XXXXXXXX::INSTR"
     resource: "USB0::PLACEHOLDER::INSTR"
-    timeout_ms: 5000
+    # Kör 21 F17 (ARC21-4(a)): l. a `psu.timeout_ms` fenti törlési
+    # indoklása -- device_load.py saját, kódba égetett 5000 ms-je él.
 
   dmm_voltage:
     # LAN eszköz — format: "TCPIP0::192.168.X.X::inst0::INSTR"
     # Keysight 34465A — DCV mérés az akkukapocsokon (BY550 katód oldal)
     resource: "TCPIP0::192.168.X.X::inst0::INSTR"
-    timeout_ms: 10000
+    # Kör 21 F17 (ARC21-4(a)): l. a `psu.timeout_ms` fenti törlési
+    # indoklása -- device_dmm.py saját, kódba égetett 10000 ms-je él.
 
   dmm_temperature:
     # LAN eszköz — format: "TCPIP0::192.168.X.X::inst0::INSTR"
-    # Keysight 34465A — PT100 hőmérsékletmérés (4-wire FRTD mód)
+    # Keysight 34465A — hőmérsékletmérés; a szondatípust (4-wire PT100 RTD
+    # vagy 2-wire NTC thermistor) a fenti temperature_sensor_mode határozza meg
     resource: "TCPIP0::192.168.X.X::inst0::INSTR"
-    timeout_ms: 10000
+    # Kör 21 F17 (ARC21-4(a)): l. a `psu.timeout_ms` fenti törlési
+    # indoklása -- device_dmm.py saját, kódba égetett 10000 ms-je él.

@@ -5,7 +5,7 @@ megjeleníti QListWidget-ben, és felhalmozza a session teljes ideje alatt.
 from __future__ import annotations
 from datetime import datetime
 
-from PySide6.QtCore import Slot
+from PySide6.QtCore import Signal, Slot
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
@@ -25,6 +25,11 @@ _DEVICE_BG: dict[str, str] = {
 class DeviceErrorPanel(QWidget):
     """Eszköz SCPI hibák felhalmozódó listája."""
 
+    # Review-kör 4/5 GUI F5 (P2, DFAM-012 rokona): a "Törlés" gomb korábban
+    # csak ezt a panelt nullázta -- l. main_window.py bekötés a kompakt
+    # LivePanel-számláló szinkronban tartásához.
+    cleared = Signal()
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
@@ -36,7 +41,7 @@ class DeviceErrorPanel(QWidget):
         header.addWidget(self._count_lbl)
         clr_btn = QPushButton("Törlés")
         clr_btn.setFixedWidth(70)
-        clr_btn.clicked.connect(self._clear)
+        clr_btn.clicked.connect(self.clear)
         header.addWidget(clr_btn)
         layout.addLayout(header)
 
@@ -45,6 +50,13 @@ class DeviceErrorPanel(QWidget):
         layout.addWidget(self._list)
 
         self._total: int = 0
+        # Governance-v2 review-kör 1 (CF-29, GUI-R1-11, DFAM-012 rokona):
+        # a _MAX_ROWS túlcsordulásnál korábban a legrégebbi bejegyzések
+        # NÉMÁN kiestek a listából — a _count_lbl a _total-t mutatta
+        # (ami helyesen tovább nőtt), de semmi nem jelezte explicit, hogy
+        # a LÁTHATÓ lista rövidebb, mint a _total, azaz hogy történt
+        # törlés. Ez a számláló teszi explicitté.
+        self._truncated_count: int = 0
 
     @Slot(dict)
     def append_device_error(self, err: dict) -> None:
@@ -67,11 +79,27 @@ class DeviceErrorPanel(QWidget):
 
         while self._list.count() > _MAX_ROWS:
             self._list.takeItem(0)
+            self._truncated_count += 1
 
         self._total += 1
-        self._count_lbl.setText(f"{self._total} hiba")
+        if self._truncated_count > 0:
+            self._count_lbl.setText(
+                f"{self._total} hiba ({self._truncated_count} régebbi törölve, "
+                f"{self._list.count()} látható)"
+            )
+        else:
+            self._count_lbl.setText(f"{self._total} hiba")
 
-    def _clear(self) -> None:
+    def clear(self) -> None:
+        """Teljes kódbázis review 16. kör (2026-09-04), GUI/UX/Állapot P3
+        lelet: korábban csak a "Törlés" gombhoz kötött privát metódus volt
+        — a panel semmilyen Start/session-határ eseménynél nem törlődött,
+        emiatt egy korábbi, hibás session SCPI-hibái láthatók maradtak egy
+        KÉSŐBBI, hibamentes session alatt is. Publikussá téve, hogy
+        main_window.py::_on_connect_ready() is meghívhassa új session
+        indításakor (a LivePanel.reset_plots() mintáját követve)."""
         self._list.clear()
         self._total = 0
+        self._truncated_count = 0
         self._count_lbl.setText("0 hiba")
+        self.cleared.emit()

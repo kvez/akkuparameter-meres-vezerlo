@@ -6,6 +6,7 @@ PyYAML>=6.0
 pyvisa>=1.13
 PySide6>=6.5
 pyqtgraph>=0.13
+pyserial>=3.5   # WP-AK-06: PicoBQTransport (Prog/drivers/pico_bq_transport.py) USB CDC soros port
 
 # Fejlesztői és tesztelési függőségek
 pytest>=7.0

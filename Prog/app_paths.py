@@ -46,6 +46,17 @@ def resources_dir() -> Path:
     return bundle_dir() / "Prog" / "resources"
 
 
+def pico_firmware_dir() -> Path:
+    """Beágyazott Pico-firmware mappa — a Raspberry Pi Pico-ra feltöltendő
+    MicroPython fájlok (pico_bq_service.py / pico_bq_rpc.py / main.py).
+
+    Ezek NEM importálható PC-oldali modulok, hanem ADAT (a `machine` modul
+    csak a Picon létezik) — ezért a `bundle_dir()` alatt, a resources_dir()
+    mintájára érhetők el, és a PyInstaller spec `datas` listájában
+    szerepelnek. L. Prog/src/pico_provisioning_service.py."""
+    return bundle_dir() / "Prog" / "pico_firmware"
+
+
 def ensure_local_config() -> None:
     """Ha local_config.yaml nem létezik, másolja a beágyazott template-t."""
     target = local_config_path()

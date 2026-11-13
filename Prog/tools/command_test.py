@@ -4,10 +4,14 @@ Akkumulátor nélkül futtatható.
   PSU : 0 V / 0.01 A szint, OUTPUT ON majd OFF
   Load: CC mód, 0 A setpoint, INPUT ON majd OFF
 
-Futtatás:
+Futtatás (Kör 20 Batch E7, HW20-04b óta explicit megerősítés kell, l.
+_confirm_energizing_allowed()):
+    python Prog/tools/command_test.py --i-confirm-no-battery-connected
+vagy interaktívan (flag nélkül, a program megkérdezi):
     python Prog/tools/command_test.py
 """
 from __future__ import annotations
+import argparse
 import sys
 from pathlib import Path
 from typing import Callable, Any
@@ -24,6 +28,14 @@ import yaml  # noqa: E402
 # ------------------------------------------------------------------ #
 
 _RESULTS: list[tuple[str, str, str, str]] = []   # (status, section, cmd, detail)
+
+# Kör 20 Batch E7 (HW20-06, DFAM-001): ugyanaz az elvárt-modell-substring
+# lista, mint az éles úton már bevált instrument_manager.py::identify_all(
+# expected_models=...) / main_window.py:340-341 hívóhelye — itt kézzel
+# ismételve, mert ez a szkript nem InstrumentManager-en, hanem nyers
+# driver-objektumokon keresztül dolgozik.
+_PSU_EXPECTED_IDN_SUBSTR = "2220"
+_LOAD_EXPECTED_IDN_SUBSTR = "2380-120-60"  # R3-B2: pontos modell
 
 
 def _ok(section: str, cmd: str, detail: str = "") -> None:
@@ -69,25 +81,50 @@ def test_psu(cfg: dict) -> None:
             print("    ⏭  connect sikertelen — PSU tesztek kihagyva")
             return
 
-        _run(sec, "idn()",          psu.idn,          lambda r: r.strip())
+        idn = ""
+        try:
+            idn = psu.idn()
+            _ok(sec, "idn()", idn.strip())
+        except Exception as exc:
+            _fail(sec, "idn()", exc)
+
+        # HW20-06 (Kör 20 Batch E7, DFAM-001): felcserélt VISA resource-
+        # string esetén a driver a MÁSIK fizikai eszközre küldené az
+        # OUTPUT ON-t — ugyanaz az ellenőrzés, mint az éles úton már bevált
+        # instrument_manager.py::identify_all(expected_models=...), ide
+        # kiterjesztve, MIELŐTT bármilyen setpoint-írás vagy energizálás
+        # történne.
+        if _PSU_EXPECTED_IDN_SUBSTR not in idn:
+            print(f"    ⛔ PSU azonosítás sikertelen: várt {_PSU_EXPECTED_IDN_SUBSTR!r} "
+                  f"substring, kapott IDN={idn!r} — energizálás KIHAGYVA "
+                  f"(felcserélt VISA resource gyanús).")
+            return
+
         _run(sec, "clear_status()", psu.clear_status)
         _run(sec, "check_error()",  psu.check_error,  lambda r: "OK" if not r else f"hibák: {r}")
         # query_combination_mode() NEM programparancs — a program combination_mode attribútumot
         # használja. INST:COMB? fw 1.15-1.05-ön nem támogatott (170 Invalid command).
 
         # Setpoint — 0 V / 0.01 A (biztonságos, nincs akkumulátor)
-        _run(sec, "set_output_voltage(0.0)",  lambda: psu.set_output_voltage(0.0))
-        _run(sec, "set_output_current(0.01)", lambda: psu.set_output_current(0.01))
+        voltage_setpoint_ok = _run(sec, "set_output_voltage(0.0)",  lambda: psu.set_output_voltage(0.0))
+        current_setpoint_ok = _run(sec, "set_output_current(0.01)", lambda: psu.set_output_current(0.01))
 
         # Readback — OUTPUT OFF
         _run(sec, "measure_output_voltage() [OFF]", psu.measure_output_voltage, lambda r: f"{r:.4f} V")
         _run(sec, "measure_output_current() [OFF]", psu.measure_output_current, lambda r: f"{r:.4f} A")
 
-        # OUTPUT ON (0 V / 0.01 A, nincs terhelés — biztonságos)
-        _run(sec, "output_on()", psu.output_on)
-        _run(sec, "measure_output_voltage() [ON]",  psu.measure_output_voltage, lambda r: f"{r:.4f} V")
-        _run(sec, "measure_output_current() [ON]",  psu.measure_output_current, lambda r: f"{r:.4f} A")
-        _run(sec, "output_off()", psu.output_off)
+        # HW20-04(a) (Kör 20 Batch E7, DFAM-018): output_on() korábban
+        # FELTÉTEL NÉLKÜL futott, akkor is, ha a fenti két setpoint-írás
+        # valamelyike hibázott — ezen az úton output_on() az ELŐZŐ
+        # session/előlap setpointjával energizált volna, nem a most kért
+        # 0 V / 0.01 A-val.
+        if voltage_setpoint_ok and current_setpoint_ok:
+            _run(sec, "output_on()", psu.output_on)
+            _run(sec, "measure_output_voltage() [ON]",  psu.measure_output_voltage, lambda r: f"{r:.4f} V")
+            _run(sec, "measure_output_current() [ON]",  psu.measure_output_current, lambda r: f"{r:.4f} A")
+            _run(sec, "output_off()", psu.output_off)
+        else:
+            print("    ⏭  setpoint írása sikertelen — output_on() KIHAGYVA (HW20-04a)")
 
         # all_outputs_off (instrument_manager safe_all_off hívja)
         _run(sec, "all_outputs_off()", psu.all_outputs_off)
@@ -118,25 +155,45 @@ def test_load(cfg: dict) -> None:
             print("    ⏭  connect sikertelen — Load tesztek kihagyva")
             return
 
-        _run(sec, "idn()",          load.idn,          lambda r: r.strip())
+        idn = ""
+        try:
+            idn = load.idn()
+            _ok(sec, "idn()", idn.strip())
+        except Exception as exc:
+            _fail(sec, "idn()", exc)
+
+        # HW20-06 (Kör 20 Batch E7, DFAM-001): l. test_psu() azonos
+        # kommentje — itt a Load oldalon, MIELŐTT bármilyen setpoint-írás
+        # vagy energizálás (input_on()) történne.
+        if _LOAD_EXPECTED_IDN_SUBSTR not in idn:
+            print(f"    ⛔ Load azonosítás sikertelen: várt {_LOAD_EXPECTED_IDN_SUBSTR!r} "
+                  f"substring, kapott IDN={idn!r} — energizálás KIHAGYVA "
+                  f"(felcserélt VISA resource vagy nem támogatott Load-modell gyanús).")
+            return
+
         _run(sec, "clear_status()", load.clear_status)
         _run(sec, "check_error()",  load.check_error,  lambda r: "OK" if not r else f"hibák: {r}")
 
         # CC mód + 0 A setpoint
-        _run(sec, "set_mode_cc()",    load.set_mode_cc)
-        _run(sec, "set_current(0.0)", lambda: load.set_current(0.0))
+        mode_cc_ok = _run(sec, "set_mode_cc()",    load.set_mode_cc)
+        current_setpoint_ok = _run(sec, "set_current(0.0)", lambda: load.set_current(0.0))
 
         # Readback — INPUT OFF
         _run(sec, "measure_voltage() [OFF]", load.measure_voltage, lambda r: f"{r:.4f} V")
         _run(sec, "measure_current() [OFF]", load.measure_current, lambda r: f"{r:.4f} A")
         _run(sec, "measure_power()   [OFF]", load.measure_power,   lambda r: f"{r:.4f} W")
 
-        # INPUT ON (0 A, nincs forrás — biztonságos)
-        _run(sec, "input_on()", load.input_on)
-        _run(sec, "measure_voltage() [ON]",  load.measure_voltage, lambda r: f"{r:.4f} V")
-        _run(sec, "measure_current() [ON]",  load.measure_current, lambda r: f"{r:.4f} A")
-        _run(sec, "measure_power()   [ON]",  load.measure_power,   lambda r: f"{r:.4f} W")
-        _run(sec, "input_off()", load.input_off)
+        # HW20-04(a) (Kör 20 Batch E7, DFAM-018): l. test_psu() azonos
+        # kommentje — input_on() korábban feltétel nélkül futott, akkor is,
+        # ha a mód/setpoint-írás hibázott.
+        if mode_cc_ok and current_setpoint_ok:
+            _run(sec, "input_on()", load.input_on)
+            _run(sec, "measure_voltage() [ON]",  load.measure_voltage, lambda r: f"{r:.4f} V")
+            _run(sec, "measure_current() [ON]",  load.measure_current, lambda r: f"{r:.4f} A")
+            _run(sec, "measure_power()   [ON]",  load.measure_power,   lambda r: f"{r:.4f} W")
+            _run(sec, "input_off()", load.input_off)
+        else:
+            print("    ⏭  mód/setpoint írása sikertelen — input_on() KIHAGYVA (HW20-04a)")
 
         _run(sec, "check_error() post", load.check_error, lambda r: "OK" if not r else f"hibák: {r}")
 
@@ -249,10 +306,50 @@ def load_config() -> dict:
         return yaml.safe_load(f)
 
 
-def main() -> int:
+def _confirm_energizing_allowed(auto_confirmed: bool) -> bool:
+    """HW20-04(b) (Kör 20 Batch E7, DFAM-044 `energizing_tool_script_
+    without_operator_approval_gate`): korábban a szkript FELTÉTEL NÉLKÜL
+    energizált (OUTPUT ON / INPUT ON) a `--i-confirm-no-battery-connected`
+    flag vagy bármilyen interaktív megerősítés nélkül (CLAUDE.md §6,
+    rules/10-safety.md #8: explicit felhasználói HIL-jóváhagyás). Ha
+    `auto_confirmed` True (a flag meg lett adva), nincs kérdés. Egyébként
+    interaktív megerősítést kér — ha a bemenet nem terminál (`EOFError`,
+    pl. automatizált/nem-interaktív futtatás), FAIL-CLOSED: nincs
+    energizálás."""
+    if auto_confirmed:
+        return True
+    print("Ez a szkript VALÓDI OUTPUT ON / INPUT ON parancsot küld a PSU-nak és a")
+    print("Load-nak (CLAUDE.md §6, rules/10-safety.md #8: explicit HIL-jóváhagyás).")
+    try:
+        answer = input("Biztosan NINCS akkumulátor csatlakoztatva a kimenetekre? (igen/nem): ")
+    except EOFError:
+        print("\nNincs interaktív bemenet és a --i-confirm-no-battery-connected flag "
+              "sincs megadva — megszakítva.")
+        return False
+    return answer.strip().lower() in ("igen", "i", "yes", "y")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Minden program által kiadható SCPI parancs ellenőrzése — "
+                     "VALÓDI OUTPUT ON / INPUT ON parancsot küld a PSU-nak és a Load-nak.",
+    )
+    parser.add_argument(
+        "--i-confirm-no-battery-connected",
+        action="store_true",
+        help="Explicit megerősítés: nincs akkumulátor a PSU/Load kimenetére csatlakoztatva "
+             "(kihagyja az interaktív megerősítő kérdést).",
+    )
+    args = parser.parse_args(argv)
+
     print("=== Akkuteszter — Command Test ===")
     print("Minden program által kiadható SCPI parancs ellenőrzése.")
     print("PSU: 0 V / 0.01 A. Load: 0 A CC mód. Akkumulátor NEM szükséges.\n")
+
+    if not _confirm_energizing_allowed(args.i_confirm_no_battery_connected):
+        print("Megszakítva — nincs megerősítés az energizáláshoz.")
+        return 1
+
     try:
         cfg = load_config()
     except Exception as exc:

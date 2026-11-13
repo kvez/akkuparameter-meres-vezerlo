@@ -12,3 +12,14 @@ taper_current_A: null
 temp_comp_mV_per_cell_per_degC: -2.5
 test_temperature_min_C: 15.0
 test_temperature_max_C: 30.0
+# i10_discharge_current_A: a jelenleg tesztelt akkumodell (FIAMM FG20721,
+# 12V, 6 cella, 7.2Ah@C20) SAJAT, primer gyartoi adatlap-erteke -- NEM
+# szamitott/becsult. Forras: Leirasok/akku_adatlapok/FG_FOLDER_EN.pdf,
+# "Nominal capacity (Ah) 10H 1.80VPC 25C" oszlop, "FG20721*" sor = 6.7 Ah.
+# I10 = C10/10h = 6.7/10 = 0.67 A. (Korabban egy projekt-derivalt
+# osszefoglalo ~0.62A becslesevel dolgoztunk -- ez a primer adatlap-ertek
+# felulirja/pontositja azt, l. CLAIM_LEDGER.yaml BAT-FG20721-I10-001.)
+# KIZAROLAG az IEC_DC_INTERNAL_RESISTANCE teszt modhoz hasznalt -- ha egy
+# jovobeli 12V-os teszt MASIK akkumodellel fut, EZT az erteket ELOSZOR
+# felul kell irni az adott modell sajat C10 tablazatara.
+i10_discharge_current_A: 0.67

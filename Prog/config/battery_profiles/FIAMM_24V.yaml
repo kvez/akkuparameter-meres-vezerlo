@@ -12,3 +12,10 @@ taper_current_A: null
 temp_comp_mV_per_cell_per_degC: -2.5
 test_temperature_min_C: 15.0
 test_temperature_max_C: 30.0
+# i10_discharge_current_A: 2x FIAMM FG20721 sorba kotve (24V, 12 cella,
+# 7.2Ah@C20 -- soros kotesnel az aram valtozatlan). Forras: Leirasok/
+# akku_adatlapok/FG_FOLDER_EN.pdf, "Nominal capacity (Ah) 10H 1.80VPC
+# 25C" oszlop, "FG20721*" sor = 6.7 Ah -> I10 = 6.7/10 = 0.67 A. L. a
+# FIAMM_12V.yaml azonos mezojenek reszletesebb megjegyzese es
+# CLAIM_LEDGER.yaml BAT-FG20721-I10-001.
+i10_discharge_current_A: 0.67
